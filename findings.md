@@ -1,5 +1,12 @@
 # Findings
 
+## 2026-08-23 PDF contrast follow-up
+
+- The screenshot proves fenced code blocks render a dark `pre` background while the nested `code` element keeps the light inline-code background and inherited white text.
+- The smallest correct fix is a specific `pre code` rule with transparent background and inherited foreground color; inline code outside fenced blocks should remain unchanged.
+- The regenerated PDF is a valid 4-page PDF (152,203 bytes). Both installed copies match SHA256 `7E68D823D342B8421B171E9C26CC4A64F6185890D0E2B0D7A7BE2B26E1ED97E0`.
+- Visual QA of the rendered source confirms the affected Codex command blocks now use a uniform dark background with readable light text.
+
 ## 2026-08-23 v4.8.4 update
 
 - Official Secure MCP Tunnel guidance requires a `tunnel_id`, a Runtime API key, and local MCP reachability.

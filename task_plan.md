@@ -1,5 +1,12 @@
 # NAVA v4.8.4 usability and account migration update
 
+## Follow-up: repair PDF contrast and shut down
+
+- [completed] Correct fenced-code contrast in the guide stylesheet.
+- [completed] Regenerate and visually verify both PDF copies.
+- [completed] Commit and push the documentation fix.
+- [in_progress] Shut down Windows after all writes and verification complete.
+
 ## Goal
 
 Ship and install a safe NAVA patch that removes remaining user-visible legacy branding, adds an in-app account/Tunnel migration workflow, and provides a beginner-friendly Thai guide without losing the current encrypted Runtime API key, tunnel profile, workspaces, or rollback path.
@@ -45,3 +52,4 @@ Ship and install a safe NAVA patch that removes remaining user-visible legacy br
 | Public Desktop denied PDF creation for the current user | 1 | Keep the shared app shortcut unchanged and place the guide on the signed-in user's Desktop instead. |
 | First manual esbuild invocation stripped quotes around `node:module` | 1 | Rebuilt with an argument array that preserves the exact ESM banner, then repackaged. |
 | Full Vitest run collided with the live NAVA/tunnel global lock and timed out | 2 | Stopped the installed runtime and reran each lock-sensitive file serially; 63/63 passed. |
+| Chrome headless returned without creating the PDF | 1 | Switched to Edge headless with an isolated profile; the 4-page PDF was generated successfully. |

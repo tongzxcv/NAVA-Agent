@@ -14,6 +14,7 @@ th, td { padding: 8px 10px; border: 1px solid #cfd7df; vertical-align: top; }
 th { background: #eaf5f3; color: #0d3b45; }
 code { padding: 2px 5px; border-radius: 4px; background: #eef1f5; }
 pre { overflow-wrap: anywhere; white-space: pre-wrap; padding: 12px; border-radius: 8px; background: #101826; color: #f7f8fa; }
+pre code { padding: 0; background: transparent; color: inherit; }
 blockquote { margin: 16px 0; padding: 10px 14px; border-left: 4px solid #d8aa32; background: #fff8df; }
 a { color: #087b6c; }
 li { margin: 4px 0; }

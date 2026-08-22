@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-08-23 PDF contrast follow-up
+
+- Inspected the reported PDF screenshot and traced the unreadable commands to the missing `pre code` CSS override.
+- Added one scoped `pre code` override; normal inline-code styling remains unchanged.
+- Regenerated the 4-page PDF with print backgrounds enabled and visually checked the affected Codex section.
+- Replaced both `C:\Users\Endlessly\Desktop\คู่มือ NAVA Agent.pdf` and `D:\Program Files\NAVA Agent\คู่มือ NAVA Agent.pdf`; their SHA256 hashes match the generated source.
+
 ## 2026-08-23
 
 - Started the NAVA v4.8.4 usability/account-migration update with a fresh SCQA brief and acceptance gates.
