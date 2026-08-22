@@ -1,0 +1,53 @@
+appId: com.nava.agent.desktop
+productName: NAVA Agent
+executableName: NAVA Agent
+asar: true
+npmRebuild: false
+directories:
+  output: dist/installers
+  buildResources: build
+files:
+  - dist/main/**/*
+  - dist/preload/**/*
+  - dist/renderer/**/*
+  - build/nava-icon.ico
+  - build/nava-icon.png
+  - package.json
+publish:
+  provider: github
+  owner: engasnm111
+  repo: lnwjud
+  releaseType: release
+extraResources:
+  - from: ../../packages/capabilities/src/windows-capability-bridge.ps1
+    to: windows-capability-bridge.ps1
+  - from: build/lnwjud-mcp-stdio.cjs
+    to: lnwjud-mcp-stdio.cjs
+  - from: build/lnwjud-mcp-stdio.cmd
+    to: lnwjud-mcp-stdio.cmd
+# Tunnel profile expects these next to the NAVA Agent executable (not only under resources/).
+extraFiles:
+  - from: build/lnwjud-mcp-stdio.cjs
+    to: lnwjud-mcp-stdio.cjs
+  - from: build/lnwjud-mcp-stdio.cmd
+    to: lnwjud-mcp-stdio.cmd
+win:
+  icon: build/nava-icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: nava-agent-Setup-${version}.${ext}
+  # Keep the branded icon embedded in the Windows executable for shortcuts and taskbar.
+  signAndEditExecutable: true
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  # Create the Start Menu link in installer.nsh from $INSTDIR so no build-user path can be baked in.
+  createStartMenuShortcut: false
+  installerIcon: build/nava-icon.ico
+  uninstallerIcon: build/nava-icon.ico
+  uninstallDisplayName: ${productName}
+  include: build/installer.nsh
