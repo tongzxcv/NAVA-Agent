@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo/logo-256x256.png" width="160" alt="lnwjud logo" />
+  <img src="apps/desktop/src/renderer/public/nava-icon.png" width="160" alt="NAVA Agent logo" />
 </p>
 
-<h1 align="center">lnwjud</h1>
+<h1 align="center">NAVA Agent</h1>
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/engasnm111/lnwjud/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/engasnm111/lnwjud" /></a>
+  <a href="https://github.com/tongzxcv/NAVA-Agent/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/tongzxcv/NAVA-Agent" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" />
   <img alt="Node" src="https://img.shields.io/badge/Node.js-24.x-339933" />
@@ -19,9 +19,9 @@
 
 ---
 
-## What is lnwjud?
+## What is NAVA Agent?
 
-lnwjud is a Windows-first local development gateway that exposes trusted local
+NAVA Agent is a Windows-first local development gateway that exposes trusted local
 capabilities through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 It is designed for AI-assisted software development where the agent needs more
 than a text-only chat: it may need to inspect a repository, search code, edit
@@ -30,22 +30,32 @@ Windows UI state, automate a managed browser, work with WSL, or call an
 additional local MCP server.
 
 The runtime stays on the Windows machine. Local filesystem paths, processes,
-SQLite state, credentials, and capability backends are owned by lnwjud on that
+SQLite state, credentials, and capability backends are owned by NAVA Agent on that
 machine. Remote AI clients only receive the MCP requests and results that travel
 through the connection mode you choose.
 
-For ChatGPT web and other supported OpenAI surfaces, lnwjud supports the official
+For ChatGPT web and other supported OpenAI surfaces, NAVA Agent supports the official
 [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
-The tunnel is outbound-only: `tunnel-client` runs beside lnwjud, reaches OpenAI
+The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches OpenAI
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.3
+## Current release: v4.8.4
 
-The current published installer and runtime contract are `v4.8.3`. The runtime
+The current published installer and runtime contract are `v4.8.4`. The runtime
 advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
+
+เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.8.4
+
+- Adds an in-app OpenAI account/Tunnel migration checklist and supports securely
+  replacing the DPAPI-protected Runtime API key without revealing the old key.
+- Removes remaining user-visible legacy branding while retaining compatible
+  internal file and package identifiers needed for safe in-place upgrades.
+- Adds a beginner-friendly Thai quick-start and account migration guide.
 
 ### What's new in v4.8.3
 
@@ -230,13 +240,13 @@ stops the current local HTTP listener.
 
 ## Quick start: install the Windows release
 
-### 1. Install lnwjud Desktop
+### 1. Install NAVA Agent Desktop
 
 1. Download the latest published installer from
-   [GitHub Releases](https://github.com/engasnm111/lnwjud/releases/latest).
-   The current release is `lnwjud-Setup-4.8.3.exe`.
-2. Run the NSIS installer and launch **lnwjud Agent Control Center**.
-3. Add or select the project/workspace you want lnwjud to operate on.
+   [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
+   The current release is `nava-agent-Setup-4.8.4.exe`.
+2. Run the NSIS installer and launch **NAVA Agent**.
+3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
    Profile and Unrestricted Mode.
 
@@ -335,8 +345,8 @@ Requirements for source development:
 - `rg` (ripgrep) recommended.
 
 ```powershell
-git clone https://github.com/engasnm111/lnwjud.git
-Set-Location .\lnwjud
+git clone https://github.com/tongzxcv/NAVA-Agent.git
+Set-Location .\NAVA-Agent
 corepack enable
 corepack pnpm@10.15.0 install --frozen-lockfile
 Copy-Item .env.example .env
@@ -430,8 +440,8 @@ The **AI File Delete Policy** in Desktop Settings is separate. When enabled, onl
 ### Clone and install dependencies
 
 ```powershell
-git clone https://github.com/engasnm111/lnwjud.git
-Set-Location .\lnwjud
+git clone https://github.com/tongzxcv/NAVA-Agent.git
+Set-Location .\NAVA-Agent
 corepack pnpm@10.15.0 install --frozen-lockfile
 ```
 
@@ -480,13 +490,13 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/lnwjud-Setup-4.8.3.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.8.4.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
 
 ```text
-C:/Users/<WindowsUser>/AppData/Local/Programs/lnwjud/lnwjud.exe
+C:/Users/<WindowsUser>/AppData/Local/Programs/NAVA Agent/NAVA Agent.exe
 ```
 
 Always use the path shown by the installed shortcut or Get-Command.
@@ -829,7 +839,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (213 configurable tools; 207 advertised by default)
 
-This index is generated from the current v4.8.3 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.4 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

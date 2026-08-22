@@ -1,13 +1,13 @@
 {
   "name": "@lnwjud/desktop",
-  "version": "4.8.3",
+  "version": "4.8.4",
   "private": true,
-  "description": "Windows-first local AI-agent runtime and MCP gateway with 212 configurable tools.",
+  "description": "Windows-first local AI-agent runtime and MCP gateway with 213 configurable tools.",
   "author": "Adisorn",
-  "homepage": "https://github.com/engasnm111/lnwjud#readme",
+  "homepage": "https://github.com/tongzxcv/NAVA-Agent#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/engasnm111/lnwjud.git"
+    "url": "https://github.com/tongzxcv/NAVA-Agent.git"
   },
   "type": "module",
   "main": "dist/main/main.js",

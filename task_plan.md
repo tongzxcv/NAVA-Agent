@@ -1,40 +1,47 @@
-# NAVA Secure MCP Tunnel recovery
+# NAVA v4.8.4 usability and account migration update
 
 ## Goal
 
-Restore reliable NAVA v4.8.3 Secure MCP Tunnel startup and verify the full ChatGPT Web -> OpenAI Tunnel -> local NAVA MCP path without weakening tunnel ownership safety.
+Ship and install a safe NAVA patch that removes remaining user-visible legacy branding, adds an in-app account/Tunnel migration workflow, and provides a beginner-friendly Thai guide without losing the current encrypted Runtime API key, tunnel profile, workspaces, or rollback path.
 
 ## SCQA
 
-- **Situation:** Local MCP is healthy and the configured tunnel previously forwarded real OpenAI requests.
-- **Complication:** After the stdio child exited, Desktop tunnel restart fails at new-owner process verification with `probe_timeout`; there is no stale lock.
-- **Question:** How can Windows process start-time verification remain fail-closed while avoiding false timeouts on this host?
-- **Answer:** Measure the real v4.8.3 probe, reproduce with a deterministic test, replace only the unreliable process-query boundary, then package/install and validate official tunnel readiness plus a forwarded request.
+- **Situation:** NAVA v4.8.3 is installed and its local MCP plus ChatGPT Secure MCP Tunnel path has already passed end-to-end validation.
+- **Complication:** Some user-facing text still says `lnwjud`, account replacement is not explained or easy to perform, and the existing instructions are fragmented.
+- **Question:** What is the smallest safe update that makes NAVA easier to operate now and lets the owner move to another OpenAI account later?
+- **Answer:** Release NAVA v4.8.4 with visible-brand cleanup, a Settings workflow that can securely replace the Runtime API key using the existing DPAPI-backed storage, a clear account migration checklist, and a concise Thai quick-start guide.
+
+## Acceptance criteria
+
+- [ ] App and installer report NAVA v4.8.4; no user-facing command/manifest text presents the product as lnwjud.
+- [ ] Existing Runtime API key and tunnel profile survive an in-place upgrade.
+- [ ] Settings can replace the Runtime API key without revealing the stored key or writing it to logs.
+- [ ] Account migration guidance distinguishes same organization/workspace from a new organization/workspace.
+- [ ] Current tunnel still reaches `ready` after install, and local MCP remains available.
+- [ ] Relevant tests, typecheck/build, packaged-app check, and secret scan pass.
+- [ ] Thai quick-start and troubleshooting guide is committed with the source and summarized in the Obsidian vault.
+- [ ] Only task-owned files are staged, committed, and pushed to the NAVA remote.
 
 ## Phases
 
-- [completed] Reproduce and identify the process-probe root cause on v4.8.3.
-- [completed] Add a regression test and minimum safe fix.
-- [completed] Run targeted tests, typecheck, and packaging checks.
-- [completed] Back up and install the corrected package while preserving user data.
-- [completed] Verify local MCP, tunnel doctor, health, readiness, and remote forwarding.
-- [completed] Update Obsidian evidence, scan secrets, and commit task-owned files.
-- [completed] Verify the same NAVA request in the `Chat` surface, not `Work`, as the web-quota fallback path.
+- [completed] Inspect the existing Settings/runtime-secret flow and visible branding surface.
+- [completed] Implement the minimum v4.8.4 UI, account migration, and branding patch.
+- [completed] Add/update tests and the Thai quick-start guide.
+- [completed] Build, back up, install, and verify NAVA v4.8.4 end to end.
+- [completed] Update Obsidian evidence, scan secrets, commit, and push task-owned changes.
+
+## Safety boundaries
+
+- Preserve DPAPI secret storage and never print, prefill, or commit a Runtime API key.
+- Preserve the existing tunnel profile, SQLite settings, registered workspaces, permission profiles, and installer rollback copy.
+- Keep internal `lnwjud` identifiers where changing them would break compatibility; only remove user-visible legacy branding.
+- Do not weaken tunnel ownership checks or full-access safety controls.
 
 ## Errors encountered
 
 | Error | Attempt | Resolution |
 |---|---:|---|
-| None in this worktree yet | 0 | N/A |
-| Accessibility-only NAVA state had no click geometry | 1 | Re-observe with screenshot plus accessibility before retrying the single Start Tunnel action. |
-| First targeted Vitest call outlived the tool wait and left task-owned workers | 1 | Captured a second bounded run with explicit metadata; it produced the expected red test. Inspect and terminate only the first run's exact process tree. |
-| Desktop tunnel-lock suite could not resolve workspace package links in the fresh worktree | 1 | MCP unit suite passed; install the frozen pnpm workspace with the bundled Node 24 runtime, then rerun both suites. |
-| Combined MCP + Desktop test run hit two existing PowerShell-mutex timing deadlines | 1 | The new 10-test MCP suite passed; rerun Desktop tunnel-lock alone with one worker to distinguish host-load flakiness from a regression. |
-| Combined controller/acceptance/packaging run hit host timing and missing pre-build bundle failures | 1 | Typecheck passed; run controller/acceptance in isolation and build the Desktop runtime before packaging tests. |
-| electron-builder could not extract winCodeSign cache symlinks without Windows developer privilege | 1 | Build the unpacked package with `signAndEditExecutable=false`, then apply the NAVA icon and version metadata with the cached `rcedit-x64.exe`. |
-| Installed package passed the self-owner probe but the external tunnel-process CIM probe timed out at 3 seconds | 1 | Keep the duplicate-process check fail-closed and widen only its Windows CIM timeout to 10 seconds. |
-| Tunnel doctor split the packaged launcher at `D:/Program Files/...` | 1 | Quote the executable token inside a single-quoted YAML scalar and verify the exact profile with `doctor --explain`. |
-| Launching through the Codex PowerShell environment inherited an invalid `PSModulePath` for crypto cmdlets | 1 | Relaunch the installed application through Windows Explorer so it inherits the normal desktop environment; no product secret or code workaround was added. |
-| Re-running all three Desktop tunnel suites together while the installed app and tunnel were live caused 12 Windows timing failures | 1 | Keep the live service intact; rely on the earlier isolated green controller 29/29 and lock 20/20 runs, plus the current MCP 10/10 and profile 7/7 evidence. Record the combined-load result as host timing noise, not a green run. |
-| Browser click timed out while the populated Send button was visible | 1 | Re-observed the page to prove the prompt remained only as a draft, then submitted the same approved prompt once with Enter; no duplicate message was sent. |
-| Browser API did not expose `isChecked()` on the radio locator | 1 | Used a fresh DOM snapshot instead; it explicitly showed `radio "Chat" [checked]` and the attached NAVA Agent pill before submission. |
+| UI design-system search returned a noisy landing-page match | 1 | Use only its applicable dark-dashboard accessibility rules and preserve NAVA's existing visual system. |
+| Public Desktop denied PDF creation for the current user | 1 | Keep the shared app shortcut unchanged and place the guide on the signed-in user's Desktop instead. |
+| First manual esbuild invocation stripped quotes around `node:module` | 1 | Rebuilt with an argument array that preserves the exact ESM banner, then repackaged. |
+| Full Vitest run collided with the live NAVA/tunnel global lock and timed out | 2 | Stopped the installed runtime and reran each lock-sensitive file serially; 63/63 passed. |

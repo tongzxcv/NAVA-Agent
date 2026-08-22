@@ -29,6 +29,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
   const [activeSection, setActiveSection] = useState<SettingsSection>(props.initialSection ?? 'general');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKeyBusy, setApiKeyBusy] = useState(false);
   const [clientPath, setClientPath] = useState(props.dashboard.tunnel.clientPath ?? '');
   const [tunnelId, setTunnelId] = useState('');
   const [tunnelBusy, setTunnelBusy] = useState(false);
@@ -104,6 +105,28 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     }
   }
 
+  async function saveRuntimeApiKey(): Promise<void> {
+    const value = apiKey.trim();
+    if (value.length === 0) {
+      setTunnelMessage(props.locale === 'th' ? 'กรุณาใส่ Runtime API key ใหม่' : 'Enter a new Runtime API key.');
+      return;
+    }
+    setApiKeyBusy(true);
+    setTunnelMessage(null);
+    try {
+      await props.onSaveTunnelApiKey(value);
+      setApiKey('');
+      setShowApiKey(false);
+      setSavedMessage(props.locale === 'th'
+        ? 'บันทึก Runtime API key แบบเข้ารหัสแล้ว — หยุดและเริ่ม Tunnel ใหม่เพื่อใช้คีย์นี้'
+        : 'Runtime API key saved securely — stop and start the Tunnel to use it.');
+    } catch (cause: unknown) {
+      setTunnelMessage(cause instanceof Error ? cause.message : (props.locale === 'th' ? 'บันทึก Runtime API key ไม่สำเร็จ' : 'Could not save the Runtime API key.'));
+    } finally {
+      setApiKeyBusy(false);
+    }
+  }
+
   async function createBackupNow(): Promise<void> {
     setBackupBusy(true);
     setBackupError(null);
@@ -123,7 +146,7 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
     try {
       const restartRequired = await props.onScheduleRestoreBackup(backupId);
       setBackupMessage(restartRequired
-        ? (props.locale === 'th' ? 'เตรียม Restore แล้ว — ปิดและเปิด lnwjud ใหม่เพื่อใช้ข้อมูลชุดนี้' : 'Restore scheduled — restart lnwjud to apply it.')
+        ? (props.locale === 'th' ? 'เตรียม Restore แล้ว — ปิดและเปิด NAVA Agent ใหม่เพื่อใช้ข้อมูลชุดนี้' : 'Restore scheduled — restart NAVA Agent to apply it.')
         : (props.locale === 'th' ? 'เตรียม Restore แล้ว' : 'Restore scheduled.'));
     } catch (cause: unknown) {
       setBackupError(cause instanceof Error ? cause.message : 'Could not schedule restore');
@@ -249,8 +272,10 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
               <div className="setting-grid two-col">
                 <div className="setting-field">
                   <label className="field-label" htmlFor="tunnel-key">{t('settings.tunnelKey')}</label>
-                  <div className="form-row"><div className="password-input-wrapper"><input id="tunnel-key" type={showApiKey ? 'text' : 'password'} placeholder={props.dashboard.tunnel.hasApiKey ? '••••••••••••••••' : 'sk-...'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" /><button type="button" className="toggle-pw-btn" onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? 'Hide' : 'Show'}</button></div><button type="button" className="btn-save-gold" onClick={() => { void props.onSaveTunnelApiKey(apiKey).then(() => { setApiKey(''); setSavedMessage(t('settings.saved')); }); }}>{t('settings.saveKey')}</button></div>
-                  <p className="hint">{props.dashboard.tunnel.hasApiKey ? 'Protected with Windows DPAPI' : t('tunnel.needKey')}</p>
+                  <div className="form-row"><div className="password-input-wrapper"><input id="tunnel-key" type={showApiKey ? 'text' : 'password'} placeholder={props.dashboard.tunnel.hasApiKey ? 'ใส่คีย์ใหม่เมื่อต้องการเปลี่ยน' : 'sk-...'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="new-password" aria-describedby="tunnel-key-help" /><button type="button" className="toggle-pw-btn" aria-label={showApiKey ? 'Hide Runtime API key' : 'Show Runtime API key'} onClick={() => setShowApiKey((value) => !value)}>{showApiKey ? 'Hide' : 'Show'}</button></div><button type="button" className="btn-save-gold" disabled={apiKeyBusy || apiKey.trim().length === 0} onClick={() => { void saveRuntimeApiKey(); }}>{apiKeyBusy ? (props.locale === 'th' ? 'กำลังบันทึก…' : 'Saving…') : (props.dashboard.tunnel.hasApiKey ? (props.locale === 'th' ? 'เปลี่ยนคีย์' : 'Replace key') : t('settings.saveKey'))}</button></div>
+                  <p className="hint" id="tunnel-key-help">{props.dashboard.tunnel.hasApiKey
+                    ? (props.locale === 'th' ? 'มีคีย์เก็บแบบเข้ารหัสด้วย Windows DPAPI แล้ว ระบบจะไม่แสดงคีย์เดิมกลับมา' : 'A key is protected with Windows DPAPI. NAVA never displays the saved key.')
+                    : t('tunnel.needKey')}</p>
                 </div>
                 <div className="setting-field">
                   <label className="field-label" htmlFor="tunnel-client-path">{t('settings.clientPath')}</label>
@@ -262,6 +287,23 @@ export function SettingsPage(props: SettingsPageProps): ReactElement {
                 <label className="field-label" htmlFor="tunnel-id">OpenAI Tunnel ID</label>
                 <div className="form-row"><input id="tunnel-id" placeholder="tunnel_0123456789abcdef..." value={tunnelId} onChange={(event) => setTunnelId(event.target.value)} /><button type="button" className="btn-save-gold" disabled={tunnelBusy} onClick={() => { void configureTunnel(); }}>{tunnelBusy ? (props.locale === 'th' ? 'กำลังตั้งค่า…' : 'Configuring…') : (props.locale === 'th' ? 'Configure Tunnel' : 'Configure Tunnel')}</button></div>
               </div>
+              <details className="account-migration-box">
+                <summary>{props.locale === 'th' ? 'เปลี่ยนบัญชี OpenAI / ย้าย Tunnel' : 'Switch OpenAI account / move Tunnel'}</summary>
+                <div className="account-migration-content">
+                  <ol>
+                    <li>{props.locale === 'th' ? 'ไปหน้าหลักแล้วกด หยุด Tunnel' : 'Open Home and stop the Tunnel.'}</li>
+                    <li>{props.locale === 'th' ? 'เข้าสู่ระบบ Platform และ ChatGPT ด้วยบัญชีใหม่ แล้วให้บัญชีนั้นมีสิทธิ์ Tunnels Read + Use' : 'Sign in to Platform and ChatGPT with the new account, then grant it Tunnels Read + Use.'}</li>
+                    <li>{props.locale === 'th' ? 'เพิ่มบัญชี/Workspace ใหม่ให้ Tunnel เดิม หรือสร้าง Tunnel ใหม่ใน Platform' : 'Associate the existing Tunnel with the new account/workspace, or create a new Tunnel in Platform.'}</li>
+                    <li>{props.locale === 'th' ? 'ถ้าได้ Runtime key ใหม่ ให้ใส่ช่องด้านบน; ถ้า Tunnel ID เปลี่ยน ให้ Configure Tunnel อีกครั้ง' : 'Enter the new Runtime key above; if the Tunnel ID changed, run Configure Tunnel again.'}</li>
+                    <li>{props.locale === 'th' ? 'เริ่ม Tunnel แล้วเปิด Doctor เพื่อตรวจ ก่อนเชื่อม NAVA ใน ChatGPT บัญชีใหม่' : 'Start the Tunnel, run Doctor, then connect NAVA in the new ChatGPT account.'}</li>
+                  </ol>
+                  <div className="account-scenarios">
+                    <div><strong>{props.locale === 'th' ? 'บัญชีใหม่ แต่องค์กร/Workspace เดิม' : 'New account, same organization/workspace'}</strong><p>{props.locale === 'th' ? 'ใช้ Tunnel ID เดิมได้เมื่อผู้ดูแลเพิ่มสิทธิ์ให้บัญชีใหม่ การหมุน Runtime key เป็นทางเลือกที่ปลอดภัยกว่า' : 'Keep the same Tunnel ID after an admin grants access. Rotating the Runtime key is the safer option.'}</p></div>
+                    <div><strong>{props.locale === 'th' ? 'องค์กรหรือ Workspace ใหม่' : 'New organization or workspace'}</strong><p>{props.locale === 'th' ? 'ต้องเพิ่ม association ให้ Tunnel เดิม หรือสร้าง Tunnel และ Runtime key ใหม่ แล้วตั้งค่าใน NAVA' : 'Add the new association to the existing Tunnel, or create a new Tunnel and Runtime key, then configure NAVA.'}</p></div>
+                  </div>
+                  <p className="account-security-note">{props.locale === 'th' ? 'อย่าวาง Runtime API key ใน Chat, Git, รูปหน้าจอ หรือไฟล์คู่มือ หลังย้ายสำเร็จให้เพิกถอนคีย์เก่าที่ไม่ใช้แล้ว' : 'Never paste a Runtime API key into Chat, Git, screenshots, or documentation. Revoke the old key after migration succeeds.'}</p>
+                </div>
+              </details>
               {savedMessage === null ? null : <div className="toast-success-banner" role="status">✓ {savedMessage}</div>}
               {tunnelMessage === null ? null : <div className="alert-box-warning" role="status">{tunnelMessage}</div>}
             </section>

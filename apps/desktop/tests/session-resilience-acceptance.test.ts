@@ -75,7 +75,7 @@ describe('session resilience acceptance', () => {
       await expect(client.callTool({ name: 'definitely_not_a_real_tool', arguments: {} })).rejects.toThrow();
       const recovered = await client.callTool({ name: 'workspace_list', arguments: {} });
       expect(recovered.isError).not.toBe(true);
-      expect(diagnostics).toContain('lnwjud MCP stdio ready');
+      expect(diagnostics).toContain('NAVA MCP stdio ready');
       expect(diagnostics).toContain(await realpath(workspace));
       expect(diagnostics).not.toContain('E:\\ drive is required');
     } finally {

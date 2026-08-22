@@ -11,6 +11,7 @@ export interface NativeMessages {
   readonly updaterAlreadyChecking: string;
   readonly updaterChecking: string;
   readonly updaterCheckFailed: string;
+  readonly updaterReleaseNotPublished: string;
   readonly updaterInstallWaiting: string;
   readonly updaterAvailableTitle: string;
   readonly ok: string;
@@ -38,6 +39,7 @@ const th: NativeMessages = {
   updaterAlreadyChecking: 'กำลังตรวจอัปเดตอยู่ กรุณารอผลการตรวจสอบ',
   updaterChecking: 'กำลังตรวจหาเวอร์ชันใหม่…',
   updaterCheckFailed: 'ไม่สามารถตรวจอัปเดตได้',
+  updaterReleaseNotPublished: 'ยังไม่มี NAVA release ออนไลน์ — รุ่นที่ติดตั้งยังใช้งานได้ตามปกติ',
   updaterInstallWaiting: 'กำลังรอให้งานที่ใช้งานอยู่เสร็จก่อนรีสตาร์ตเพื่อติดตั้ง…',
   updaterAvailableTitle: 'พบอัปเดต - NAVA Agent',
   ok: 'ตกลง',
@@ -65,6 +67,7 @@ const en: NativeMessages = {
   updaterAlreadyChecking: 'An update check is already running. Please wait for it to finish.',
   updaterChecking: 'Checking for a newer version…',
   updaterCheckFailed: 'Unable to check for updates',
+  updaterReleaseNotPublished: 'No NAVA release is published yet — the installed build remains fully usable',
   updaterInstallWaiting: 'Waiting for active work to finish before restarting to install…',
   updaterAvailableTitle: 'Update Available - NAVA Agent',
   ok: 'OK',
@@ -89,7 +92,7 @@ export function localizedUpdateStatusMessage(status: UpdateStatus, locale: UiLoc
   const messages = nativeMessages(locale);
   const version = status.availableVersion;
   switch (status.phase) {
-    case 'unavailable': return messages.updaterUnavailablePackagedOnly;
+    case 'unavailable': return status.message ?? messages.updaterUnavailablePackagedOnly;
     case 'checking': return messages.updaterChecking;
     case 'available': return version === null ? messages.updaterChecking : messages.updateAvailableStatus(version);
     case 'downloading': return messages.updateDownloadingStatus(version, status.progressPercent);

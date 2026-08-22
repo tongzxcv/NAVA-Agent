@@ -65,7 +65,7 @@ describe('public repository hygiene', () => {
 
     expect(readme).toContain(`## Current release: v${rootPackage.version as string}`);
     expect(readme).toContain(`current published installer and runtime contract are \`v${rootPackage.version as string}\``);
-    expect(readme).toContain('212 configurable tools');
+    expect(readme).toContain('213 configurable tools');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');
@@ -99,6 +99,19 @@ describe('public repository hygiene', () => {
     );
     expect(settingsPage).toContain('placeholder="C:\\tools\\tunnel-client.exe"');
     expect(settingsPage).not.toContain('C:\\\\tools\\\\tunnel-client.exe');
+  });
+
+  it('uses NAVA branding for user-visible desktop metadata and fallback copy', async () => {
+    const manifest = await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'renderer', 'public', 'site.webmanifest'), 'utf8');
+    const shell = await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'renderer', 'features', 'shell', 'AppShell.tsx'), 'utf8');
+    const services = await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'main', 'desktop-services.ts'), 'utf8');
+    const userSettings = await readFile(path.join(repositoryRoot, 'apps', 'desktop', 'src', 'renderer', 'features', 'settings', 'UserConfigPanel.tsx'), 'utf8');
+
+    expect(JSON.parse(manifest)).toMatchObject({ name: 'NAVA Agent', short_name: 'NAVA' });
+    expect(shell).toContain('alt="NAVA Agent logo"');
+    expect(services).toContain(`'"NAVA Agent.exe" --mcp-stdio'`);
+    expect(userSettings).not.toContain('Quit lnwjud');
+    expect(userSettings).not.toContain('ออกจาก lnwjud');
   });
 
   it('does not retain stale permission examples in the detailed README guide', async () => {

@@ -1,5 +1,19 @@
 # Findings
 
+## 2026-08-23 v4.8.4 update
+
+- Official Secure MCP Tunnel guidance requires a `tunnel_id`, a Runtime API key, and local MCP reachability.
+- Platform tunnel permissions and ChatGPT developer-mode access are separate.
+- A tunnel may be associated with multiple Platform organizations or ChatGPT workspaces while retaining the same `tunnel_id`; a new account in a different organization/workspace may require adding that association or creating a new tunnel/key.
+- The Runtime API key authenticates `tunnel-client` to the OpenAI control plane, so NAVA must let the owner replace it without exposing the stored value.
+- UI direction: preserve the existing OLED dark dashboard, add explicit labels and visible focus states, and avoid a modal so keyboard focus management remains simple.
+- Release target is a minimal v4.8.4 patch with no new runtime dependency.
+- The backend already allowed encrypted key replacement; the defect was misleading `save once` copy, no restart guidance, and no account/workspace migration checklist.
+- User-visible legacy strings also remained in the connection fallback, manifest, log labels, startup/quit preferences, and live-log titlebars. Internal package/profile filenames remain unchanged for compatibility.
+- The upstream v4.8.3 README had already moved to 213 configurable tools, while one package description and two tests still expected 212; v4.8.4 synchronizes those metadata assertions.
+- A missing `releases.atom` for the new NAVA GitHub repository is an unpublished-release state, not an application failure; v4.8.4 reports it as available-for-use without a warning badge.
+- The packaged account migration UI is runtime-verified and keeps the stored key write-only from the renderer's perspective.
+
 ## Confirmed
 
 - Base: `origin/main@0092c70`, package v4.8.3.
@@ -33,7 +47,9 @@
 - The resulting conversation `ตรวจสอบ Workspace` has no `Work` badge, and the tunnel log recorded a fresh forwarded event at `2026-08-23T01:15:34.2819305+07:00`.
 - Official OpenAI guidance states that Codex and ChatGPT Work share the agentic usage/credit pool, while regular Chat is a separate experience and regular Chat usage is not included in Codex usage reporting. Therefore this verified Chat-surface route is the intended fallback when the Codex/Work pool is unavailable, subject to the user's normal Chat limits.
 - Neither NAVA nor Secure MCP Tunnel provides free or unlimited model usage; Chat plan limits, fair-use controls, and app availability still apply.
-- Installed EXE SHA256 is `8E1B1A59FC1AC960648887652A3413CCCDA1EF57B1C0A7084FB175B252931485`.
+- Installed NAVA v4.8.4 EXE SHA256 is `788E13067C526314BE9DBE688112C98BC5E90EA8DC23759C3CFB49F28C052399`.
+- NAVA v4.8.4 installer SHA256 is `8627E7194B92C6D64748920096F0F2F5E1C5557A5426AAC3A08C80EB8C1F5A4A`.
+- The installed runtime and real Tunnel passed before the lock suite; lock-sensitive tests must run with NAVA stopped because production and test fixtures intentionally share the same machine-wide mutex.
 
 ## Constraints
 

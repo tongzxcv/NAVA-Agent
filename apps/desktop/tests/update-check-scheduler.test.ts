@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AUTO_UPDATE_CHECK_INTERVAL_MS, AUTO_UPDATE_STARTUP_DELAY_MS, UpdateCheckScheduler } from '../src/main/update-check-scheduler.js';
+import { AUTO_UPDATE_CHECK_INTERVAL_MS, AUTO_UPDATE_STARTUP_DELAY_MS, isMissingNavaReleaseFeedError, UpdateCheckScheduler } from '../src/main/update-check-scheduler.js';
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe('automatic update check scheduler', () => {
+  it('recognizes only the unpublished NAVA GitHub release feed', () => {
+    expect(isMissingNavaReleaseFeedError('404 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(true);
+    expect(isMissingNavaReleaseFeedError('404 method: GET url: https://github.com/example/other/releases.atom')).toBe(false);
+    expect(isMissingNavaReleaseFeedError('500 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(false);
+  });
   it('checks once shortly after startup and then every 30 minutes', async () => {
     vi.useFakeTimers();
     const check = vi.fn();

@@ -132,7 +132,7 @@ export class TunnelController {
     const clientPath = this.resolveClientPath();
     if (clientPath === null || !existsSync(clientPath)) throw new Error('tunnel-client.exe was not found');
     const launcher = this.options.getStdioLauncherPath?.() ?? null;
-    if (launcher === null || !existsSync(launcher)) throw new Error('Packaged lnwjud MCP stdio launcher was not found');
+    if (launcher === null || !existsSync(launcher)) throw new Error('Packaged NAVA MCP stdio launcher was not found');
     if (!(await this.hasApiKey())) throw new Error('Save a Runtime API key first');
     const encryptedSecret = await readFile(this.secretPath(), 'utf8');
     const apiKey = (await (this.options.decryptSecret?.(encryptedSecret) ?? decryptWithDpapi(encryptedSecret))).trim();
@@ -270,7 +270,7 @@ export class TunnelController {
       const hasApiKey = await this.hasApiKey();
       throwIfStartCancelled(signal);
       if (!hasApiKey) throw new Error('Save a Runtime API key first');
-      if (!existsSync(this.profilePath())) throw new Error('Missing tunnel profile lnwjud.yaml');
+      if (!existsSync(this.profilePath())) throw new Error('Missing NAVA Tunnel profile');
 
       const encryptedSecret = await readFile(this.secretPath(), 'utf8');
       throwIfStartCancelled(signal);

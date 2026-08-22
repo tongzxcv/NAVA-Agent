@@ -2,6 +2,20 @@
 
 ## 2026-08-23
 
+- Started the NAVA v4.8.4 usability/account-migration update with a fresh SCQA brief and acceptance gates.
+- Verified current official Secure MCP Tunnel requirements and organization/workspace association behavior.
+- Generated UI guidance and selected only the applicable accessible dark-dashboard/form rules; no visual redesign or new package is planned.
+- Added the native expandable account-migration workflow, safe key-replacement feedback, visible-brand cleanup, NAVA update metadata, v4.8.4 version sync, and the Thai quick-start source guide.
+- Account migration UI tests passed 2/2; focused i18n/settings/profile tests passed 13/13; packaging metadata tests passed 4/4; public repository hygiene passed 8/8 after intentionally tracking the ignored docs file.
+- Built and installed NAVA v4.8.4 over the preserved v4.8.3 installation backup at `E:\AI_CACHE\nava-agent-setup\20260823-021027-v4.8.3-before-v4.8.4`.
+- Verified the installed executable metadata and SHA256 `788E13067C526314BE9DBE688112C98BC5E90EA8DC23759C3CFB49F28C052399`.
+- Verified the live UI shows `v4.8.4`, `MCP Gateway ออนไลน์`, `Agent พร้อมทำงาน`, and the non-error message for an unpublished GitHub Release.
+- Verified `ตั้งค่า > Secure Tunnel` shows the DPAPI-protected stored-key state, replacement field, Setup Wizard, and account-migration checklist without exposing the existing key.
+- Started the real Secure Tunnel and verified `healthz=200 live`, `readyz=200 ready`, and `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)`.
+- Generated and visually checked `C:\Users\Endlessly\Desktop\คู่มือ NAVA Agent.pdf`; copied the same PDF into the installed application directory.
+- Updated the NAVA Obsidian runbook/status/troubleshooting pages. The vault linter completed with only pre-existing index heuristic notices.
+- Lock-sensitive suites passed serially after stopping the live runtime: tunnel lock 20/20, controller 29/29, session resilience 9/9, persistence 5/5.
+
 - Reviewed user-provided reference repositories and official OpenAI Secure MCP Tunnel documentation.
 - Refreshed upstream and created this isolated v4.8.3 worktree.
 - Confirmed prior end-to-end tunnel success and isolated the current failure to reconnect after stdio exit.

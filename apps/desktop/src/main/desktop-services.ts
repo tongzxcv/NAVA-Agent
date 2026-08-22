@@ -806,7 +806,7 @@ function buildConnectionModes(httpUrl: string | null): ConnectionModes {
   const packaged = process.env.LNWJUD_PACKAGED_EXECUTABLE?.trim();
   const stdioCommand = packaged && packaged.length > 0
     ? `${packaged} --mcp-stdio`
-    : 'lnwjud.exe --mcp-stdio';
+    : '"NAVA Agent.exe" --mcp-stdio';
   return { httpUrl, stdioCommand };
 }
 

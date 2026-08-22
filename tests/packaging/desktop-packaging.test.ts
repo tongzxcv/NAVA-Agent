@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.8.3', async () => {
+  it('pins the product release to v4.8.4', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.8.3');
-    expect(desktopPackage.version).toBe('4.8.3');
+    expect(rootPackage.version).toBe('4.8.4');
+    expect(desktopPackage.version).toBe('4.8.4');
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -23,10 +23,10 @@ describe('Windows desktop packaging', () => {
       repository?: { type?: unknown; url?: unknown };
     };
 
-    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 212 configurable tools.');
+    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 213 configurable tools.');
     expect(desktopPackage.author).toBe('Adisorn');
-    expect(desktopPackage.homepage).toBe('https://github.com/engasnm111/lnwjud#readme');
-    expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });
+    expect(desktopPackage.homepage).toBe('https://github.com/tongzxcv/NAVA-Agent#readme');
+    expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/tongzxcv/NAVA-Agent.git' });
   });
 
   it('declares NAVA Agent x64 NSIS packaging and built runtime bundles', async () => {
@@ -36,6 +36,8 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('productName: NAVA Agent');
     expect(config).toContain('appId: com.nava.agent.desktop');
     expect(config).toContain('executableName: NAVA Agent');
+    expect(config).toContain('owner: tongzxcv');
+    expect(config).toContain('repo: NAVA-Agent');
     expect(config).toContain('output: dist/installers');
     expect(config).toContain('target: nsis');
     expect(config).toContain('- x64');
@@ -94,7 +96,7 @@ describe('Windows desktop packaging', () => {
         child.stderr?.setEncoding('utf8');
         child.stderr?.on('data', (chunk: string) => {
           stderr += chunk;
-          if (!stderr.includes('lnwjud MCP stdio ready ')) return;
+          if (!stderr.includes('NAVA MCP stdio ready ')) return;
           clearTimeout(timer);
           resolve();
         });
@@ -103,12 +105,12 @@ describe('Windows desktop packaging', () => {
           reject(error);
         });
         child.once('exit', (code) => {
-          if (stderr.includes('lnwjud MCP stdio ready ')) return;
+          if (stderr.includes('NAVA MCP stdio ready ')) return;
           clearTimeout(timer);
           reject(new Error(`stdio launcher exited early with ${String(code)}: ${stderr}`));
         });
       });
-      expect(stderr).toContain('lnwjud MCP stdio ready ');
+      expect(stderr).toContain('NAVA MCP stdio ready ');
     } finally {
       if (child.exitCode === null && child.pid !== undefined) {
         const taskkill = spawn(path.join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });

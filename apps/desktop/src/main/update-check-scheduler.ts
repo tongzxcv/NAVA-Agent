@@ -1,6 +1,10 @@
 export const AUTO_UPDATE_STARTUP_DELAY_MS = 5_000;
 export const AUTO_UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1_000;
 
+export function isMissingNavaReleaseFeedError(message: string): boolean {
+  return /\b404\b/.test(message) && /github\.com\/tongzxcv\/NAVA-Agent\/releases\.atom/i.test(message);
+}
+
 export interface UpdateCheckSchedulerOptions {
   readonly check: () => void;
   readonly startupDelayMs?: number;

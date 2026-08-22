@@ -432,6 +432,68 @@
   background: rgba(230, 184, 74, .035);
 }
 
+.account-migration-box {
+  margin-top: 16px;
+  border: 1px solid rgba(230, 184, 74, .22);
+  border-radius: 13px;
+  background: rgba(8, 11, 17, .55);
+}
+
+.account-migration-box summary {
+  padding: 14px;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-migration-box summary:focus-visible {
+  outline: 2px solid var(--settings-accent);
+  outline-offset: 3px;
+}
+
+.account-migration-content {
+  padding: 0 14px 14px;
+  color: var(--text-muted);
+}
+
+.account-migration-content ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.account-migration-content li + li {
+  margin-top: 7px;
+}
+
+.account-scenarios {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.account-scenarios > div {
+  padding: 12px;
+  border: 1px solid var(--settings-soft-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.account-scenarios strong {
+  color: var(--text);
+}
+
+.account-scenarios p,
+.account-security-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.account-security-note {
+  color: #efc76f;
+}
+
 .settings-save-bar {
   position: sticky;
   bottom: 10px;
@@ -536,5 +598,9 @@
 
   .settings-card-polished {
     padding: 14px;
+  }
+
+  .account-scenarios {
+    grid-template-columns: 1fr;
   }
 }

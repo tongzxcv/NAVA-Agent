@@ -48,7 +48,7 @@ import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js'
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
 import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
-import { UpdateCheckScheduler } from './update-check-scheduler.js';
+import { isMissingNavaReleaseFeedError, UpdateCheckScheduler } from './update-check-scheduler.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
@@ -777,6 +777,12 @@ function requestUpdateCheck(source: 'automatic' | 'tray' | 'renderer'): UpdateSt
     if (pendingUpdateCheckSource !== source) return;
     pendingUpdateCheckSource = null;
     const message = error instanceof Error ? error.message : nativeMessages(desktopLocale).updaterCheckFailed;
+    if (isMissingNavaReleaseFeedError(message)) {
+      const currentMessages = nativeMessages(desktopLocale);
+      patchUpdateStatus({ phase: 'unavailable', lastCheckedAt: new Date().toISOString(), message: currentMessages.updaterReleaseNotPublished, canInstall: false });
+      if (source === 'tray') void dialog.showMessageBox({ type: 'info', title: currentMessages.updaterCheckTitle, message: currentMessages.updaterReleaseNotPublished, buttons: [currentMessages.ok] });
+      return;
+    }
     console.error(`[AutoUpdater] ${source} check failed: ${message}`);
     patchUpdateStatus({ phase: 'error', lastCheckedAt: new Date().toISOString(), message, canInstall: false });
     if (source === 'tray') {
@@ -868,9 +874,9 @@ function bootstrapMcpStdio(): void {
       ?? process.cwd();
     try {
       const workspaceId = await runtime.ensureDefaultWorkspace(workspacePath);
-      process.stderr.write(`lnwjud MCP stdio ready workspace=${workspaceId}\n`);
+      process.stderr.write(`NAVA MCP stdio ready workspace=${workspaceId}\n`);
     } catch (error: unknown) {
-      process.stderr.write(`lnwjud MCP stdio workspace warning: ${error instanceof Error ? error.message : 'unknown'}\n`);
+      process.stderr.write(`NAVA MCP stdio workspace warning: ${error instanceof Error ? error.message : 'unknown'}\n`);
     }
     startMcpStdio({
       services: runtime.mcpServices,
@@ -879,11 +885,11 @@ function bootstrapMcpStdio(): void {
       codexToolsEnabled: runtime.getUserSettings().codexToolsEnabled,
       onError: (error): void => {
         if (/EPIPE|ECONNRESET|broken pipe/i.test(error.message)) {
-          process.stderr.write(`lnwjud MCP stdio: peer closed (${error.message})\n`);
+          process.stderr.write(`NAVA MCP stdio: peer closed (${error.message})\n`);
           void desktopRuntime?.close().finally(() => process.exit(0));
           return;
         }
-        process.stderr.write(`lnwjud MCP stdio error: ${error.message}\n`);
+        process.stderr.write(`NAVA MCP stdio error: ${error.message}\n`);
       },
     });
     process.stdin.on('end', () => {
@@ -1067,6 +1073,11 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       console.error('[AutoUpdater] error:', err.message);
       const messages = nativeMessages(desktopLocale);
       const message = err.message || messages.updaterCheckFailed;
+      if (isMissingNavaReleaseFeedError(message)) {
+        patchUpdateStatus({ phase: 'unavailable', lastCheckedAt: new Date().toISOString(), message: messages.updaterReleaseNotPublished, canInstall: false });
+        if (requestedFromTray) void dialog.showMessageBox({ type: 'info', title: messages.updaterCheckTitle, message: messages.updaterReleaseNotPublished, buttons: [messages.ok] });
+        return;
+      }
       patchUpdateStatus({
         phase: 'error',
         lastCheckedAt: new Date().toISOString(),
