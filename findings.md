@@ -26,6 +26,13 @@
 - ChatGPT Web Work conversation has `NAVA Agent` attached and completed a fresh read-only `workspace_list` request in 6 seconds.
 - ChatGPT Web returned exactly four workspaces: `Local Disk C:`, `Local Disk D:`, `Local Disk E:`, and `THANATOS`.
 - The tunnel log recorded a fresh `dispatcher forwarded command to MCP server` event at `2026-08-23T01:07:26.6132244+07:00`, proving the ChatGPT Web -> OpenAI Tunnel -> local NAVA MCP route.
+- The successful 01:07 request ran in the ChatGPT `Work` surface, so it proves transport but not the user's separate Chat/web-quota fallback requirement.
+- A new ChatGPT conversation can switch to the `Chat` surface, whose Add menu lists `NAVA Agent — Local Windows Agent via Secure MCP Tunnel`.
+- Selecting `NAVA Agent` keeps the `Chat` radio checked and adds a NAVA selection pill to the composer; Chat-surface attachment is supported on this account.
+- The approved Chat-surface prompt completed in a couple of seconds and returned the expected four workspaces: `Local Disk C:`, `Local Disk D:`, `Local Disk E:`, and `THANATOS`.
+- The resulting conversation `ตรวจสอบ Workspace` has no `Work` badge, and the tunnel log recorded a fresh forwarded event at `2026-08-23T01:15:34.2819305+07:00`.
+- Official OpenAI guidance states that Codex and ChatGPT Work share the agentic usage/credit pool, while regular Chat is a separate experience and regular Chat usage is not included in Codex usage reporting. Therefore this verified Chat-surface route is the intended fallback when the Codex/Work pool is unavailable, subject to the user's normal Chat limits.
+- Neither NAVA nor Secure MCP Tunnel provides free or unlimited model usage; Chat plan limits, fair-use controls, and app availability still apply.
 - Installed EXE SHA256 is `8E1B1A59FC1AC960648887652A3413CCCDA1EF57B1C0A7084FB175B252931485`.
 
 ## Constraints
@@ -34,3 +41,4 @@
 - Do not print or commit credentials.
 - Do not weaken ownership checks or reclaim an unverifiable live owner.
 - The fresh ChatGPT Web tool call and matching forwarded-command log entry satisfy the final end-to-end gate.
+- The separate Chat/web-quota fallback is runtime-proven by the checked Chat surface, attached NAVA pill, valid four-workspace response, and matching fresh forwarded log event.

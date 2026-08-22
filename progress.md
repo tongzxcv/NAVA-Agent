@@ -28,3 +28,8 @@
 - After explicit user confirmation, sent one read-only ChatGPT Web prompt requesting `workspace_list`. The first click timed out without submitting; page re-observation proved the prompt remained a draft, then Enter submitted it exactly once.
 - ChatGPT Web completed in 6 seconds and returned four workspaces: `Local Disk C:`, `Local Disk D:`, `Local Disk E:`, and `THANATOS`.
 - Correlated the response with a fresh tunnel log event at `2026-08-23T01:07:26.6132244+07:00`: `dispatcher forwarded command to MCP server`. End-to-end validation passed.
+- Audited the broader quota objective after the Work-surface pass. Official OpenAI guidance says custom MCP apps are used by selecting them in a new ChatGPT chat; it does not promise unlimited usage.
+- Switched a fresh conversation to `Chat`, opened the Add menu, found NAVA Agent, and selected it. The UI remained in `Chat` with a NAVA Agent composer pill. The final read-only send is pending fresh user confirmation.
+- After explicit confirmation, submitted the read-only `workspace_list` prompt while `Chat` remained checked and NAVA Agent remained attached.
+- The regular Chat conversation `ตรวจสอบ Workspace` returned all four expected workspaces in a couple of seconds and has no `Work` badge.
+- Correlated the Chat response with a new tunnel forwarded-command event at `2026-08-23T01:15:34.2819305+07:00`. Chat-surface/web-quota fallback passed, with ordinary Chat plan limits still applicable.

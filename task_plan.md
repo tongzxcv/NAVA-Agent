@@ -19,6 +19,7 @@ Restore reliable NAVA v4.8.3 Secure MCP Tunnel startup and verify the full ChatG
 - [completed] Back up and install the corrected package while preserving user data.
 - [completed] Verify local MCP, tunnel doctor, health, readiness, and remote forwarding.
 - [completed] Update Obsidian evidence, scan secrets, and commit task-owned files.
+- [completed] Verify the same NAVA request in the `Chat` surface, not `Work`, as the web-quota fallback path.
 
 ## Errors encountered
 
@@ -36,3 +37,4 @@ Restore reliable NAVA v4.8.3 Secure MCP Tunnel startup and verify the full ChatG
 | Launching through the Codex PowerShell environment inherited an invalid `PSModulePath` for crypto cmdlets | 1 | Relaunch the installed application through Windows Explorer so it inherits the normal desktop environment; no product secret or code workaround was added. |
 | Re-running all three Desktop tunnel suites together while the installed app and tunnel were live caused 12 Windows timing failures | 1 | Keep the live service intact; rely on the earlier isolated green controller 29/29 and lock 20/20 runs, plus the current MCP 10/10 and profile 7/7 evidence. Record the combined-load result as host timing noise, not a green run. |
 | Browser click timed out while the populated Send button was visible | 1 | Re-observed the page to prove the prompt remained only as a draft, then submitted the same approved prompt once with Enter; no duplicate message was sent. |
+| Browser API did not expose `isChecked()` on the radio locator | 1 | Used a fresh DOM snapshot instead; it explicitly showed `radio "Chat" [checked]` and the attached NAVA Agent pill before submission. |
