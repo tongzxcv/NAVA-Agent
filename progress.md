@@ -25,3 +25,6 @@
 - Added the NAVA Obsidian project pages for architecture, setup/usage, troubleshooting, status, rollback, and safety boundaries.
 - Opened the logged-in ChatGPT Web Work conversation and confirmed `NAVA Agent` is attached. The final fresh read-only send is pending user confirmation because it is an external representational action.
 - Re-ran the MCP regression suite with Node 24: 10/10 passed. A combined Desktop rerun while the installed NAVA/tunnel stayed live passed 44/56 but hit 12 known PowerShell/Windows timing deadlines; the final isolated evidence remains controller 29/29, tunnel-lock 20/20, and profile 7/7.
+- After explicit user confirmation, sent one read-only ChatGPT Web prompt requesting `workspace_list`. The first click timed out without submitting; page re-observation proved the prompt remained a draft, then Enter submitted it exactly once.
+- ChatGPT Web completed in 6 seconds and returned four workspaces: `Local Disk C:`, `Local Disk D:`, `Local Disk E:`, and `THANATOS`.
+- Correlated the response with a fresh tunnel log event at `2026-08-23T01:07:26.6132244+07:00`: `dispatcher forwarded command to MCP server`. End-to-end validation passed.

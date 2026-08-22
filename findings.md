@@ -23,7 +23,9 @@
 - Installed NAVA v4.8.3 now owns one tunnel-client process and a valid tunnel lock; `/healthz` returns `200 live` and `/readyz` returns `200 ready`.
 - Fresh tunnel startup fetched metadata for `NAVA Web Fallback` and started `"D:/Program Files/NAVA Agent/lnwjud-mcp-stdio.cmd"` successfully.
 - NAVA UI reports `Tunnel เชื่อมต่อแล้ว (จากแอปนี้)`; local MCP remains available at `127.0.0.1:18765`.
-- ChatGPT Web is logged in and the existing Work conversation shows `NAVA Agent` as an attached source. A new read-only prompt still requires action-time confirmation before sending.
+- ChatGPT Web Work conversation has `NAVA Agent` attached and completed a fresh read-only `workspace_list` request in 6 seconds.
+- ChatGPT Web returned exactly four workspaces: `Local Disk C:`, `Local Disk D:`, `Local Disk E:`, and `THANATOS`.
+- The tunnel log recorded a fresh `dispatcher forwarded command to MCP server` event at `2026-08-23T01:07:26.6132244+07:00`, proving the ChatGPT Web -> OpenAI Tunnel -> local NAVA MCP route.
 - Installed EXE SHA256 is `8E1B1A59FC1AC960648887652A3413CCCDA1EF57B1C0A7084FB175B252931485`.
 
 ## Constraints
@@ -31,4 +33,4 @@
 - Preserve existing DPAPI secret, YAML profile, SQLite settings, registered workspaces, full-access profile, and rollback path.
 - Do not print or commit credentials.
 - Do not weaken ownership checks or reclaim an unverifiable live owner.
-- Treat a fresh ChatGPT Web tool call plus a new forwarded-command log entry as the final end-to-end gate.
+- The fresh ChatGPT Web tool call and matching forwarded-command log entry satisfy the final end-to-end gate.
