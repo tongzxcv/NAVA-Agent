@@ -19,6 +19,7 @@ describe('viewport-sized log and list layout', () => {
 
     expect(embedded).toContain('class="page-content live-logs-page"');
     expect(standalone).toContain('class="window-container log-viewer-window"');
+    expect(standalone).toContain('src="./nava-icon.png"');
   });
 
   it('renders newest log lines first regardless of arrival order', () => {

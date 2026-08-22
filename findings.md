@@ -1,5 +1,14 @@
 # Findings
 
+## 2026-08-23 title-bar icon follow-up
+
+- The user screenshot shows the NAVA name and v4.8.4 badge are correct, but the small title-bar icon is still the old gold legacy mark.
+- The shutdown scheduled after the PDF fix was cancelled before repository or installation work resumed.
+- Both custom title bars referenced the legacy `favicon.ico`; the current NAVA artwork already exists as `public/nava-icon.png`, so no new asset or dependency is needed.
+- Live visual verification shows the title-bar mark is now the cyan NAVA `N` icon; the NAVA Agent name and v4.8.4 badge remain correct.
+- The installed `app.asar` matches the newly built artifact SHA256 `D402BB9AFC43FF89A9FFF19C3150251355BCD6A3832EAB11B1BF83854092D130`.
+- After relaunch, local MCP remained online and Secure Tunnel returned to `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)`.
+
 ## 2026-08-23 PDF contrast follow-up
 
 - The screenshot proves fenced code blocks render a dark `pre` background while the nested `code` element keeps the light inline-code background and inherited white text.

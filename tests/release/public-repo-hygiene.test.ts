@@ -109,6 +109,8 @@ describe('public repository hygiene', () => {
 
     expect(JSON.parse(manifest)).toMatchObject({ name: 'NAVA Agent', short_name: 'NAVA' });
     expect(shell).toContain('alt="NAVA Agent logo"');
+    expect(shell).toContain('src="./nava-icon.png"');
+    expect(shell).not.toContain('src="./favicon.ico"');
     expect(services).toContain(`'"NAVA Agent.exe" --mcp-stdio'`);
     expect(userSettings).not.toContain('Quit lnwjud');
     expect(userSettings).not.toContain('ออกจาก lnwjud');

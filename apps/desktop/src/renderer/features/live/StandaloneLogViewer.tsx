@@ -69,7 +69,7 @@ export function StandaloneLogViewer(): ReactElement {
       <header className="custom-titlebar">
         <div className="titlebar-drag-region">
           <div className="titlebar-brand">
-            <img src="./favicon.ico" alt="NAVA Agent logo" className="titlebar-logo" />
+            <img src="./nava-icon.png" alt="NAVA Agent logo" className="titlebar-logo" />
             <span className="titlebar-title">{t('brand')}</span>
             <span className="titlebar-version">Live Logs</span>
           </div>

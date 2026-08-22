@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-08-23 title-bar icon follow-up
+
+- Cancelled the previously scheduled Windows shutdown with `shutdown.exe /a`.
+- Confirmed from the supplied screenshot that only the small title-bar icon remains visually stale; the NAVA label and version are already current.
+- Switched the main and standalone Live Logs title bars from the legacy favicon to the existing NAVA icon and added focused regression assertions.
+- Targeted tests passed: public repository hygiene 8/8 and Live Logs layout 7/7.
+- Built the renderer, installed the generated `app.asar` after preserving the previous artifact at `E:\AI_CACHE\nava-agent-setup\20260823-030500-before-titlebar-icon-fix\app.asar`, and relaunched NAVA.
+- Visually verified the running v4.8.4 title bar now displays the cyan NAVA `N` icon.
+- Restarted Secure Tunnel and verified the installed app reports it connected from this NAVA instance.
+
 ## 2026-08-23 PDF contrast follow-up
 
 - Inspected the reported PDF screenshot and traced the unreadable commands to the missing `pre code` CSS override.

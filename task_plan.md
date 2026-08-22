@@ -1,5 +1,13 @@
 # NAVA v4.8.4 usability and account migration update
 
+## Follow-up: replace remaining title-bar icon
+
+- [completed] Cancel the previously scheduled Windows shutdown.
+- [completed] Trace the gold legacy title-bar icon to its source and replace it with the existing NAVA icon asset.
+- [completed] Build, install, and visually verify the corrected NAVA title bar.
+- [completed] Scan, commit, and push only task-owned changes.
+- [in_progress] Shut down Windows after every write and verification step completes.
+
 ## Follow-up: repair PDF contrast and shut down
 
 - [completed] Correct fenced-code contrast in the guide stylesheet.
@@ -53,3 +61,9 @@ Ship and install a safe NAVA patch that removes remaining user-visible legacy br
 | First manual esbuild invocation stripped quotes around `node:module` | 1 | Rebuilt with an argument array that preserves the exact ESM banner, then repackaged. |
 | Full Vitest run collided with the live NAVA/tunnel global lock and timed out | 2 | Stopped the installed runtime and reran each lock-sensitive file serially; 63/63 passed. |
 | Chrome headless returned without creating the PDF | 1 | Switched to Edge headless with an isolated profile; the 4-page PDF was generated successfully. |
+| `corepack` was not available on the default PATH for targeted icon tests | 1 | Use the bundled Node 24 runtime and its Corepack executable, as in the verified v4.8.4 build workflow. |
+| Fallback `pnpm` attempted a dependency reinstall and aborted without a TTY | 1 | Bypass package-manager bootstrapping and invoke the already-installed local Vitest binary directly. |
+| Expected root `vite.cmd` shim was absent | 1 | Resolve the installed Vite package entry point and invoke it with the bundled Node runtime instead of relying on a missing shim. |
+| Electron Builder could not extract macOS signing symlinks without Windows link privileges | 1 | The Windows unpacked app and `app.asar` were already produced before signing; install only the verified renderer-bearing `app.asar`, which is the sole runtime artifact affected by this two-line UI fix. |
+| PowerShell rejected a direct `foreach` pipeline in the ASAR comparison helper | 1 | Use `rg -a -F` for the exact embedded legacy-reference check and keep the verification read-only. |
+| First multi-file planning update had a malformed patch hunk | 1 | Corrected the patch boundaries and reapplied the same documentation-only update. |
