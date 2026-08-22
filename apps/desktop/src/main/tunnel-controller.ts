@@ -19,6 +19,8 @@ const SECRET_FILE = 'lnwjud.runtime.secret';
 const CLIENT_PATH_SETTING = 'tunnel_client_path';
 const MCP_CONNECTION_MAX_TTL = '168h0m0s';
 const EXTERNAL_PROBE_TTL_MS = 4_000;
+const EXTERNAL_PROCESS_LIST_TIMEOUT_MS = 3_000;
+const EXTERNAL_PROCESS_PROBE_TIMEOUT_MS = 10_000;
 const RESTART_DELAY_MS = 3_000;
 const MAX_AUTO_RESTARTS = 5;
 const RESTART_WINDOW_MS = 30_000;
@@ -714,19 +716,43 @@ async function isLnwjudTunnelProcessRunning(): Promise<boolean> {
   return (await findLnwjudTunnelProcessPids()).length > 0;
 }
 
-async function findLnwjudTunnelProcessPids(): Promise<readonly number[]> {
-  const result = await Promise.race([
-    execFileAsync('powershell.exe', [
+export type ExternalProcessCommandRunner = (file: string, args: readonly string[], timeoutMs: number) => Promise<string>;
+
+export async function findLnwjudTunnelProcessPids(runCommand: ExternalProcessCommandRunner = runExternalProcessCommand): Promise<readonly number[]> {
+  const candidateOutput = await runCommand('tasklist.exe', [
+    '/FI',
+    'IMAGENAME eq tunnel-client.exe',
+    '/FO',
+    'CSV',
+    '/NH',
+  ], EXTERNAL_PROCESS_LIST_TIMEOUT_MS);
+  const candidatePids = parseTunnelClientTasklistOutput(candidateOutput);
+  if (candidatePids.length === 0) return [];
+
+  const output = await runCommand('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
       '-Command',
       "@(Get-CimInstance Win32_Process -Filter \"Name = 'tunnel-client.exe'\" -ErrorAction Stop | Where-Object { $_.CommandLine -match '(?i)(--profile\\s+lnwjud|lnwjud\\.yaml)' } | Select-Object -ExpandProperty ProcessId) -join ','",
-    ], { windowsHide: true, encoding: 'utf8', timeout: 3_000 }),
-    new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('tunnel process probe timed out')), 3_500);
-    }),
-  ]);
-  return result.stdout.trim().split(',').map((value) => Number(value.trim())).filter((pid) => Number.isInteger(pid) && pid > 0 && pid <= 2_147_483_647);
+    ], EXTERNAL_PROCESS_PROBE_TIMEOUT_MS);
+  const candidates = new Set(candidatePids);
+  return output.trim().split(',').map((value) => Number(value.trim())).filter((pid) => candidates.has(pid));
+}
+
+export function parseTunnelClientTasklistOutput(output: string): readonly number[] {
+  const pids = new Set<number>();
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*"tunnel-client\.exe"\s*,\s*"(\d+)"(?:,|$)/i.exec(line);
+    if (match === null) continue;
+    const pid = Number(match[1]);
+    if (Number.isInteger(pid) && pid > 0 && pid <= 2_147_483_647) pids.add(pid);
+  }
+  return [...pids];
+}
+
+async function runExternalProcessCommand(file: string, args: readonly string[], timeoutMs: number): Promise<string> {
+  const result = await execFileAsync(file, [...args], { windowsHide: true, encoding: 'utf8', timeout: timeoutMs });
+  return result.stdout;
 }
 
 export function waitForTunnelChildExit(child: Pick<ChildProcess, 'exitCode' | 'once' | 'removeListener'>, timeoutMs = 5_000): Promise<void> {

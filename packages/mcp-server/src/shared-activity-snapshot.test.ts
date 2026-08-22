@@ -6,6 +6,7 @@ import { ActivityTracker } from './activity-tracker.js';
 import {
   SharedActivitySnapshotLease,
   parseProcessProbeOutput,
+  probeCurrentProcessStart,
   probeProcessStart,
   readSharedActivitySnapshot,
   sharedActivitySnapshotPath,
@@ -66,6 +67,17 @@ describe('process start probe output', () => {
     await expect(probeProcessStart(7001, { runProbe })).resolves.toEqual({ state: 'unverifiable', reason: 'probe_timeout' });
     expect(timeouts).toHaveLength(2);
     expect(timeouts.reduce((total, timeout) => total + timeout, 0)).toBeLessThan(4_000);
+  });
+
+  it('gives current-process ownership a wider probe deadline without changing ordinary owner checks', async () => {
+    const timeouts: number[] = [];
+    const runProbe = async (_pid: number, timeoutMs: number): Promise<string> => {
+      timeouts.push(timeoutMs);
+      throw Object.assign(new Error('probe exceeded timeout'), { killed: true, signal: 'SIGTERM' });
+    };
+
+    await expect(probeCurrentProcessStart({ runProbe })).resolves.toEqual({ state: 'unverifiable', reason: 'probe_timeout' });
+    expect(timeouts).toEqual([5_000, 5_000]);
   });
 });
 

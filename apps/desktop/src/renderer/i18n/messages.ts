@@ -129,7 +129,7 @@ export type MessageKey =
 export type Messages = Record<MessageKey, string>;
 
 export const th: Messages = {
-  brand: 'lnwjud',
+  brand: 'NAVA Agent',
   'nav.home': 'หน้าหลัก',
   'nav.projects': 'โปรเจกต์',
   'nav.git': 'Git',
@@ -258,7 +258,7 @@ export const th: Messages = {
 };
 
 export const en: Messages = {
-  brand: 'lnwjud',
+  brand: 'NAVA Agent',
   'nav.home': 'Home',
   'nav.projects': 'Projects',
   'nav.git': 'Git',

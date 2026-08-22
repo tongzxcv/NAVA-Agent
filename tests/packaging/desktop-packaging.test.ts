@@ -29,21 +29,23 @@ describe('Windows desktop packaging', () => {
     expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/engasnm111/lnwjud.git' });
   });
 
-  it('declares lnwjud x64 NSIS packaging and built runtime bundles', async () => {
+  it('declares NAVA Agent x64 NSIS packaging and built runtime bundles', async () => {
     const configPath = path.join(desktopRoot, 'electron-builder.yml');
     const config = await readFile(configPath, 'utf8');
 
-    expect(config).toContain('productName: lnwjud');
+    expect(config).toContain('productName: NAVA Agent');
+    expect(config).toContain('appId: com.nava.agent.desktop');
+    expect(config).toContain('executableName: NAVA Agent');
     expect(config).toContain('output: dist/installers');
     expect(config).toContain('target: nsis');
     expect(config).toContain('- x64');
-    expect(config).toContain('icon: build/icon.ico');
+    expect(config).toContain('icon: build/nava-icon.ico');
     expect(config).toContain('signAndEditExecutable: true');
     expect(config).not.toContain('signAndEditExecutable: false');
     expect(config).toContain('createStartMenuShortcut: false');
     expect(config).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
     const installerScript = await readFile(path.join(desktopRoot, 'build', 'installer.nsh'), 'utf8');
-    expect(installerScript).toContain('CreateShortCut "$SMPROGRAMS\\lnwjud.lnk" "$INSTDIR\\lnwjud.exe"');
+    expect(installerScript).toContain('CreateShortCut "$SMPROGRAMS\\NAVA Agent.lnk" "$INSTDIR\\NAVA Agent.exe"');
     expect(installerScript).toContain('SetOutPath "$INSTDIR"');
     expect(installerScript).not.toMatch(/[A-Z]:\\Users\\[^\r\n]+/i);
     expect(config).toContain('extraResources:');
@@ -64,7 +66,7 @@ describe('Windows desktop packaging', () => {
     const mainBundle = await readFile(path.join(desktopRoot, 'dist', 'main', 'main.js'), 'utf8');
     expect(mainBundle).toContain('webSecurity: true');
     expect(mainBundle).not.toContain('webSecurity: false');
-    expect(mainBundle).toMatch(/setName\(["']lnwjud["']|setName\(APP_NAME\)/);
+    expect(mainBundle).toMatch(/setName\(["']NAVA Agent["']|setName\(APP_NAME\)/);
     expect(mainBundle).toContain('LNWJUD_DATA_PATH');
     expect(mainBundle).toContain('LNWJUD_UNRESTRICTED');
     expect(mainBundle).toContain('setPath("userData"');

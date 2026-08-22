@@ -1,5 +1,6 @@
-﻿appId: com.lnwjud.desktop
-productName: lnwjud
+appId: com.nava.agent.desktop
+productName: NAVA Agent
+executableName: NAVA Agent
 asar: true
 npmRebuild: false
 directories:
@@ -9,8 +10,8 @@ files:
   - dist/main/**/*
   - dist/preload/**/*
   - dist/renderer/**/*
-  - build/icon.ico
-  - build/icon.png
+  - build/nava-icon.ico
+  - build/nava-icon.png
   - package.json
 publish:
   provider: github
@@ -30,7 +31,7 @@ extraResources:
     to: lnwjud-node.exe
   - from: ../../native/windows-ocr/bin
     to: windows-ocr
-# Tunnel profile expects these next to lnwjud.exe (not only under resources/).
+# Tunnel profile expects these next to NAVA Agent.exe (not only under resources/).
 extraFiles:
   - from: build/lnwjud-mcp-stdio.cjs
     to: lnwjud-mcp-stdio.cjs
@@ -39,13 +40,13 @@ extraFiles:
   - from: build/lnwjud-node.exe
     to: lnwjud-node.exe
 win:
-  icon: build/icon.ico
+  icon: build/nava-icon.ico
   target:
     - target: nsis
       arch:
         - x64
-  artifactName: lnwjud-Setup-${version}.${ext}
-  # Keep the branded icon embedded in lnwjud.exe for Windows shortcuts and taskbar.
+  artifactName: nava-agent-Setup-${version}.${ext}
+  # Keep the branded icon embedded in NAVA Agent.exe for Windows shortcuts and taskbar.
   signAndEditExecutable: true
 nsis:
   oneClick: false
@@ -54,7 +55,7 @@ nsis:
   deleteAppDataOnUninstall: false
   # Create the Start Menu link in installer.nsh from $INSTDIR so no build-user path can be baked in.
   createStartMenuShortcut: false
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
+  installerIcon: build/nava-icon.ico
+  uninstallerIcon: build/nava-icon.ico
   uninstallDisplayName: ${productName}
   include: build/installer.nsh

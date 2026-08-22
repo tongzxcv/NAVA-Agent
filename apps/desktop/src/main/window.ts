@@ -15,13 +15,9 @@ export function getRendererEntryPath(): string {
 
 export function getWindowIconPath(): string | undefined {
   const candidates = [
-    path.resolve(mainDirectory, '..', 'renderer', 'favicon.ico'),
-    path.resolve(mainDirectory, '..', 'renderer', 'logo.png'),
-    path.resolve(mainDirectory, '..', 'renderer', 'logo-512.png'),
-    path.resolve(mainDirectory, '..', '..', 'build', 'icon.ico'),
-    path.resolve(mainDirectory, '..', '..', 'build', 'icon.png'),
-    path.resolve(mainDirectory, '..', '..', 'assets', 'logo', 'logo.ico'),
-    path.resolve(mainDirectory, '..', '..', 'assets', 'logo', 'logo-256x256.png'),
+    path.resolve(mainDirectory, '..', 'renderer', 'nava-icon.png'),
+    path.resolve(mainDirectory, '..', '..', 'build', 'nava-icon.ico'),
+    path.resolve(mainDirectory, '..', '..', 'build', 'nava-icon.png'),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
@@ -95,7 +91,7 @@ export function createLogViewerWindow(): BrowserWindow {
     height: 680,
     show: true,
     autoHideMenuBar: true,
-    title: 'lnwjud — Live Logs',
+    title: 'NAVA Agent — Live Logs',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color: '#07090e',

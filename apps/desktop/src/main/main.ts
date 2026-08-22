@@ -152,7 +152,7 @@ const defaultDesktopServices: DesktopIpcServices = {
     stdioStrictRoots: false,
     stdioAllowedRoots: [],
     backups: [],
-    connectionModes: { httpUrl: null, stdioCommand: 'lnwjud.exe --mcp-stdio' },
+    connectionModes: { httpUrl: null, stdioCommand: '"NAVA Agent.exe" --mcp-stdio' },
     workLog: [],
     inFlight: [],
     tunnel: emptyTunnel,
@@ -226,7 +226,7 @@ export function registerIpcHandlers(
     choosePath: async (): Promise<string | null> => {
       const window = getMainWindow();
       if (window === null) return null;
-      const result = await dialog.showSaveDialog(window, { title: 'Capture lnwjud incident evidence', defaultPath: 'lnwjud-incident.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
+      const result = await dialog.showSaveDialog(window, { title: 'Capture NAVA Agent incident evidence', defaultPath: 'nava-agent-incident.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
       return result.canceled || result.filePath === undefined || result.filePath.length === 0 ? null : result.filePath;
     },
     write: atomicWrite,
@@ -480,8 +480,8 @@ async function exportLogsToFile(
 ): Promise<{ readonly exported: boolean }> {
   if (window === null) return { exported: false };
   const result = await dialog.showSaveDialog(window, {
-    title: 'Export lnwjud logs',
-    defaultPath: `lnwjud-${request.source}-logs.txt`,
+    title: 'Export NAVA Agent logs',
+    defaultPath: `nava-agent-${request.source}-logs.txt`,
     filters: [{ name: 'Text', extensions: ['txt', 'log'] }],
   });
   if (result.canceled || result.filePath === undefined || result.filePath.length === 0) {
@@ -823,7 +823,7 @@ function setDesktopLocale(locale: UiLocale): void {
 function createDesktopTray(): void {
   const iconPath = getWindowIconPath();
   if (iconPath === undefined) {
-    console.error('lnwjud tray icon was not found');
+    console.error('NAVA Agent tray icon was not found');
     return;
   }
   tray?.destroy();
@@ -1094,7 +1094,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
 function bootstrapDesktop(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
-    app.setAppUserModelId('com.lnwjud.desktop');
+    app.setAppUserModelId('com.nava.agent.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     setDesktopLocale(runtime.getLocale());
@@ -1124,7 +1124,7 @@ function bootstrapDesktop(): void {
 function bootstrapLogViewerOnly(): void {
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
-    app.setAppUserModelId('com.lnwjud.desktop');
+    app.setAppUserModelId('com.nava.agent.desktop');
     const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     configureDesktopShutdown(runtime);
@@ -1163,8 +1163,8 @@ function configureDesktopShutdown(runtime: DesktopRuntime): void {
       });
       void dialog.showMessageBox({
         type: 'error',
-        title: 'lnwjud is still running',
-        message: 'The owned tunnel could not be confirmed stopped. lnwjud will remain open; retry Quit after checking the tunnel status.',
+        title: 'NAVA Agent is still running',
+        message: 'The owned tunnel could not be confirmed stopped. NAVA Agent will remain open; retry Quit after checking the tunnel status.',
         detail: error.message,
         buttons: ['OK'],
       });

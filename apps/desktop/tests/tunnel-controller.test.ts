@@ -2,14 +2,50 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TunnelController } from '../src/main/tunnel-controller.js';
-import { waitForTunnelChildExit } from '../src/main/tunnel-controller.js';
+import { findLnwjudTunnelProcessPids, parseTunnelClientTasklistOutput, TunnelController, waitForTunnelChildExit } from '../src/main/tunnel-controller.js';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { acquireTunnelLock, readTunnelLock, type ProcessProbeResult, type TunnelLockAcquisition, type TunnelLockOwner } from '../src/main/tunnel-lock.js';
 import { createServer as createHttpServer, type Server } from 'node:http';
 
 const temporaryRoots: string[] = [];
+
+describe('external tunnel process discovery', () => {
+  it('parses only valid tunnel-client tasklist rows', () => {
+    const output = [
+      'INFO: No tasks are running which match the specified criteria.',
+      '"tunnel-client.exe","1234","Console","1","12,345 K"',
+      '"other.exe","5678","Console","1","1,000 K"',
+      '"tunnel-client.exe","1234","Console","1","12,345 K"',
+    ].join('\r\n');
+
+    expect(parseTunnelClientTasklistOutput(output)).toEqual([1234]);
+  });
+
+  it('skips CIM entirely when tasklist finds no tunnel-client process', async () => {
+    const calls: string[] = [];
+    const result = await findLnwjudTunnelProcessPids(async (file) => {
+      calls.push(file);
+      return 'INFO: No tasks are running which match the specified criteria.';
+    });
+
+    expect(result).toEqual([]);
+    expect(calls).toEqual(['tasklist.exe']);
+  });
+
+  it('uses CIM only for candidates and returns only matching candidate PIDs', async () => {
+    const calls: string[] = [];
+    const result = await findLnwjudTunnelProcessPids(async (file) => {
+      calls.push(file);
+      return file === 'tasklist.exe'
+        ? '"tunnel-client.exe","1234","Console","1","12,345 K"\r\n"tunnel-client.exe","5678","Console","1","12,345 K"'
+        : '1234,9999';
+    });
+
+    expect(result).toEqual([1234]);
+    expect(calls).toEqual(['tasklist.exe', 'powershell.exe']);
+  });
+});
 
 afterEach(async () => {
   vi.useRealTimers();

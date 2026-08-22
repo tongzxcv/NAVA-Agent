@@ -23,21 +23,24 @@ describe('tunnel profile MCP command', () => {
       yaml,
       'C:\\Users\\me\\AppData\\Local\\Programs\\lnwjud\\lnwjud-mcp-stdio.cmd',
     );
-    expect(next).toContain('command: "C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd"');
+    expect(next).toContain("command: 'C:/Users/me/AppData/Local/Programs/lnwjud/lnwjud-mcp-stdio.cmd'");
+  });
+
+  it('quotes a launcher executable with spaces inside the YAML scalar', () => {
+    const yaml = '      command: "C:/old/lnwjud-mcp-stdio.cmd"';
+    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/Program Files/NAVA Agent/lnwjud-mcp-stdio.cmd')).toContain(
+      `command: '"D:/Program Files/NAVA Agent/lnwjud-mcp-stdio.cmd"'`,
+    );
   });
 
   it('keeps lnwjud.exe --mcp-stdio as the tunnel MCP command', () => {
     const yaml = '      command: "C:/old/lnwjud-mcp-stdio.cmd --workspace E:/lnwjud"';
-    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud.exe --mcp-stdio')).toContain(
-      'command: "D:/lnwjud/lnwjud.exe --mcp-stdio"',
-    );
+    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud.exe --mcp-stdio')).toContain("command: 'D:/lnwjud/lnwjud.exe --mcp-stdio'");
   });
 
   it('replaces a stale node command so the tunnel cannot attach to a GUI process', () => {
     const yaml = '      command: "node"';
-    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud-mcp-stdio.cmd')).toContain(
-      'command: "D:/lnwjud/lnwjud-mcp-stdio.cmd"',
-    );
+    expect(rewriteTunnelYamlMcpCommand(yaml, 'D:/lnwjud/lnwjud-mcp-stdio.cmd')).toContain("command: 'D:/lnwjud/lnwjud-mcp-stdio.cmd'");
   });
 
   it('falls back to the cmd launcher when the host is not lnwjud.exe', () => {

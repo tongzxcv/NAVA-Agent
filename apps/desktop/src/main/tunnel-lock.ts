@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { link, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
+import { probeCurrentProcessStart, probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 
 const LOCK_FILE = 'lnwjud.tunnel.lock';
 const LOCK_VERSION = 1;
@@ -218,7 +218,7 @@ function isNotFound(error: unknown): boolean {
 }
 
 async function currentProcessOwner(): Promise<TunnelLockOwner> {
-  const probe = await probeProcessStart(process.pid);
+  const probe = await probeCurrentProcessStart();
   if (probe.state !== 'live') throw new Error(`Could not verify this process for the tunnel lock: ${probe.state === 'unverifiable' ? probe.reason : 'gone'}`);
   return { pid: process.pid, processStartedAt: probe.processStartedAt, acquiredAt: new Date().toISOString() };
 }

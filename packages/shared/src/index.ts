@@ -1,4 +1,4 @@
-export const APP_NAME = 'lnwjud';
+export const APP_NAME = 'NAVA Agent';
 export const APP_VERSION = '4.8.3';
 export { isUnrestricted, unrestrictedFromEnv, unrestrictedFromSetting, UNRESTRICTED_SETTING_KEY, type ProcessEnvLike } from './unrestricted.js';
 

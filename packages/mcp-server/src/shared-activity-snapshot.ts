@@ -12,6 +12,8 @@ const DEFAULT_STALE_AFTER_MS = 5_000;
 const DEFAULT_HEARTBEAT_MS = 1_000;
 const DEFAULT_PROCESS_PROBE_TIMEOUT_MS = 1_750;
 const DEFAULT_PROCESS_PROBE_ATTEMPTS = 2;
+const CURRENT_PROCESS_PROBE_TIMEOUT_MS = 5_000;
+const CURRENT_PROCESS_PROBE_ATTEMPTS = 2;
 const MAX_SNAPSHOT_BYTES = 16 * 1024;
 const ISO_UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -195,9 +197,17 @@ export async function readSharedActivitySnapshot(options: ReadSharedActivitySnap
 }
 
 export async function currentSharedActivityOwner(): Promise<SharedActivityOwner> {
-  const probe = await probeProcessStart(process.pid);
+  const probe = await probeCurrentProcessStart();
   if (probe.state !== 'live') throw new Error(`Could not verify STDIO activity owner process: ${probe.state === 'unverifiable' ? probe.reason : 'gone'}`);
   return { pid: process.pid, processStartedAt: probe.processStartedAt };
+}
+
+export function probeCurrentProcessStart(options: ProcessProbeOptions = {}): Promise<ProcessProbeResult> {
+  return probeProcessStart(process.pid, {
+    ...options,
+    timeoutMs: positiveInteger(options.timeoutMs, CURRENT_PROCESS_PROBE_TIMEOUT_MS),
+    attempts: positiveInteger(options.attempts, CURRENT_PROCESS_PROBE_ATTEMPTS),
+  });
 }
 
 export async function probeProcessStart(pid: number, options: ProcessProbeOptions = {}): Promise<ProcessProbeResult> {

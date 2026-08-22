@@ -4,16 +4,25 @@ import path from 'node:path';
 // The profile can contain the old GUI executable, a node command, or a stale
 // launcher path. The desktop owns this lnwjud profile, so always replace the
 // MCP command with the packaged direct-node stdio launcher.
-const COMMAND_LINE = /(command:\s*)"[^"]*"/i;
+const COMMAND_LINE = /^(\s*command:\s*).+$/im;
 
 export function posixPath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
 
 export function rewriteTunnelYamlMcpCommand(yaml: string, stdioCmdPath: string): string {
-  const quoted = `"${posixPath(stdioCmdPath)}"`;
+  const command = quoteWindowsCommandExecutable(posixPath(stdioCmdPath));
+  const quoted = `'${command.replace(/'/g, "''")}'`;
   if (!COMMAND_LINE.test(yaml)) return yaml;
-  return yaml.replace(COMMAND_LINE, `command: ${quoted}`);
+  return yaml.replace(COMMAND_LINE, `$1${quoted}`);
+}
+
+function quoteWindowsCommandExecutable(command: string): string {
+  const match = /^(.*?\.(?:exe|cmd|bat))(\s+.*)?$/i.exec(command);
+  if (match === null) return command;
+  const executable = match[1] ?? command;
+  const argumentsText = match[2] ?? '';
+  return executable.includes(' ') ? `"${executable}"${argumentsText}` : `${executable}${argumentsText}`;
 }
 
 export function resolveStdioLauncherPath(candidates: readonly string[]): string | null {
