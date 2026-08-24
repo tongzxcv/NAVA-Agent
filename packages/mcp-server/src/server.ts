@@ -9,6 +9,8 @@ import { RunBudgetGuard, type RunBudgetContext } from './run-budget.js';
 import { registerTasksProtocol } from './tasks-protocol.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
+export const MCP_RESPONSE_BUDGET_BYTES = 8 * 1024 * 1024;
+
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
   readonly actor: FileActor;
@@ -58,8 +60,31 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       const result = await withProgressHeartbeat(dispatchContext, tool.name, async () => (
         registry.invoke(tool.name, input, readTraceContext(context)) as unknown as Promise<CallToolResult>
       ));
-      return runBudgetGuard.finish(dispatchContext, result);
+      return enforceResponseBudget(tool.name, runBudgetGuard.finish(dispatchContext, result));
     });
   }
   return server;
+}
+
+export function enforceResponseBudget(toolName: string, result: CallToolResult): CallToolResult {
+  if (Buffer.byteLength(JSON.stringify(result), 'utf8') <= MCP_RESPONSE_BUDGET_BYTES) return result;
+  const message = oversizedResponseMessage(toolName);
+  return {
+    isError: true,
+    content: [{ type: 'text', text: `RESPONSE_TOO_LARGE: ${message}` }],
+    structuredContent: { error: { code: 'RESPONSE_TOO_LARGE', message, recoverable: true } },
+  };
+}
+
+function oversizedResponseMessage(toolName: string): string {
+  if (toolName === 'read_file' || toolName === 'read_files') {
+    return 'Result exceeded the safe MCP transport size. Use read_file_page with a smaller pageSize or responseTargetBytes.';
+  }
+  if (toolName === 'shell') {
+    return 'Result exceeded the safe MCP transport size. Lower max_output_bytes or use a background task and read bounded logs.';
+  }
+  if (toolName === 'accessibility') {
+    return 'Result exceeded the safe MCP transport size. Use observe_summary or inspect a smaller set of elements without a screenshot.';
+  }
+  return 'Result exceeded the safe MCP transport size. Narrow the request or use a paged or bounded tool.';
 }

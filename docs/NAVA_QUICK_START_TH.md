@@ -1,10 +1,10 @@
 ---
 title: คู่มือเริ่มใช้ NAVA Agent
-version: 4.8.5
+version: 4.8.6
 updated: 2026-08-24
 ---
 
-# คู่มือเริ่มใช้ NAVA Agent v4.8.5
+# คู่มือเริ่มใช้ NAVA Agent v4.8.6
 
 NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับไฟล์ Git คำสั่ง และโปรแกรมบนเครื่อง Windows ของคุณผ่าน MCP โดยงานยังรันอยู่บนเครื่องนี้
 
@@ -137,6 +137,17 @@ codex mcp list
 ```
 
 ถ้าไม่มี `nava` ให้เพิ่ม MCP URL `http://127.0.0.1:18765/mcp` ในการตั้งค่า Codex แล้วเปิด Codex ใหม่
+
+### ขึ้น `RESPONSE_TOO_LARGE` หรืออ่าน CSV/log ใหญ่ไม่ได้ทั้งไฟล์
+
+NAVA ป้องกันไม่ให้ผลลัพธ์เกินขีดจำกัด Secure Tunnel จนทำให้ทุกแชทหลุด ให้เปลี่ยนเป็น:
+
+- ใช้ `read_file_page` และกำหนด `pageSize` หรือ `responseTargetBytes` ให้เล็กลง
+- ใช้ `search_text` หาเฉพาะส่วนที่ต้องการ แล้วอ่านเฉพาะช่วงบรรทัด
+- สำหรับ `shell` ให้ลด `max_output_bytes` หรือรัน background แล้วอ่าน log แบบจำกัดจำนวนบรรทัด
+- สำหรับหน้าจอ ให้ใช้ `observe_summary` หรือดูเฉพาะ element ที่ต้องการโดยไม่แนบ screenshot ขนาดใหญ่
+
+เมื่อเจอ error นี้ Tunnel และแชทอื่นควรทำงานต่อได้ ไม่ต้อง restart NAVA
 
 ### โปรแกรมยังทำงานหลังปิดหน้าต่าง
 

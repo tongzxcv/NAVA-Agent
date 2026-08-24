@@ -1,5 +1,21 @@
 # Progress
 
+## 2026-08-24 Secure Tunnel response-budget hardening
+
+- Confirmed the source worktree is clean at pushed commit `80e6937` before this task.
+- Correlated the user-visible `ExceptionGroup` with HTTP 413 `request_body_too_large`, stdio child exit, and shared Tunnel shutdown at 19:17:53.
+- Confirmed the triggering CSV is 14,786,001 bytes while the Tunnel limit is 10,485,760 bytes.
+- Defined the minimal patch: one central MCP response budget with no new dependency, scheduler, or duplicated file-size policy.
+- RED confirmed through the real MCP stdio client/server path: a 6 MiB file value (duplicated by MCP text + structured content) closes the connection before a follow-up request.
+- GREEN: the central 8 MiB serialized-response guard returns `RESPONSE_TOO_LARGE` and the same stdio process completes the next request.
+- Strengthened the fixture to the exact production file size, 14,786,001 bytes; stdio integration and tool-specific recovery guidance pass 6/6 focused tests.
+- Released source metadata as NAVA v4.8.6 and documented `RESPONSE_TOO_LARGE` recovery in README and the Thai quick-start guide.
+- Full lint, typecheck, and all 19 package builds pass. MCP server passes 153/153, packaging 4/4, and focused Desktop compatibility tests 20/20.
+- Backed up installed v4.8.5 to `E:\AI_CACHE\nava-agent-setup\20260824-202700-v4.8.5-before-v4.8.6`, installed hash-verified v4.8.6 runtime artifacts, and relaunched NAVA with the Tunnel connected.
+- Live Secure Tunnel regression passed: exact 14.1 MiB read returned bounded `RESPONSE_TOO_LARGE`; the next workspace call plus normal shell/accessibility calls succeeded without `ExceptionGroup` or a Tunnel restart.
+- Staged-only artifact/secret guard passed for all 35 intentional source, test, documentation, and planning files; generated installers, ASAR files, logs, databases, and Runtime API key material are not staged.
+
+
 ## 2026-08-24 multi-chat workspace isolation
 
 - Recovered the exact incident from the installed NAVA activity log without modifying runtime state.

@@ -1,5 +1,20 @@
 # Findings
 
+## 2026-08-24 Secure Tunnel response-budget hardening
+
+- Production incident: `read_file` returned `D:\EA\Autobots\research\V031_ENTRY_EDGE_PHASE1_SCANS_FULL.csv` (14,786,001 bytes / 14.1 MiB) through Secure Tunnel.
+- The control plane rejected the response with HTTP 413 because the Tunnel request/response limit is 10,485,760 bytes.
+- Immediately afterward, tunnel-client failed to read another MCP response, the shared stdio command exited, and unrelated `shell`/`accessibility` calls surfaced `ExceptionGroup`.
+- Local NAVA remained healthy; after Tunnel restart, `shell`, `read_file`, and accessibility status all succeeded. This isolates the fault to oversized Tunnel response handling, not tool implementations or workspace permissions.
+- The required fix belongs at the shared MCP response boundary so every tool and both transports receive the same protection.
+- The repository already caps paged reads and shell output inputs at 8 MiB, but whole `read_file` can still return up to the filesystem reader's larger limit; there is no proven aggregate guard at stdio serialization yet.
+- Relevant seams are `packages/mcp-server/src/stdio.ts`, `server.ts`, `tool-registry.ts`, `result-mapper.ts`, and the application/filesystem file readers.
+- Every MCP tool result passes through one public handler in `createMcpServer`; enforcing the serialized budget there protects stdio and HTTP without modifying 200+ individual tools.
+- `mapResult` includes values in both text content and `structuredContent`, so a 4–5 MiB value can serialize above the 10 MiB wire limit. The guard must measure the complete `CallToolResult`, not source file size alone.
+- Minimal design after inspection: one central 8 MiB serialized-response guard with tool-specific recovery text. A separate early file-size policy would duplicate this logic and could block legitimate local/non-MCP trusted reads, so it is intentionally skipped.
+- The installed v4.8.6 runtime reproduced the exact 14,786,001-byte read through Secure Tunnel as a 131-character `RESPONSE_TOO_LARGE` error; the next `workspace_list`, bounded `shell`, and accessibility status calls all succeeded through the same connector.
+
+
 ## 2026-08-24 multi-chat workspace isolation
 
 - The reported failure is present in `mcp-activity.log`: `search_files` failed after 2.673 seconds and `workspace_full_scan` failed immediately for the BEELZEBUB absolute path.

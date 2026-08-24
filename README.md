@@ -40,14 +40,24 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.5
+## Current release: v4.8.6
 
-The current published installer and runtime contract are `v4.8.5`. The runtime
+The current published installer and runtime contract are `v4.8.6`. The runtime
 advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.8.6
+
+- Enforces an 8 MiB serialized MCP response budget before stdio/HTTP transport,
+  preventing OpenAI Secure Tunnel's 10 MiB limit from terminating the shared
+  MCP session.
+- Returns a small recoverable `RESPONSE_TOO_LARGE` error with specific paging
+  or output-reduction guidance for files, shell commands, and accessibility.
+- Adds a real stdio regression proving a 14.1 MiB file result is rejected safely
+  and the same MCP process completes the next request.
 
 ### What's new in v4.8.5
 
@@ -255,7 +265,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current release is `nava-agent-Setup-4.8.5.exe`.
+   The current release is `nava-agent-Setup-4.8.6.exe`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -501,7 +511,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.8.5.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.8.6.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -850,7 +860,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (213 configurable tools; 207 advertised by default)
 
-This index is generated from the current v4.8.5 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.6 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
@@ -1490,6 +1500,7 @@ standalone `git_reset` / `git_clean` tools.
 | Tunnel disconnects with context canceled / context deadline exceeded | MCP connection TTL teardown; start-lnwjud-tunnel.ps1 restarts even on exit 0. After restart, Refresh the connector or send a new ChatGPT message |
 | ChatGPT advertises old tools | Restart server/tunnel, Refresh the connector, and start a new conversation |
 | Long tool run looks dead / silent | lnwjud emits progress heartbeats every ~15s after the first 15s; ensure tunnel-client is current and TTL is set via `--mcp.connection-max-ttl 168h0m0s` |
+| `RESPONSE_TOO_LARGE` or a large CSV/log cannot be read whole | Use `read_file_page` with a smaller `pageSize`/`responseTargetBytes`; for shell use `max_output_bytes` or bounded background-task logs |
 
 For ambiguous failures, call health locally and run tunnel-client doctor
 --explain before restarting both layers.

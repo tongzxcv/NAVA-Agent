@@ -1,3 +1,50 @@
+# NAVA Secure Tunnel response-budget hardening
+
+## SCQA
+
+- **Situation:** NAVA v4.8.5 supports concurrent workspaces, while Secure Tunnel rejects request or response bodies above 10 MiB.
+- **Complication:** A 14.1 MiB `read_file` response received HTTP 413 and the tunnel-client then stopped its shared stdio child, surfacing `ExceptionGroup` in unrelated chats/tools.
+- **Question:** How can NAVA keep the shared stdio session alive without silently discarding large results or weakening permissions?
+- **Answer:** Enforce a conservative response budget at the central MCP response boundary and replace oversized results with a small actionable paging response before transport serialization.
+
+## Acceptance criteria
+
+- [x] No serialized stdio tool response can exceed the configured safe budget below the 10 MiB Tunnel limit.
+- [x] Oversized responses become a bounded structured error with tool-specific paging/reduction guidance.
+- [x] A 14.1 MiB `read_file` request fails safely before its contents are written to the transport.
+- [x] The same stdio process accepts and completes the next request after an oversized response attempt.
+- [x] Normal `shell`, `read_file`, `accessibility`, and concurrent-workspace behavior remains unchanged.
+- [x] Installed NAVA and Secure Tunnel pass live recovery/regression checks.
+- [x] Only task-owned source/tests/docs/planning files are committed and pushed.
+
+## Phases
+
+- [completed] Locate the central stdio serialization seam and existing response-limit mechanisms.
+- [completed] RED then GREEN: central response budget and next-request survival.
+- [completed] Add tool-specific paging/reduction guidance without duplicating filesystem policy.
+- [completed] Run focused/full tests, lint, typecheck, build, and packaging checks.
+- [completed] Back up, install, live-test Tunnel, scan artifacts/secrets, commit, and push.
+
+## Safety boundaries
+
+- Do not truncate source/file content silently; return a small explicit error and continuation guidance.
+- Preserve local permissions, unrestricted mode, workspace isolation, and current Runtime API key/profile.
+- Keep the response cap below 10 MiB with JSON/base64 framing headroom.
+- Do not stop the installed app/Tunnel until source verification passes.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| RED stdio test returned `SdkError: Connection closed` for a ~12 MiB serialized `read_file` response | 1 | Expected reproduction; central pre-serialization budget now returns a bounded error and keeps the session alive. |
+| Electron Builder NSIS step cannot create winCodeSign macOS symlinks under the current Windows privilege | 1 | Reuse the verified `win-unpacked` output produced before signing, apply repository `rcedit`, and install only hash-matched runtime artifacts. |
+| One-off installed-runtime check could not resolve `@modelcontextprotocol/client` from the repository root | 1 | Resolve the package from the MCP server workspace instead of changing dependencies or repeating the same root import. |
+| Installed-runtime composite check produced unexpectedly excessive captured output | 1 | Split the verification into one bounded oversized-read call followed by one small request, and never print tool payloads. |
+| Bounded result summarizer used unavailable `TextEncoder` in the orchestration isolate | 1 | Rerun with string-length metadata only; the NAVA calls themselves completed and no payload was printed. |
+| Repository-wide secret scan descended into ignored dependencies/build output and produced noisy false positives | 1 | Stopped the read-only scan after representative output; verify only the explicit staged files before commit. |
+
+---
+
 # NAVA multi-chat workspace isolation update
 
 ## Goal

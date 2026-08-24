@@ -34,4 +34,31 @@ describe('MCP stdio transport', () => {
       await client.close();
     }
   }, 30_000);
+
+  it('keeps the same stdio session alive after rejecting an oversized tool response', async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [fixturePath],
+      stderr: 'pipe',
+    });
+    const client = new Client(
+      { name: 'lnwjud-stdio-budget-test', version: '0.1.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+
+    try {
+      await client.connect(transport);
+      const oversized = await client.callTool({ name: 'read_file', arguments: { path: 'large-response.txt' } });
+      expect(oversized).toMatchObject({
+        isError: true,
+        structuredContent: { error: { code: 'RESPONSE_TOO_LARGE', recoverable: true } },
+      });
+      expect(Buffer.byteLength(JSON.stringify(oversized), 'utf8')).toBeLessThan(8 * 1024 * 1024);
+
+      const next = await client.listTools();
+      expect(next.tools.some((tool) => tool.name === 'read_file_page')).toBe(true);
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
 });
