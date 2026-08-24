@@ -12,6 +12,7 @@ import { DocumentRuntimeService } from './document-runtime.js';
 import { LspRuntimeService } from './lsp-runtime.js';
 import { SandboxRuntimeService } from './sandbox-runtime.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
+import { ActivityTracker, type ActivitySinkEvent } from './activity-tracker.js';
 
 interface RuntimeTask {
   readonly id: string;
@@ -79,6 +80,56 @@ interface PersistedRuntimeState {
   readonly plugins?: readonly { readonly name: string; readonly enabled: boolean }[];
   readonly session?: readonly [string, unknown][];
   readonly worktrees?: readonly WorktreeLedgerEntry[];
+  readonly experiences?: readonly WseExperience[];
+  readonly activeStrategy?: WseStrategy;
+  readonly promotionHistory?: readonly WsePromotion[];
+  readonly benchmarks?: readonly WseBenchmarkSnapshot[];
+}
+
+interface WseExperience {
+  readonly id: string;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly resultCode: string;
+  readonly durationMs: number;
+  readonly timestamp: string;
+  readonly outcome: 'success' | 'failure';
+  readonly workspaceId?: string;
+  readonly targetDigest?: string;
+}
+
+const MAX_WSE_EXPERIENCES = 512;
+const MAX_WSE_PROMOTIONS = 64;
+const MIN_WSE_PROMOTION_SAMPLES = 10;
+type WseStrategy = 'baseline' | 'reliability-first' | 'latency-first';
+
+interface WsePromotion {
+  readonly id: string;
+  readonly action: 'promote' | 'rollback';
+  readonly previousStrategy: WseStrategy;
+  readonly activeStrategy: WseStrategy;
+  readonly timestamp: string;
+  readonly evidenceDigest: string;
+}
+
+interface WseBenchmarkSnapshot {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly sampleSize: number;
+  readonly successRate: number;
+  readonly averageLatencyMs: number;
+  readonly p95LatencyMs: number;
+  readonly evidenceDigest: string;
+}
+
+interface WseEvaluation {
+  readonly sampleSize: number;
+  readonly successRate: number;
+  readonly averageLatencyMs: number;
+  readonly p95LatencyMs: number;
+  readonly failuresByCode: Readonly<Record<string, number>>;
+  readonly deterministic: true;
+  readonly rawPayloadsRetained: false;
 }
 
 const PRIMITIVE_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = [
@@ -116,6 +167,10 @@ export class UpgradeRuntimeService {
   private readonly cache: CacheCounters = { hits: 0, misses: 0, bytesSaved: 0 };
   private readonly session = new Map<string, unknown>();
   private readonly worktrees: WorktreeLedgerEntry[] = [];
+  private readonly experiences: WseExperience[] = [];
+  private activeStrategy: WseStrategy = 'baseline';
+  private readonly promotionHistory: WsePromotion[] = [];
+  private readonly benchmarks: WseBenchmarkSnapshot[] = [];
   private readonly eventLog: EventLogCapabilityBackend;
   private readonly sandbox: SandboxRuntimeService;
   private readonly database: DatabaseRuntimeService;
@@ -127,6 +182,7 @@ export class UpgradeRuntimeService {
     private readonly services: McpApplicationServices,
     actor: FileActor,
     contextEconomy: ContextEconomyRuntime = new ContextEconomyRuntime(),
+    private readonly activity?: ActivityTracker,
   ) {
     this.actor = actor;
     this.contextEconomy = contextEconomy;
@@ -256,11 +312,23 @@ export class UpgradeRuntimeService {
       case 'live_logs_status':
         return ok({ healthy: true, sources: ['mcp', 'tunnel', 'process'], correlationIds: true, redaction: 'secrets-not-retained' });
       case 'live_logs_query':
-        return ok({ entries: [], source: readString(input, 'source') ?? 'all', continuation: null, queryApplied: true });
+        return ok({ entries: activityEntries(this.activity, input), source: 'mcp', continuation: null, queryApplied: true });
       case 'telemetry_dashboard':
-        return ok({ mcpCalls: 0, internalOperations: 0, averageLatencyMs: 0, p95LatencyMs: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, errors: 0, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
+        return ok({ ...activityMetrics(this.activity?.listRecent() ?? []), internalOperations: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
       case 'context_economy_stats':
         return ok({ ...this.contextEconomy.snapshot(), policy: { automaticDiscovery: 'filtered-and-progressive', explicitAccess: 'full-and-unrestricted-by-economy', ledger: 'bounded-in-memory' } });
+      case 'wse_experience_capture':
+        return this.captureExperiences(input);
+      case 'wse_experience_list':
+        return ok({ experiences: this.experiences.slice(-boundedInteger(input.limit, 100, 1, 256)), total: this.experiences.length, rawPayloadsRetained: false });
+      case 'wse_evaluate':
+        return ok(evaluateExperiences(this.experiences));
+      case 'wse_strategy_score':
+        return ok(scoreWseStrategies(this.experiences));
+      case 'wse_strategy_status':
+        return ok({ activeStrategy: this.activeStrategy, automaticPromotion: false, promotionHistory: this.promotionHistory.slice(-20), authorizationUnchanged: true });
+      case 'wse_strategy_promote':
+        return this.promoteWseStrategy(input);
       case 'execution_plan':
         return ok({ ...planFor(readString(input, 'prompt') ?? readString(input, 'query') ?? ''), reason: 'deterministic rule plan; telemetry can refine cost estimates' });
       case 'recovery_status':
@@ -311,9 +379,9 @@ export class UpgradeRuntimeService {
       case 'handoff_context':
         return ok({ goal: summarize(readString(input, 'prompt') ?? readString(input, 'goal') ?? ''), workspaceId: readString(input, 'workspaceId') ?? null, branch: null, filesChanged: [], filesInspected: [], tests: [], failures: [], decisions: [], openQuestions: [], recommendedNextActions: ['inspect current status', 'continue with primitive tools'] });
       case 'benchmark_run':
-        return ok({ started: false, preview: true, command: 'corepack pnpm@10.15.0 run benchmark:baseline -- --runs 3', scenario: readString(input, 'scenario') ?? 'all' });
+        return this.runWseBenchmark(input);
       case 'regression_report':
-        return ok({ status: 'available', scenarios: ['small repository', 'large generated source tree', 'concurrent tool calls', 'tunnel connection', 'local stdio connection'], regressions: [] });
+        return ok(wseRegressionReport(this.benchmarks));
       case 'project_profile_get':
         return ok({ profile: null, source: '.lnwjud/project.yaml', augmentsCapabilities: true });
       case 'project_profile_set':
@@ -374,9 +442,10 @@ export class UpgradeRuntimeService {
     const requestedReranker = readString(input, 'reranker') ?? readString(input, 'model') ?? 'deterministic';
     const category = readString(input, 'category')?.toLowerCase();
     const route = routeIntent(query);
+    const experienceStats = toolExperienceStats(this.experiences);
     const scored = SEARCH_CATALOG
       .filter((entry) => category === undefined || entry.tags.some((tag) => tag.toLowerCase() === category))
-      .map((entry) => scoreToolEntry(entry, normalized, route))
+      .map((entry) => scoreToolEntry(entry, normalized, route, this.activeStrategy, experienceStats.get(entry.name)))
       .filter((entry) => normalized.length === 0 || entry.score > 0)
       .sort((left, right) => right.score - left.score || Number(right.entry.primitive === true) - Number(left.entry.primitive === true) || left.entry.name.localeCompare(right.entry.name));
     const rankedCandidates: readonly RankedToolCandidate[] = scored.slice(0, limit).map((candidate) => ({
@@ -405,6 +474,7 @@ export class UpgradeRuntimeService {
       primitiveToolsRemainAvailable: true,
       authorizationUnchanged: true,
       route: route.route,
+      activeStrategy: this.activeStrategy,
     };
   }
 
@@ -716,6 +786,11 @@ export class UpgradeRuntimeService {
           this.worktrees.push(worktree);
         }
       }
+      for (const experience of state.experiences ?? []) if (isWseExperience(experience)) this.experiences.push(experience);
+      if (this.experiences.length > MAX_WSE_EXPERIENCES) this.experiences.splice(0, this.experiences.length - MAX_WSE_EXPERIENCES);
+      if (isWseStrategy(state.activeStrategy)) this.activeStrategy = state.activeStrategy;
+      for (const promotion of state.promotionHistory ?? []) if (isWsePromotion(promotion)) this.promotionHistory.push(promotion);
+      for (const benchmark of state.benchmarks ?? []) if (isWseBenchmarkSnapshot(benchmark)) this.benchmarks.push(benchmark);
     } catch {
       // A corrupt optional state file is recoverable; the next mutation writes a fresh state.
     }
@@ -732,10 +807,77 @@ export class UpgradeRuntimeService {
         plugins: [...this.plugins.values()],
         session: [...this.session.entries()],
         worktrees: this.worktrees,
+        experiences: this.experiences,
+        activeStrategy: this.activeStrategy,
+        promotionHistory: this.promotionHistory,
+        benchmarks: this.benchmarks,
       })}\n`, 'utf8');
     } catch {
       // State persistence must never break the MCP operation itself.
     }
+  }
+
+  private async captureExperiences(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const limit = boundedInteger(input.limit, 100, 1, 256);
+    const existing = new Set(this.experiences.map((entry) => entry.callId));
+    const completed = (this.activity?.listRecent(limit * 2) ?? [])
+      .filter((event) => event.phase === 'completed' && !event.toolName.startsWith('wse_'))
+      .slice(-limit);
+    let captured = 0;
+    for (const event of completed) {
+      if (existing.has(event.callId)) continue;
+      this.experiences.push(toWseExperience(event));
+      existing.add(event.callId);
+      captured += 1;
+    }
+    if (this.experiences.length > MAX_WSE_EXPERIENCES) this.experiences.splice(0, this.experiences.length - MAX_WSE_EXPERIENCES);
+    if (captured > 0) await this.persistState();
+    return ok({ captured, total: this.experiences.length, capacity: MAX_WSE_EXPERIENCES, rawPayloadsRetained: false, deduplicatedByCallId: true });
+  }
+
+  private async promoteWseStrategy(input: Record<string, unknown>): Promise<Result<unknown>> {
+    if (input.userConfirmed !== true) return err(appError('PERMISSION_REQUIRED', 'WSE strategy changes require explicit human confirmation'));
+    const action = readString(input, 'action') === 'rollback' ? 'rollback' : 'promote';
+    const previousStrategy = this.activeStrategy;
+    let nextStrategy: WseStrategy;
+    if (action === 'rollback') {
+      const previousPromotion = [...this.promotionHistory].reverse().find((entry) => entry.action === 'promote' && entry.activeStrategy === this.activeStrategy);
+      nextStrategy = previousPromotion?.previousStrategy ?? 'baseline';
+    } else {
+      const requested = readString(input, 'strategy');
+      if (!isWseStrategy(requested)) return err(appError('INVALID_INPUT', 'strategy must be baseline, reliability-first, or latency-first'));
+      if (requested !== 'baseline' && this.experiences.length < MIN_WSE_PROMOTION_SAMPLES) {
+        return ok({ promoted: false, reason: 'insufficient_evidence', sampleSize: this.experiences.length, requiredSamples: MIN_WSE_PROMOTION_SAMPLES, activeStrategy: this.activeStrategy, automaticPromotion: false });
+      }
+      nextStrategy = requested;
+    }
+    this.activeStrategy = nextStrategy;
+    this.promotionHistory.push({ id: randomUUID(), action, previousStrategy, activeStrategy: nextStrategy, timestamp: new Date().toISOString(), evidenceDigest: digest(evaluateExperiences(this.experiences)) });
+    if (this.promotionHistory.length > MAX_WSE_PROMOTIONS) this.promotionHistory.splice(0, this.promotionHistory.length - MAX_WSE_PROMOTIONS);
+    await this.persistState();
+    return ok(action === 'rollback'
+      ? { rolledBack: true, previousStrategy, activeStrategy: nextStrategy, automaticPromotion: false }
+      : { promoted: true, previousStrategy, activeStrategy: nextStrategy, automaticPromotion: false });
+  }
+
+  private async runWseBenchmark(input: Record<string, unknown>): Promise<Result<unknown>> {
+    const evaluation = evaluateExperiences(this.experiences);
+    const snapshot: WseBenchmarkSnapshot = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      sampleSize: evaluation.sampleSize,
+      successRate: evaluation.successRate,
+      averageLatencyMs: evaluation.averageLatencyMs,
+      p95LatencyMs: evaluation.p95LatencyMs,
+      evidenceDigest: digest(evaluation),
+    };
+    const preview = input.dryRun !== false;
+    if (!preview) {
+      this.benchmarks.push(snapshot);
+      if (this.benchmarks.length > 32) this.benchmarks.splice(0, this.benchmarks.length - 32);
+      await this.persistState();
+    }
+    return ok({ started: true, preview, scenario: readString(input, 'scenario') ?? 'wse-experience', evaluation, snapshot: preview ? null : snapshot, snapshotCount: this.benchmarks.length, deterministic: true });
   }
 }
 
@@ -799,7 +941,7 @@ function dedupeSearchEntries(entries: readonly SearchCatalogEntry[]): readonly S
   });
 }
 
-function scoreToolEntry(entry: SearchCatalogEntry, query: string, route: ReturnType<typeof routeIntent>): { readonly entry: SearchCatalogEntry; readonly score: number; readonly reasonCodes: readonly string[] } {
+function scoreToolEntry(entry: SearchCatalogEntry, query: string, route: ReturnType<typeof routeIntent>, strategy: WseStrategy = 'baseline', experience?: { readonly successRate: number; readonly averageLatencyMs: number }): { readonly entry: SearchCatalogEntry; readonly score: number; readonly reasonCodes: readonly string[] } {
   if (query.length === 0) return { entry, score: 0, reasonCodes: ['empty-query'] };
   const queryTokens = tokenize(query);
   const nameTokens = tokenize(entry.name);
@@ -832,7 +974,22 @@ function scoreToolEntry(entry: SearchCatalogEntry, query: string, route: ReturnT
     reasons.add(`route:${route.route}`);
   }
   if (entry.primitive === true) reasons.add('primitive-visible');
+  if (strategy !== 'baseline' && experience !== undefined) {
+    score += strategy === 'reliability-first'
+      ? experience.successRate * 0.3
+      : 0.3 / (1 + experience.averageLatencyMs / 1_000);
+    reasons.add(`strategy:${strategy}`);
+  }
   return { entry, score, reasonCodes: [...reasons] };
+}
+
+function toolExperienceStats(experiences: readonly WseExperience[]): Map<string, { readonly successRate: number; readonly averageLatencyMs: number }> {
+  const grouped = new Map<string, WseExperience[]>();
+  for (const experience of experiences) grouped.set(experience.toolName, [...(grouped.get(experience.toolName) ?? []), experience]);
+  return new Map([...grouped.entries()].map(([toolName, entries]) => [toolName, {
+    successRate: entries.filter((entry) => entry.outcome === 'success').length / entries.length,
+    averageLatencyMs: entries.reduce((sum, entry) => sum + entry.durationMs, 0) / entries.length,
+  }]));
 }
 
 function tokenize(value: string): string[] {
@@ -910,6 +1067,136 @@ interface RecipeDefinition {
   readonly permissions: readonly string[];
   readonly optional: boolean;
   readonly requiresConfirmation: boolean;
+}
+
+function activityEntries(activity: ActivityTracker | undefined, input: Record<string, unknown>): readonly Record<string, unknown>[] {
+  const limit = boundedInteger(input.limit, 100, 1, 200);
+  const phase = readString(input, 'phase');
+  return (activity?.listRecent(limit * 2) ?? [])
+    .filter((event) => phase === undefined || event.phase === phase)
+    .slice(-limit)
+    .map((event) => ({ callId: event.callId, toolName: event.toolName, phase: event.phase, resultCode: event.resultCode, durationMs: event.durationMs, timestamp: event.timestamp, ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }) }));
+}
+
+function activityMetrics(events: readonly ActivitySinkEvent[]): Record<string, unknown> {
+  const completed = events.filter((event) => event.phase === 'completed');
+  const durations = completed.map((event) => event.durationMs);
+  const errors = completed.filter((event) => event.resultCode !== 'SUCCESS').length;
+  return {
+    mcpCalls: completed.length,
+    activeCalls: Math.max(0, events.filter((event) => event.phase === 'started').length - completed.length),
+    averageLatencyMs: durations.length === 0 ? 0 : Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length),
+    p95LatencyMs: percentile95(durations),
+    errors,
+    successRate: completed.length === 0 ? 0 : Number(((completed.length - errors) / completed.length).toFixed(4)),
+  };
+}
+
+function toWseExperience(event: ActivitySinkEvent): WseExperience {
+  return {
+    id: randomUUID(),
+    callId: event.callId,
+    toolName: event.toolName,
+    resultCode: event.resultCode,
+    durationMs: Math.max(0, Math.round(event.durationMs)),
+    timestamp: event.timestamp,
+    outcome: event.resultCode === 'SUCCESS' ? 'success' : 'failure',
+    ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+    ...(event.targetSummary === undefined ? {} : { targetDigest: createHash('sha256').update(event.targetSummary).digest('hex') }),
+  };
+}
+
+function evaluateExperiences(experiences: readonly WseExperience[]): WseEvaluation {
+  const durations = experiences.map((entry) => entry.durationMs);
+  const successes = experiences.filter((entry) => entry.outcome === 'success').length;
+  const failuresByCode = experiences.reduce<Record<string, number>>((counts, entry) => {
+    if (entry.outcome === 'failure') counts[entry.resultCode] = (counts[entry.resultCode] ?? 0) + 1;
+    return counts;
+  }, {});
+  return {
+    sampleSize: experiences.length,
+    successRate: experiences.length === 0 ? 0 : Number((successes / experiences.length).toFixed(4)),
+    averageLatencyMs: durations.length === 0 ? 0 : Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length),
+    p95LatencyMs: percentile95(durations),
+    failuresByCode,
+    deterministic: true,
+    rawPayloadsRetained: false,
+  };
+}
+
+function scoreWseStrategies(experiences: readonly WseExperience[]): Record<string, unknown> {
+  const evaluation = evaluateExperiences(experiences);
+  const reliability = evaluation.successRate * 100;
+  const latency = Math.max(0, 100 - Math.min(100, evaluation.p95LatencyMs / 20));
+  const coverage = Math.min(100, evaluation.sampleSize * 5);
+  const profiles: readonly { readonly strategy: WseStrategy; readonly reliabilityWeight: number; readonly latencyWeight: number }[] = [
+    { strategy: 'baseline', reliabilityWeight: 0.7, latencyWeight: 0.3 },
+    { strategy: 'reliability-first', reliabilityWeight: 0.85, latencyWeight: 0.15 },
+    { strategy: 'latency-first', reliabilityWeight: 0.55, latencyWeight: 0.45 },
+  ];
+  return {
+    sampleSize: evaluation.sampleSize,
+    candidates: profiles.map((profile) => ({
+      strategy: profile.strategy,
+      score: Number(((reliability * profile.reliabilityWeight + latency * profile.latencyWeight) * (0.5 + coverage / 200)).toFixed(4)),
+      reasonCodes: [`success-rate:${evaluation.successRate}`, `p95-latency-ms:${evaluation.p95LatencyMs}`, `sample-size:${evaluation.sampleSize}`],
+      offlineOnly: true,
+    })).sort((left, right) => right.score - left.score || left.strategy.localeCompare(right.strategy)),
+    deterministic: true,
+    automaticPromotion: false,
+  };
+}
+
+function percentile95(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? 0;
+}
+
+function isWseExperience(value: unknown): value is WseExperience {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Partial<WseExperience>;
+  return typeof entry.id === 'string' && typeof entry.callId === 'string' && typeof entry.toolName === 'string'
+    && typeof entry.resultCode === 'string' && typeof entry.durationMs === 'number' && typeof entry.timestamp === 'string'
+    && (entry.outcome === 'success' || entry.outcome === 'failure');
+}
+
+function isWseStrategy(value: unknown): value is WseStrategy {
+  return value === 'baseline' || value === 'reliability-first' || value === 'latency-first';
+}
+
+function isWsePromotion(value: unknown): value is WsePromotion {
+  if (typeof value !== 'object' || value === null) return false;
+  const promotion = value as Partial<WsePromotion>;
+  return typeof promotion.id === 'string' && (promotion.action === 'promote' || promotion.action === 'rollback')
+    && isWseStrategy(promotion.previousStrategy) && isWseStrategy(promotion.activeStrategy)
+    && typeof promotion.timestamp === 'string' && typeof promotion.evidenceDigest === 'string';
+}
+
+function isWseBenchmarkSnapshot(value: unknown): value is WseBenchmarkSnapshot {
+  if (typeof value !== 'object' || value === null) return false;
+  const snapshot = value as Partial<WseBenchmarkSnapshot>;
+  return typeof snapshot.id === 'string' && typeof snapshot.timestamp === 'string' && typeof snapshot.sampleSize === 'number'
+    && typeof snapshot.successRate === 'number' && typeof snapshot.averageLatencyMs === 'number'
+    && typeof snapshot.p95LatencyMs === 'number' && typeof snapshot.evidenceDigest === 'string';
+}
+
+function wseRegressionReport(snapshots: readonly WseBenchmarkSnapshot[]): Record<string, unknown> {
+  if (snapshots.length < 2) return { status: 'insufficient_evidence', regressions: [], snapshotCount: snapshots.length, requiredSnapshots: 2, deterministic: true };
+  const baseline = snapshots.at(-2)!;
+  const current = snapshots.at(-1)!;
+  const regressions: string[] = [];
+  if (current.successRate < baseline.successRate) regressions.push('success_rate_decreased');
+  if (current.p95LatencyMs > baseline.p95LatencyMs) regressions.push('p95_latency_increased');
+  return {
+    status: regressions.length === 0 ? 'pass' : 'regression',
+    regressions,
+    snapshotCount: snapshots.length,
+    baseline,
+    current,
+    deltas: { successRate: Number((current.successRate - baseline.successRate).toFixed(4)), p95LatencyMs: current.p95LatencyMs - baseline.p95LatencyMs },
+    deterministic: true,
+  };
 }
 
 function recipeCatalog(): readonly RecipeDefinition[] {

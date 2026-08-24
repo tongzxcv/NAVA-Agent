@@ -20,6 +20,7 @@ import type {
 } from '@lnwjud/application';
 import type { z } from 'zod';
 import type { ContextEconomyRuntime } from '../context-economy.js';
+import type { ActivityTracker } from '../activity-tracker.js';
 
 export interface WorkspaceInfoPort {
   info(actor: FileActor, workspaceId: string): Promise<Result<unknown>>;
@@ -92,6 +93,7 @@ export interface McpToolContext {
   readonly actor: FileActor;
   readonly services: McpApplicationServices;
   readonly contextEconomy: ContextEconomyRuntime;
+  readonly activity?: ActivityTracker;
 }
 
 export interface ToolConfig<T extends z.ZodType> {

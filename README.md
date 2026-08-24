@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>219 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 213 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>225 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 219 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" />
   <img alt="Node" src="https://img.shields.io/badge/Node.js-24.x-339933" />
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-210%20tools-6f42c1" />
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-219%20tools-6f42c1" />
 </p>
 
 ---
@@ -40,14 +40,24 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.9.0
+## Current release: v4.10.0
 
-The current published installer and runtime contract are `v4.9.0`. The runtime
-advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
+The current published installer and runtime contract are `v4.10.0`. The runtime
+advertises **219 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.10.0
+
+- Adds the bounded WSE Experience loop, deterministic evaluation, and measured
+  benchmark/regression reports based on real MCP activity metadata.
+- Adds offline scoring for three fixed routing strategies with reason codes;
+  non-baseline promotion requires evidence plus explicit human confirmation.
+- Keeps WSE model-agnostic and payload-free: no prompts, file contents,
+  credentials, or raw tool results are retained, and promotion never changes
+  permissions or destructive-operation confirmation.
 
 ### What's new in v4.9.0
 
@@ -283,7 +293,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current release is `nava-agent-Setup-4.9.0.exe`.
+   The current release is `nava-agent-Setup-4.10.0.exe`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -529,7 +539,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.9.0.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.10.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -876,9 +886,9 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
-## Complete MCP tool catalog (219 configurable tools; 213 advertised by default)
+## Complete MCP tool catalog (225 configurable tools; 219 advertised by default)
 
-This index is generated from the current v4.9.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.10.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
@@ -1093,14 +1103,20 @@ This index is generated from the current v4.9.0 `ToolRegistry`, not copied from 
 | 209 | `self_heal_apply` | DANGEROUS | Apply an approved reversible recovery plan without automatic destructive retries. |
 | 210 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
 | 211 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
-| 212 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
-| 213 | `workspace_lease_acquire` | WRITE | Acquire one expiring writer lease for a workspace while reads remain concurrent. |
-| 214 | `workspace_lease_status` | READ | List active non-expired workspace writer leases and expiry metadata. |
-| 215 | `workspace_lease_renew` | WRITE | Refresh an owned workspace writer lease before expiry. |
-| 216 | `workspace_lease_release` | WRITE | Release an owned workspace writer lease. |
-| 217 | `workspace_lease_call` | DANGEROUS | Run one non-read MCP tool under a matching workspace writer lease while preserving child permission checks. |
-| 218 | `diagnostic_bundle_create` | READ | Return bounded read-only NAVA health, recovery, task, crash, and redacted activity evidence. |
-| 219 | `git_worktree_remove` | DANGEROUS | Remove only a ledger-owned Git worktree after dry-run and explicit confirmation. |
+| 212 | `wse_experience_capture` | WRITE | Capture bounded redacted tool outcomes as persistent WSE experience evidence. |
+| 213 | `wse_experience_list` | READ | List bounded WSE experience metadata without raw prompts or tool payloads. |
+| 214 | `wse_evaluate` | READ | Evaluate recorded WSE experience deterministically. |
+| 215 | `wse_strategy_score` | READ | Score fixed WSE routing strategies offline with reason codes. |
+| 216 | `wse_strategy_status` | READ | Return the active human-approved WSE strategy and promotion history. |
+| 217 | `wse_strategy_promote` | DANGEROUS | Promote or roll back a WSE ranking strategy after explicit human confirmation. |
+| 218 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
+| 219 | `workspace_lease_acquire` | WRITE | Acquire one expiring writer lease for a workspace while reads remain concurrent. |
+| 220 | `workspace_lease_status` | READ | List active non-expired workspace writer leases and expiry metadata. |
+| 221 | `workspace_lease_renew` | WRITE | Refresh an owned workspace writer lease before expiry. |
+| 222 | `workspace_lease_release` | WRITE | Release an owned workspace writer lease. |
+| 223 | `workspace_lease_call` | DANGEROUS | Run one non-read MCP tool under a matching workspace writer lease while preserving child permission checks. |
+| 224 | `diagnostic_bundle_create` | READ | Return bounded read-only NAVA health, recovery, task, crash, and redacted activity evidence. |
+| 225 | `git_worktree_remove` | DANGEROUS | Remove only a ledger-owned Git worktree after dry-run and explicit confirmation. |
 
 ## Detailed capability guide
 

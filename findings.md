@@ -1,5 +1,26 @@
 # Findings
 
+## 2026-08-25 WSE evidence and human promotion
+
+- Scope is limited to the previously proposed WSE sequence: real metrics, bounded Experience, deterministic evaluation, offline strategy scoring, and explicit human promotion.
+- Provider/model selection is intentionally excluded; ChatGPT Free can select GPT-5.6 Luna at the client layer and NAVA remains model-agnostic for this release.
+- Current known baseline: context economy/dedup is real and bounded, while live-log/benchmark/regression surfaces need verification because earlier inspection found empty or preview/static behavior.
+- Source verification confirms `live_logs_query` always returns an empty array, `telemetry_dashboard` hard-codes all activity counters to zero, `benchmark_run` returns only a command preview, and `regression_report` returns a static scenario list.
+- `UpgradeRuntimeService` already has one bounded JSON runtime-state persistence seam and a deterministic search/ranking catalog, so WSE can remain additive without a new package or separate database subsystem.
+- `ActivityTracker`, the audit repository, and Desktop service composition already capture real MCP lifecycle evidence; WSE should consume a bounded summary at this existing seam rather than duplicate raw logging.
+- The current context-economy implementation must remain content-free in persistence; WSE records should store only classifications, durations, outcome codes, hashes/IDs, and bounded counters.
+- The current public ActivityTracker interface exposes only in-flight calls and a revision; adding one bounded recent-event reader is sufficient to power real Live Logs, telemetry, and explicit Experience capture.
+- `UpgradeRuntimeService` is instantiated once per ToolRegistry and already persists bounded session/task/worktree state to the configured runtime-state path. WSE state can use that file without a new migration or dependency.
+- Promoted strategy behavior will be limited to deterministic tool-search ranking adjustments; permissions, destructive confirmation, context visibility, and direct tool availability remain unchanged.
+- The existing `tool_search`/`tool_dynamic_filter` path has one deterministic `scoreToolEntry` seam. A promoted profile can add a small evidence-derived tie-breaker there while leaving the semantic base score and all permission metadata intact.
+- Three intentionally fixed profiles are sufficient: `baseline`, `reliability-first`, and `latency-first`. Arbitrary user-supplied weights are excluded to avoid turning WSE into an unbounded policy/config system.
+- Benchmark snapshots can reuse the same deterministic Experience evaluation; regression should compare the newest two persisted snapshots and otherwise report `insufficient_evidence` instead of claiming no regressions.
+- WSE adds six public tools at phase 47: capture/list/evaluate, score/status, and promote-or-rollback. Existing benchmark/regression tools are upgraded in place rather than duplicated.
+- Installed v4.10.0 advertises 219 default tools and exposes all six WSE tools through the real local MCP endpoint.
+- Secure Tunnel startup is healthy at `127.0.0.1:8080`: `/healthz` returns `200 live`, `/readyz` returns `200 ready`, metadata resolves to `NAVA Web Fallback`, and the installed stdio child is running.
+- The promoted WSE profile remains `baseline` after installation. No automatic promotion, provider selection, permission expansion, or destructive-operation change is active.
+
+
 ## 2026-08-25 v4.9.0 deployment
 
 - The prepared source is clean at commit `388545a`; only the release metadata/planning commit remains before packaging.

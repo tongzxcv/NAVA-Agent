@@ -159,6 +159,12 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   dangerous('self_heal_apply', 46, 'Apply an approved reversible recovery plan without automatic destructive retries.', ['recovery', 'self-healing', 'safety'], { availability: 'optional', requirements: ['approved recovery plan from self_heal_plan', 'dry-run preview', 'explicit user confirmation'], supportsCancel: true, supportsDryRun: true, auditTarget: 'recovery-mutation' }),
   write('skills_import', 46, 'Import a compatible skill descriptor after validation and permission review.', ['skills', 'compatibility', 'import'], { availability: 'optional', requirements: ['validated local skill source'], supportsCancel: false, supportsDryRun: true, auditTarget: 'skill-catalog' }),
   execute('agent_swarm_run', 46, 'Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata.', ['agent', 'swarm', 'parallel'], { availability: 'planned', requirements: ['subagent provider', 'ownership ledger', 'mutation policy'], supportsCancel: true, supportsDryRun: true, auditTarget: 'agent-swarm' }),
+  write('wse_experience_capture', 47, 'Capture bounded redacted tool outcomes as persistent WSE experience evidence.', ['wse', 'experience', 'telemetry'], { auditTarget: 'wse-experience' }),
+  read('wse_experience_list', 47, 'List bounded WSE experience metadata without raw prompts or tool payloads.', ['wse', 'experience', 'audit']),
+  read('wse_evaluate', 47, 'Evaluate recorded WSE experience deterministically.', ['wse', 'evaluation', 'telemetry']),
+  read('wse_strategy_score', 47, 'Score fixed WSE routing strategies offline with reason codes.', ['wse', 'strategy', 'evaluation']),
+  read('wse_strategy_status', 47, 'Return the active human-approved WSE strategy and promotion history.', ['wse', 'strategy', 'audit']),
+  dangerous('wse_strategy_promote', 47, 'Promote or roll back a WSE ranking strategy after explicit human confirmation.', ['wse', 'strategy', 'promotion'], { requirements: ['at least 10 experience records for non-baseline strategies', 'explicit human confirmation'], supportsDryRun: false, auditTarget: 'wse-promotion' }),
 ];
 
 export function upgradeCatalogEntry(name: string): UpgradeToolCatalogEntry | undefined {

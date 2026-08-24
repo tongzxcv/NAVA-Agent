@@ -72,7 +72,7 @@ export class ToolRegistry {
     this.allowAiDeleteProvider = options.allowAiDeleteProvider ?? ((): boolean => false);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
-    const context: McpToolContext = { services, actor, contextEconomy };
+    const context: McpToolContext = { services, actor, contextEconomy, activity: this.activity };
     const contextEngine = new ContextEngine(services, actor, contextEconomy);
     const filePageEngine = new FilePageEngine(services, actor);
     const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();

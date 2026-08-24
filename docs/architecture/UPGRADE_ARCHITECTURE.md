@@ -295,6 +295,22 @@ bytes avoided, ledger hits, and estimated savings. Automatic ignore is not
 authorization: `read_file`, `read_many_files`, full scans, and explicit search
 or index requests retain full permitted access.
 
+## Phase 47 WSE evidence checkpoint
+
+WSE records only bounded completion metadata: tool name, outcome code, duration,
+workspace ID, timestamp, and an optional target digest. Prompts, file contents,
+tool payloads, credentials, and raw log text are not persisted. Live Logs and
+telemetry use the existing `ActivityTracker`; Experience capture is explicit and
+deduplicated by call ID.
+
+Evaluation, benchmark snapshots, regression reason codes, and the three fixed
+ranking strategies are deterministic and offline. `baseline` remains active by
+default. A non-baseline strategy needs at least ten captured experiences and an
+explicitly confirmed `wse_strategy_promote` call. Promotion only adds a bounded
+tool-search ranking tie-breaker; permissions, destructive confirmation, context
+visibility, and direct tool access are unchanged. Rollback is handled by the
+same confirmed tool and automatic promotion is not implemented.
+
 ## Upgrade sequencing
 
 The safe dependency direction is:

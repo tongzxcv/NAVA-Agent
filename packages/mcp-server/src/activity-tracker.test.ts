@@ -69,4 +69,21 @@ describe('ActivityTracker', () => {
       expect.objectContaining({ traceId: 'trace-123', traceParent: '00-trace-123-span-456-01' }),
     ]));
   });
+
+  it('keeps a bounded recent activity window for evidence-based runtime reports', async () => {
+    const tracker = new ActivityTracker(undefined, undefined, 3);
+    const first = await tracker.begin('read_file', { workspaceId: 'ws-1', path: 'one.ts' });
+    await tracker.end(first, 'SUCCESS', 4);
+    const second = await tracker.begin('shell', { workspaceId: 'ws-1', command: 'test' });
+    await tracker.end(second, 'PROCESS_FAILED', 9, 'failed');
+
+    expect(tracker.listRecent()).toEqual([
+      expect.objectContaining({ callId: first, phase: 'completed', resultCode: 'SUCCESS' }),
+      expect.objectContaining({ callId: second, phase: 'started', resultCode: 'STARTED' }),
+      expect.objectContaining({ callId: second, phase: 'completed', resultCode: 'PROCESS_FAILED' }),
+    ]);
+    expect(tracker.listRecent(1)).toEqual([
+      expect.objectContaining({ callId: second, phase: 'completed' }),
+    ]);
+  });
 });

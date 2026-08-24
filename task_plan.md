@@ -1,3 +1,50 @@
+# NAVA WSE evidence and human-promotion update
+
+## SCQA
+
+- **Situation:** NAVA v4.9.0 already exposes bounded context economy/ranking plus telemetry, benchmark, regression, and session/context tools.
+- **Complication:** The current WSE surface does not yet retain a real experience loop, several reporting tools are preview/static, and no deterministic offline strategy score can be reviewed and explicitly promoted by a human.
+- **Question:** What is the smallest additive implementation that makes WSE evidence-backed without allowing self-modifying or silent strategy changes?
+- **Answer:** Reuse the existing activity/audit, storage, and upgrade-tool seams to record bounded experiences, compute deterministic evaluations and offline scores, and require explicit human promotion before any strategy becomes active.
+
+## Acceptance criteria
+
+- [x] Completed tool activity can be summarized into bounded, redacted WSE experience records without storing secrets or raw oversized payloads.
+- [x] WSE metrics and evaluation reports are derived from real recorded activity, not empty/static preview data.
+- [x] Candidate strategies receive deterministic offline scores with documented inputs and reason codes.
+- [x] Promotion is explicit, auditable, reversible, and never automatic; existing behavior remains the default until promotion.
+- [x] Focused tests, lint, typecheck, full build, packaging/runtime checks, and staged secret/artifact checks pass.
+- [x] Installed NAVA is backed up, upgraded safely, and verified with local MCP plus Secure Tunnel before task-owned changes are committed and pushed.
+
+## Phases
+
+- [completed] Inspect current WSE/context/activity/storage contracts and select the minimum persistence/runtime seams.
+- [completed] Implement bounded experiences and real metrics/evaluation with focused tests.
+- [completed] Implement deterministic offline scoring and explicit human promotion/rollback.
+- [completed] Update docs/tool contracts and run focused/full verification.
+- [completed] Back up, install, live-test, scan, commit, and push.
+
+## Safety boundaries
+
+- Do not add provider/model selection in this update; ChatGPT/Codex remains responsible for model choice.
+- Do not store prompts, tool payloads, file contents, credentials, Runtime API keys, or unbounded logs in WSE records.
+- Do not auto-promote, self-modify, or silently change routing/permission/destructive-operation behavior.
+- Preserve DPAPI secrets, Tunnel profile, workspaces, permissions, database, rollback material, and unrelated running processes.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| A Windows `rg` command used a wildcard path for test files and returned `The filename, directory name, or volume label syntax is incorrect` | 1 | Search the source directory directly with `--glob` or enumerate exact files; do not repeat the wildcard path. |
+| The first focused Vitest command requested a package-local `vitest.config.ts` that does not exist | 1 | Run the package's existing Vitest command without that config override. |
+| MCP typecheck rejected casting a generic evaluation record to a benchmark snapshot | 1 | Give deterministic evaluation its own explicit interface and construct the snapshot field-by-field. |
+| Full MCP suite had three expected advertised-tool count assertions at 213 after adding six WSE tools | 1 | Update only the stdio/HTTP catalog assertions to the new default count of 219; behavioral tests were otherwise green. |
+| Local PDF QA command assumed Poppler tools (`pdfinfo`, `pdftotext`, `pdftoppm`) that are not installed | 1 | Use the available local Python PDF library or Edge rendering; do not install a new dependency for QA. |
+| Default Electron Builder cache again failed to create two macOS symlinks in `winCodeSign-2.6.0` under current Windows privileges | 1 | Reuse the previously verified Windows-only Electron Builder cache under `E:\AI_CACHE\electron-builder-cache\nava-v4.9.0`; the complete `win-unpacked` runtime was already produced before the signing step. |
+| A release preflight passed unsupported `-ExpectedVersion` to the parameterless `verify-release.ps1` | 1 | Use the script's actual contract when needed; version/artifact integrity is verified directly and the already-run focused release gates remain authoritative. |
+
+---
+
 # NAVA v4.9.0 user-guide refresh
 
 ## Goal

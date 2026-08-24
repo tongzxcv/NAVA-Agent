@@ -1,5 +1,37 @@
 # Progress
 
+## 2026-08-25 WSE evidence and human promotion
+
+- **Status:** complete; v4.10.0 installed, live-tested, and ready for commit/push.
+- Locked scope to WSE only; no model/provider selector will be added.
+- Loaded SCQA, persistent-planning, and minimal-implementation guidance; recovered the clean v4.9.0 branch and existing planning history.
+- Defined fail-closed boundaries: bounded/redacted records, deterministic offline evaluation, explicit promotion, and preserved installed runtime state until source verification passes.
+- Confirmed four WSE-adjacent reporting tools are currently empty/static previews and located the existing runtime-state, ActivityTracker, audit, and deterministic-ranking seams for the minimum implementation.
+- Started the first TDD tracer bullet: a public bounded recent-activity window that retains only the newest lifecycle events.
+- The first test launcher used a nonexistent package-local config; recorded the tooling error and switched to the package's normal Vitest discovery.
+- RED→GREEN tracer 1 passed: ActivityTracker now exposes only its newest bounded lifecycle events and all six focused tests pass.
+- Started tracer 2 through the public runtime interface: live telemetry must summarize completed calls, explicit capture must persist redacted Experience records, and evaluation must survive runtime reconstruction.
+- RED→GREEN tracer 2 passed: real completion counts/latency/errors feed telemetry, explicit capture persists only bounded hashes/metadata, and deterministic evaluation survives runtime reconstruction.
+- Started tracer 3 for fixed offline strategy scores, explicit confirmation, persistence, ranking-only activation, and rollback.
+- RED→GREEN tracer 3 passed: three fixed strategies receive deterministic offline scores; non-baseline promotion requires at least 10 samples and explicit confirmation; activation only adds a ranking tie-breaker; state persists and rollback restores baseline.
+- Started tracer 4 so benchmark/regression reports compare persisted measured snapshots instead of returning static success.
+- RED→GREEN tracer 4 passed: two persisted Experience benchmark snapshots produce measured success-rate and p95-latency regression reason codes.
+- Registered six phase-47 WSE tools; no provider/model selector or external dependency was added.
+- Focused typecheck caught one unsafe evaluation-to-snapshot cast; replaced it with an explicit WSE evaluation contract before running tests.
+- Focused MCP typecheck and 23 Activity/WSE runtime tests pass. Generated the live 225-tool contract, synchronized README counts to 219 default tools, and bumped the feature release to v4.10.0.
+- Updated the Thai quick-start source with payload-free WSE capture, evaluation, scoring, explicit promotion, and rollback instructions.
+- Release checks passed lint, root typecheck, generated-contract drift, public hygiene, and packaging. Full MCP behavior passed 158/161; the three failures were stale default tool-count assertions and were synchronized from 213 to 219.
+- Final MCP rerun passes 161/161 and all 19 packages build. Generated the v4.10.0 PDF candidate successfully; Poppler is unavailable, so PDF validation is switching to an already-installed local parser/Edge rendering path.
+- PDF candidate has a valid `%PDF-1.4` header/EOF, SHA256 `E1DBAC8D64826140650C4CBF11776FFCBB3DF9CFDD72988513B1A9C3AC21F1C3`, and the full-page Edge render visually confirms readable Thai text, WSE sections, tables, and dark command blocks.
+- Default packaging reproduced the known winCodeSign symlink privilege failure after producing `win-unpacked`; retrying with the established isolated Windows-only builder cache.
+- Isolated-cache packaging succeeded and produced the signed `nava-agent-Setup-4.10.0.exe` plus hashable `win-unpacked` runtime. A preflight passed an unsupported argument to the parameterless aggregate release script; no artifact or installed state was changed.
+- Backed up the complete v4.9.0 application, Tunnel profile, and user data at `E:\AI_CACHE\nava-agent-setup\20260825-033500-v4.9.0-before-v4.10.0-wse` before replacement.
+- Installed NAVA v4.10.0 and copied the visually verified Thai PDF to both the Desktop and installed application paths; PDF SHA256 is `E1DBAC8D64826140650C4CBF11776FFCBB3DF9CFDD72988513B1A9C3AC21F1C3`.
+- A real local HTTP MCP session advertises 219 tools, contains all six WSE tools, returns measured telemetry, persists one payload-free Experience record, evaluates it deterministically, and leaves the active strategy at `baseline` with automatic promotion disabled.
+- Started Secure Tunnel from the NAVA UI. The UI reports `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)`, `/healthz` is `200 live`, `/readyz` is `200 ready`, and the control plane fetched `NAVA Web Fallback` metadata.
+- Final release gate passes 5/5 in addition to lint, typecheck, public hygiene 8/8, packaging 4/4, MCP 161/161, generated contract drift, and the complete 19-package build.
+
+
 ## 2026-08-25 v4.9.0 deployment
 
 - **Status:** authorized; release metadata and installation preflight in progress.

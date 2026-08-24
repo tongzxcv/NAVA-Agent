@@ -15,7 +15,7 @@ verified by `packages/mcp-server/src/tool-registry.test.ts`.
 <!-- BEGIN GENERATED TOOL REGISTRY -->
 ## Generated live ToolRegistry index
 
-This block is generated from the built `ToolRegistry`. Current count: **219 tools**.
+This block is generated from the built `ToolRegistry`. Current count: **225 tools**.
 Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm docs:tools:check` and fails on drift.
 
 | # | Tool | Permission | Read-only | Destructive |
@@ -238,7 +238,13 @@ Run `pnpm docs:tools` after intentionally changing the registry; CI runs `pnpm d
 | 216 | `self_heal_apply` | DANGEROUS | no | yes |
 | 217 | `skills_import` | WRITE | no | no |
 | 218 | `agent_swarm_run` | EXECUTE | no | no |
-| 219 | `tool_batch` | DANGEROUS | no | yes |
+| 219 | `wse_experience_capture` | WRITE | no | no |
+| 220 | `wse_experience_list` | READ | yes | no |
+| 221 | `wse_evaluate` | READ | yes | no |
+| 222 | `wse_strategy_score` | READ | yes | no |
+| 223 | `wse_strategy_status` | READ | yes | no |
+| 224 | `wse_strategy_promote` | DANGEROUS | no | yes |
+| 225 | `tool_batch` | DANGEROUS | no | yes |
 <!-- END GENERATED TOOL REGISTRY -->
 
 ## Protocol and result rules

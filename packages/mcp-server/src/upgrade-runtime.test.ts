@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ok } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
+import { ActivityTracker } from './activity-tracker.js';
 import { UpgradeRuntimeService } from './upgrade-runtime.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 import { ToolRegistry } from './tool-registry.js';
@@ -17,6 +18,8 @@ describe('upgrade runtime', () => {
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'dev_context')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'handoff_context')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'context_economy_stats')).toBe(true);
+    expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'wse_experience_capture')).toBe(true);
+    expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'wse_strategy_promote')).toBe(true);
   });
 
   it('smoke-invokes every phase tool through the normal registry boundary', async () => {
@@ -105,6 +108,96 @@ describe('upgrade runtime', () => {
     const stats = await registry.invoke('context_economy_stats', {});
     expect(stats.isError).not.toBe(true);
     expect(stats).toMatchObject({ structuredContent: { filesDiscovered: 1, filesDelivered: 1 } });
+  });
+
+  it('captures real completed activity as bounded persistent WSE experience and evaluates it', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-wse-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const activity = new ActivityTracker();
+    const success = await activity.begin('read_file', { workspaceId: 'ws-1', path: 'src/app.ts' });
+    await activity.end(success, 'SUCCESS', 10);
+    const failure = await activity.begin('shell', { workspaceId: 'ws-1', command: 'test' });
+    await activity.end(failure, 'PROCESS_FAILED', 30, 'failed');
+
+    const runtime = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor, undefined, activity);
+    await expect(runtime.execute('telemetry_dashboard', {})).resolves.toMatchObject({
+      ok: true,
+      value: { mcpCalls: 2, errors: 1, averageLatencyMs: 20, p95LatencyMs: 30 },
+    });
+    await expect(runtime.execute('wse_experience_capture', {})).resolves.toMatchObject({
+      ok: true,
+      value: { captured: 2, total: 2, rawPayloadsRetained: false },
+    });
+
+    const resumed = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+    await expect(resumed.execute('wse_evaluate', {})).resolves.toMatchObject({
+      ok: true,
+      value: { sampleSize: 2, successRate: 0.5, averageLatencyMs: 20, p95LatencyMs: 30 },
+    });
+  });
+
+  it('scores strategies offline and changes ranking only after explicit human promotion', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-wse-strategy-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const activity = new ActivityTracker();
+    for (let index = 0; index < 20; index += 1) {
+      const callId = await activity.begin(index < 16 ? 'read_file' : 'shell', { workspaceId: 'ws-1', path: `src/${index}.ts` });
+      await activity.end(callId, index < 18 ? 'SUCCESS' : 'PROCESS_FAILED', index < 16 ? 10 : 100);
+    }
+    const runtime = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor, undefined, activity);
+    await runtime.execute('wse_experience_capture', { limit: 50 });
+
+    await expect(runtime.execute('wse_strategy_score', {})).resolves.toMatchObject({
+      ok: true,
+      value: { sampleSize: 20, candidates: expect.arrayContaining([
+        expect.objectContaining({ strategy: 'baseline', score: expect.any(Number), reasonCodes: expect.any(Array) }),
+        expect.objectContaining({ strategy: 'reliability-first', score: expect.any(Number) }),
+      ]) },
+    });
+    await expect(runtime.execute('wse_strategy_promote', { strategy: 'reliability-first' })).resolves.toMatchObject({
+      ok: false, error: { code: 'PERMISSION_REQUIRED' },
+    });
+    await expect(runtime.execute('wse_strategy_promote', { strategy: 'reliability-first', userConfirmed: true })).resolves.toMatchObject({
+      ok: true, value: { promoted: true, activeStrategy: 'reliability-first', automaticPromotion: false },
+    });
+    const ranked = await runtime.execute('tool_dynamic_filter', { query: 'read file', limit: 20 });
+    expect(ranked).toMatchObject({ ok: true, value: { activeStrategy: 'reliability-first', authorizationUnchanged: true } });
+    if (ranked.ok) {
+      const readFile = ranked.value.rankedCandidates.find((candidate) => candidate.name === 'read_file');
+      expect(readFile?.reasonCodes).toContain('strategy:reliability-first');
+    }
+
+    const resumed = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+    await expect(resumed.execute('wse_strategy_status', {})).resolves.toMatchObject({
+      ok: true, value: { activeStrategy: 'reliability-first', automaticPromotion: false },
+    });
+    await expect(resumed.execute('wse_strategy_promote', { action: 'rollback', userConfirmed: true })).resolves.toMatchObject({
+      ok: true, value: { rolledBack: true, activeStrategy: 'baseline' },
+    });
+  });
+
+  it('records real WSE benchmark snapshots and reports measured regression', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-wse-benchmark-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const activity = new ActivityTracker();
+    const runtime = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor, undefined, activity);
+    for (let index = 0; index < 10; index += 1) {
+      const callId = await activity.begin('read_file', { workspaceId: 'ws-1', path: `${index}.ts` });
+      await activity.end(callId, 'SUCCESS', 10);
+    }
+    await runtime.execute('wse_experience_capture', { limit: 50 });
+    await runtime.execute('benchmark_run', { dryRun: false });
+    for (let index = 0; index < 10; index += 1) {
+      const callId = await activity.begin('shell', { workspaceId: 'ws-1', command: `fail-${index}` });
+      await activity.end(callId, 'PROCESS_FAILED', 100);
+    }
+    await runtime.execute('wse_experience_capture', { limit: 50 });
+    await runtime.execute('benchmark_run', { dryRun: false });
+
+    await expect(runtime.execute('regression_report', {})).resolves.toMatchObject({
+      ok: true,
+      value: { status: 'regression', regressions: expect.arrayContaining(['success_rate_decreased', 'p95_latency_increased']), snapshotCount: 2 },
+    });
   });
 
   it('persists redacted session/task state outside the repository', async () => {

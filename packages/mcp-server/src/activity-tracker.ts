@@ -37,11 +37,13 @@ export interface InFlightToolCall {
 
 export class ActivityTracker {
   private readonly inflight = new Map<string, InFlightToolCall>();
+  private readonly recent: ActivitySinkEvent[] = [];
   private activityRevision = 0;
 
   public constructor(
     private readonly sink?: ActivitySink,
     private readonly onRecordError?: ActivityRecordErrorHandler,
+    private readonly maxRecentEvents = 512,
   ) {}
 
   public listInFlight(): readonly InFlightToolCall[] {
@@ -50,6 +52,11 @@ export class ActivityTracker {
 
   public revision(): number {
     return this.activityRevision;
+  }
+
+  public listRecent(limit = this.maxRecentEvents): readonly ActivitySinkEvent[] {
+    const bounded = Math.min(this.maxRecentEvents, Math.max(0, Math.trunc(limit)));
+    return bounded === 0 ? [] : this.recent.slice(-bounded);
   }
 
   public async begin(toolName: string, input: unknown, traceContext?: TraceContext): Promise<string> {
@@ -105,6 +112,8 @@ export class ActivityTracker {
   }
 
   private async safeRecord(event: ActivitySinkEvent): Promise<void> {
+    this.recent.push(event);
+    if (this.recent.length > this.maxRecentEvents) this.recent.splice(0, this.recent.length - this.maxRecentEvents);
     if (this.sink === undefined) return;
     try {
       await this.sink.record(event);
