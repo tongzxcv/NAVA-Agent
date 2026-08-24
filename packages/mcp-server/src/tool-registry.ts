@@ -1,4 +1,5 @@
-import { appError } from '@lnwjud/domain';
+import { appError, type Result } from '@lnwjud/domain';
+import path from 'node:path';
 import { sanitizeException, type DiagnosticLogger, type FileActor } from '@lnwjud/application';
 import { DefaultPermissionEngine, permissionProfiles, type PermissionProfile } from '@lnwjud/permissions';
 import { ActivityTracker, type ActivitySink, type TraceContext } from './activity-tracker.js';
@@ -9,9 +10,11 @@ import { FilePageEngine } from './file-page-engine.js';
 import { IncrementalVerifier } from './incremental-verifier.js';
 import { mapError, mapResult, type McpToolResponse } from './result-mapper.js';
 import { batchTools } from './tools/batch-tools.js';
+import { diagnosticTools } from './tools/diagnostic-tools.js';
 import { contextTools } from './tools/context-tools.js';
 import { filePageTools } from './tools/file-page-tools.js';
 import { workspaceIndexTools } from './tools/workspace-index-tools.js';
+import { workspaceLeaseTools } from './tools/workspace-lease-tools.js';
 import { upgradeTools } from './tools/upgrade-tools.js';
 import { ToolSchemaRegistry } from './tool-schema-registry.js';
 import { codexTools } from './tools/codex-tools.js';
@@ -57,8 +60,12 @@ export class ToolRegistry {
   private readonly profileProvider: () => PermissionProfile;
   private readonly allowAiDeleteProvider: () => boolean;
   private readonly maxToolDurationMs: number | null;
+  private readonly services: McpApplicationServices;
+  private readonly actor: FileActor;
 
   public constructor(services: McpApplicationServices, actor: FileActor, options: ToolRegistryOptions = {}) {
+    this.services = services;
+    this.actor = actor;
     this.diagnostic = options.diagnostic;
     this.activity = options.activityTracker ?? new ActivityTracker(options.activity);
     this.profileProvider = options.profileProvider ?? ((): PermissionProfile => permissionProfiles.full);
@@ -71,8 +78,14 @@ export class ToolRegistry {
     const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
     const workspace = workspaceTools(context);
     const files = fileTools(context);
-    const baseTools: readonly McpToolDefinition[] = [
+    let baseTools: readonly McpToolDefinition[] = [];
+    const invoker = {
+      invoke: (name: string, input: unknown, signal?: AbortSignal): Promise<McpToolResponse> => this.invoke(name, input, undefined, signal),
+      describe: (name: string): McpToolDefinition | undefined => baseTools.find((tool) => tool.name === name),
+    };
+    baseTools = [
       ...workspace,
+      ...workspaceLeaseTools(context, invoker),
       ...files.slice(0, 2),
       ...searchTools(context),
       ...gitTools(context),
@@ -86,13 +99,14 @@ export class ToolRegistry {
       ...filePageTools(filePageEngine),
       ...workspaceIndexTools(context),
       ...sessionTools(context, incrementalVerifier),
+      ...diagnosticTools(services, this.activity, invoker),
       ...upgradeTools(context),
     ];
     this.tools = [
       ...baseTools,
       ...batchTools({
         invoke: (name, input, signal) => this.invoke(name, input, undefined, signal),
-        describe: (name) => baseTools.find((tool) => tool.name === name),
+        describe: invoker.describe,
       }),
     ];
     this.schemaRegistry = new ToolSchemaRegistry();
@@ -125,10 +139,17 @@ export class ToolRegistry {
         await this.activity.end(callId, 'INVALID_INPUT', Date.now() - started, 'Unknown MCP tool');
         return response;
       }
-      const parsed = tool.parse(input);
+      const leaseId = readPrivateLeaseId(input);
+      const parsed = tool.parse(stripPrivateLeaseMetadata(input));
       if (!parsed.ok) {
         const response = mapError(parsed.error);
         await this.activity.end(callId, parsed.error.code, Date.now() - started, parsed.error.message);
+        return response;
+      }
+      const leaseDecision = await this.checkWorkspaceLease(tool, input, leaseId);
+      if (!leaseDecision.ok) {
+        const response = mapError(leaseDecision.error);
+        await this.activity.end(callId, leaseDecision.error.code, Date.now() - started, leaseDecision.error.message);
         return response;
       }
       const destructiveDecision = inspectDestructiveOperation(tool.name, parsed.value);
@@ -177,6 +198,15 @@ export class ToolRegistry {
       await this.activity.end(callId, 'INTERNAL_ERROR', Date.now() - started, 'Operation failed');
       return response;
     }
+  }
+
+  private async checkWorkspaceLease(tool: McpToolDefinition, input: unknown, leaseId: string | undefined): Promise<Result<void>> {
+    if (tool.permission === 'READ' || tool.name.startsWith('workspace_lease_') || this.services.workspaceLeases === undefined) {
+      return { ok: true, value: undefined };
+    }
+    const workspaceId = await mutationWorkspaceId(this.services, this.actor, input);
+    if (workspaceId === undefined) return { ok: true, value: undefined };
+    return this.services.workspaceLeases.assertMutationAllowed(workspaceId, leaseId);
   }
 
   private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown, parentSignal?: AbortSignal): Promise<BudgetedToolExecution> {
@@ -236,6 +266,62 @@ export class ToolRegistry {
       if (onParentAbort !== undefined) parentSignal?.removeEventListener('abort', onParentAbort);
     }
   }
+}
+
+function readPrivateLeaseId(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined;
+  return typeof input._workspaceLeaseId === 'string' && input._workspaceLeaseId.length > 0
+    ? input._workspaceLeaseId
+    : undefined;
+}
+
+function stripPrivateLeaseMetadata(input: unknown): unknown {
+  if (!isRecord(input) || (!('_workspaceLeaseId' in input) && !('_workspaceLeaseWorkspaceId' in input))) return input;
+  const copy = { ...input };
+  delete copy._workspaceLeaseId;
+  delete copy._workspaceLeaseWorkspaceId;
+  return copy;
+}
+
+async function mutationWorkspaceId(services: McpApplicationServices, actor: FileActor, input: unknown): Promise<string | undefined> {
+  if (!isRecord(input)) return undefined;
+  const explicit = firstString(input, ['_workspaceLeaseWorkspaceId', 'workspaceId']);
+  if (explicit !== undefined) return explicit;
+  const candidate = firstString(input, ['cwd', 'path', 'file_path', 'target_path', 'sourcePath', 'destinationPath']);
+  if (candidate === undefined || (!path.isAbsolute(candidate) && !path.win32.isAbsolute(candidate)) || services.workspaceInfo?.list === undefined) return undefined;
+  const listed = await services.workspaceInfo.list(actor);
+  if (!listed.ok) return undefined;
+  const entries = Array.isArray(listed.value)
+    ? listed.value
+    : isRecord(listed.value) && Array.isArray(listed.value.workspaces)
+      ? listed.value.workspaces
+      : [];
+  const normalizedCandidate = path.win32.normalize(candidate).toLowerCase();
+  return entries
+    .flatMap((entry): { readonly id: string; readonly root: string }[] => {
+      if (!isRecord(entry) || typeof entry.id !== 'string') return [];
+      const root = typeof entry.realRootPath === 'string' ? entry.realRootPath : typeof entry.rootPath === 'string' ? entry.rootPath : undefined;
+      return root === undefined ? [] : [{ id: entry.id, root: path.win32.normalize(root) }];
+    })
+    .filter((entry) => isPathInside(entry.root.toLowerCase(), normalizedCandidate))
+    .sort((left, right) => right.root.length - left.root.length)[0]?.id;
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.win32.relative(root, candidate);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.win32.sep}`) && !path.win32.isAbsolute(relative));
+}
+
+function firstString(input: Readonly<Record<string, unknown>>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeToolResponseBudget(value: number | undefined): number | null {

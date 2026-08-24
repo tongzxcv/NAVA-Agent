@@ -35,12 +35,31 @@ export interface ProjectSnapshotPort {
   snapshot(actor: FileActor, workspaceId: string): Promise<Result<unknown>>;
 }
 
+export interface WorkspaceLeaseRecord {
+  readonly workspaceId: string;
+  readonly leaseId: string;
+  readonly owner: string;
+  readonly acquiredAt: string;
+  readonly heartbeatAt: string;
+  readonly expiresAt: string;
+}
+
+export interface WorkspaceLeasePort {
+  acquire(workspaceId: string, owner: string, ttlSeconds: number): Promise<Result<WorkspaceLeaseRecord>>;
+  status(workspaceId?: string): Promise<Result<readonly WorkspaceLeaseRecord[]>>;
+  renew(workspaceId: string, leaseId: string, ttlSeconds: number): Promise<Result<WorkspaceLeaseRecord>>;
+  release(workspaceId: string, leaseId: string): Promise<Result<{ readonly released: boolean }>>;
+  assertMutationAllowed(workspaceId: string, leaseId?: string): Promise<Result<void>>;
+}
+
 export interface McpApplicationServices {
   readonly runtimeStatePath?: string;
+  readonly activityLogPath?: string;
   readonly localProviders?: () => { readonly pdfProvider?: string; readonly lspCommands?: Readonly<Record<string, string>> };
   readonly capabilities?: CapabilityService;
   readonly extensions?: ExtensionsService;
   readonly workspaceInfo?: WorkspaceInfoPort;
+  readonly workspaceLeases?: WorkspaceLeasePort;
   readonly workspaceQuery?: Pick<WorkspaceQueryService, 'tree'>;
   readonly projectSnapshot?: ProjectSnapshotPort;
   readonly project?: Pick<ProjectService, 'detect'>;

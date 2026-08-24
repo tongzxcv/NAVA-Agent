@@ -1,5 +1,22 @@
 # Findings
 
+## 2026-08-25 v4.9 source preparation
+
+- Installed NAVA is v4.8.7 and must remain running and unchanged during this task.
+- The v4.8.7 baseline advertised 213 configurable tools (207 by default). This source-only change adds six tools, producing 219 configurable tools with 213 advertised by default because six Codex delegation tools remain opt-in.
+- Existing global skill roots already contain EA, MT5, Obsidian, Git hygiene, diagnosis, retry, and release-related guidance; new skills must be NAVA-specific orchestration rather than copies.
+- Tool additions are justified only for enforceable state or evidence collection that existing prompt guidance cannot guarantee.
+- Workspace leases should permit shared reads, serialize conflicting mutations, persist across MCP runtime replacement, and reclaim only leases with expired heartbeats.
+- Diagnostic collection must be read-only, bounded, and use the existing audit redactor rather than introduce another secret filter.
+- Account switching, safe publish, release preparation, MT5 preparation, Obsidian updates, and Tunnel verification should reuse existing tools through skills/recipes rather than add primitive capabilities.
+- Upgrade tools are generated from `UPGRADE_TOOL_CATALOG` and executed through one `UpgradeRuntimeService`; this is the smallest existing seam for new discoverable tools and recipes.
+- `ToolRegistry` centrally knows each tool's permission and receives raw input plus trace context, making it the correct seam to reject a mutation that conflicts with an active workspace lease.
+- Current trace context contains request trace IDs but no guaranteed stable chat/client identity; lease ownership therefore needs an explicit caller-supplied `owner` and opaque `leaseId`, while backward-compatible writes remain allowed only when no active conflicting lease exists.
+- SQLite already uses WAL, a 5-second busy timeout, migration backups, and numbered migrations. A lease migration/repository can reuse that persistence safely without a new dependency.
+- Existing `Redactor` recursively removes credential-like keys and bearer/secret text and should be reused by diagnostic output.
+- Stale lease cleanup occurs only in writer operations; `workspace_lease_status`, mutation checks, and diagnostic collection remain physically read-only while ignoring expired rows.
+
+
 ## 2026-08-25 Desktop updater EPIPE
 
 - Crash diagnostics recorded `main-uncaught-exception` / `write EPIPE` at `2026-08-24T17:27:19.852Z` for installed v4.8.6.

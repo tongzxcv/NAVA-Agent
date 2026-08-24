@@ -50,6 +50,7 @@ import {
   SqliteCheckpointRepository,
   SqliteDatabase,
   SqliteSettingsRepository,
+  SqliteWorkspaceLeaseRepository,
   SqliteWorkspaceRepository,
 } from '@lnwjud/storage';
 import { allFixedDriveRoots, machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService, type Workspace } from '@lnwjud/workspace';
@@ -175,6 +176,7 @@ export function createStdioMcpRuntime(
   });
   const services: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
+    activityLogPath: mcpActivityLogPath(dataPath),
     localProviders: () => ({
       ...(settingsRepository.get(USER_SETTING_KEYS.pdfProviderPath)?.trim() ? { pdfProvider: settingsRepository.get(USER_SETTING_KEYS.pdfProviderPath)!.trim() } : {}),
       lspCommands: parseStringRecordSetting(settingsRepository.get(USER_SETTING_KEYS.lspCommands)),
@@ -182,6 +184,7 @@ export function createStdioMcpRuntime(
     capabilities: capabilityService,
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, effectiveUnrestricted),
+    workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
     workspaceQuery,
     projectSnapshot: new ProjectSnapshotService(workspaceRepository, {
       projectService,

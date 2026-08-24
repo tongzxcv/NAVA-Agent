@@ -17,7 +17,9 @@ describe('MCP tool registry', () => {
     const registry = new ToolRegistry({}, actor);
 
     expect(registry.list().map((tool) => tool.name)).toEqual([
-      'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot', 'read_file', 'read_files',
+      'workspace_list', 'workspace_register', 'workspace_info', 'workspace_tree', 'project_snapshot',
+      'workspace_lease_acquire', 'workspace_lease_status', 'workspace_lease_renew', 'workspace_lease_release', 'workspace_lease_call',
+      'read_file', 'read_files',
       'search_files', 'search_text', 'git_status', 'git_diff', 'git_log', 'git', 'write_file',
       'apply_patch', 'move_file', 'copy_file', 'delete_file', 'process_start', 'process_list', 'process_status',
       'process_logs', 'process_stop', 'project_dev', 'project_test', 'project_lint',
@@ -30,7 +32,7 @@ describe('MCP tool registry', () => {
       'workspace_snapshot', 'search_all', 'read_many_files',
       'read_file_page', 'read_file_page_continue',
       'workspace_index', 'workspace_index_status', 'workspace_index_watch', 'workspace_index_stop',
-      'session_handoff', 'verify_incremental',
+      'session_handoff', 'verify_incremental', 'diagnostic_bundle_create',
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);

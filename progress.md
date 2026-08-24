@@ -1,5 +1,25 @@
 # Progress
 
+## 2026-08-25 v4.9 source preparation
+
+- **Status:** source implementation complete and verified; intentionally not installed or activated.
+- Confirmed the source branch is clean and the installed v4.8.7 runtime is active but will not be modified, restarted, packaged, or replaced.
+- Loaded SCQA, persistent-planning, minimal-implementation, skill-authoring, and recovery guidance.
+- Inventoried the current tool/skill/recipe surfaces and selected only two new primitive capabilities: workspace leases and a redacted diagnostic bundle.
+- Logged the planning-file discovery command error and switched to an explicit read-only lookup.
+- Located the central runtime/catalog, central permission dispatch, SQLite migration, and audit-redaction seams; no new package is required.
+- Added migration 004 plus a SQLite/WAL workspace lease repository and cross-connection expiry/renew/release tests; initial test command was not run because the default PATH lacks Corepack.
+- Storage tests pass 14/14. Initial MCP focused run passed 22/23; the sole failure was a malformed test double and was corrected before rerun.
+- Lease/diagnostic/registry tests now pass 23/23. Extension discovery passes 8/8 and recipe/runtime coverage passes with the combined MCP focused total of 37/37.
+- Added three repository-owned NAVA skills and five deterministic operating recipes. Skill Sync Doctor completed; structural fallback confirmed valid frontmatter, matching names/folders, descriptions, and no placeholders.
+- Generated the authoritative 219-tool contract and updated the README count/catalog (213 advertised by default because six Codex delegation tools remain opt-in).
+- Full verification pass 1: root lint/typecheck, Storage 14/14, and Extensions 8/8 passed. MCP behavior passed 154/157; only three expected-count assertions still said 207 and were updated to 213.
+- Final verification: MCP 157/157, integration 2/2, packaging 4/4, release gate 5/5, public-repository hygiene 8/8, root lint/typecheck, all 19 package builds, and synchronized 219-tool documentation passed.
+- Whole-tree secret/artifact scan completed; its findings were confined to ignored generated installers/binaries and dependency fixtures. Task-owned staged files receive the final commit-only gate.
+- Live-install proof remained unchanged throughout source work: PID 8080, v4.8.7.0, EXE SHA256 `0F7FA63052212560FB03DC44DE7D5D71321FE333840C5A408BE43628B346511B`, last write `2026-08-25T00:43:22.0737005+07:00`.
+- No package/install/restart/Tunnel/profile/key/live-database operation was performed; deployment remains blocked until the user says ready.
+
+
 ## 2026-08-25 Desktop updater EPIPE
 
 - Confirmed repeated dialogs are the same updater-triggered `write EPIPE` incident, not the previous large-response Tunnel fault.

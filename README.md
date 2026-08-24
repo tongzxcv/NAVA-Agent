@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>213 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 207 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>219 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 213 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -867,7 +867,7 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
-## Complete MCP tool catalog (213 configurable tools; 207 advertised by default)
+## Complete MCP tool catalog (219 configurable tools; 213 advertised by default)
 
 This index is generated from the current v4.8.7 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
@@ -1085,6 +1085,13 @@ This index is generated from the current v4.8.7 `ToolRegistry`, not copied from 
 | 210 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
 | 211 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
 | 212 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
+| 213 | `workspace_lease_acquire` | WRITE | Acquire one expiring writer lease for a workspace while reads remain concurrent. |
+| 214 | `workspace_lease_status` | READ | List active non-expired workspace writer leases and expiry metadata. |
+| 215 | `workspace_lease_renew` | WRITE | Refresh an owned workspace writer lease before expiry. |
+| 216 | `workspace_lease_release` | WRITE | Release an owned workspace writer lease. |
+| 217 | `workspace_lease_call` | DANGEROUS | Run one non-read MCP tool under a matching workspace writer lease while preserving child permission checks. |
+| 218 | `diagnostic_bundle_create` | READ | Return bounded read-only NAVA health, recovery, task, crash, and redacted activity evidence. |
+| 219 | `git_worktree_remove` | DANGEROUS | Remove only a ledger-owned Git worktree after dry-run and explicit confirmation. |
 
 ## Detailed capability guide
 

@@ -37,6 +37,22 @@ describe('upgrade runtime', () => {
     if (search.ok) expect(search.value).toHaveProperty('matches');
   });
 
+  it('publishes the NAVA operating recipes and keeps execution dry-run by default', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const catalog = await runtime.execute('recipe_catalog', {});
+    expect(catalog).toMatchObject({ ok: true, value: { recipes: expect.arrayContaining([
+      expect.objectContaining({ name: 'safe-git-commit-and-push' }),
+      expect.objectContaining({ name: 'nava-release-build-install-verify', requiresConfirmation: true }),
+      expect.objectContaining({ name: 'mt5-seven-terminal-backtest' }),
+      expect.objectContaining({ name: 'obsidian-project-update' }),
+      expect.objectContaining({ name: 'tunnel-reconnect-and-verify' }),
+    ]) } });
+    await expect(runtime.execute('recipe_run', { name: 'tunnel-reconnect-and-verify' })).resolves.toMatchObject({
+      ok: true,
+      value: { dryRun: true, sideEffectsStarted: false, operations: ['diagnostic_bundle_create', 'self_heal_plan', 'shell', 'mcp_health', 'diagnostic_bundle_create'] },
+    });
+  });
+
   it('ranks primitive and upgrade tools with deterministic reasons without granting authorization', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);
     const search = await runtime.execute('tool_dynamic_filter', { query: 'run a Linux WSL developer command', limit: 20, reranker: 'local' });

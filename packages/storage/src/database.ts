@@ -28,6 +28,18 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+export const WORKSPACE_LEASE_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS workspace_leases (
+  workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  lease_id TEXT NOT NULL UNIQUE,
+  owner TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workspace_leases_expires_at_idx ON workspace_leases(expires_at);
+`;
+
 export class SqliteDatabase {
   public readonly connection: DatabaseSync;
   private readonly existedBeforeOpen: boolean;
@@ -43,6 +55,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '001_initial', sql: INITIAL_MIGRATION_SQL });
     this.applyMigration({ id: '002_audit', sql: AUDIT_MIGRATION_SQL });
     this.applyMigration({ id: '003_checkpoints', sql: CHECKPOINT_MIGRATION_SQL });
+    this.applyMigration({ id: '004_workspace_leases', sql: WORKSPACE_LEASE_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

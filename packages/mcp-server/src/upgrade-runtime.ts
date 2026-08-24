@@ -160,8 +160,13 @@ export class UpgradeRuntimeService {
         return ok({ recipes: recipeCatalog() });
       case 'recipe_describe':
         return ok(recipeCatalog().find((recipe) => recipe.name === (readString(input, 'name') ?? 'bugfix')) ?? recipeCatalog()[0]);
-      case 'recipe_run':
-        return ok({ ...planFor(readString(input, 'prompt') ?? readString(input, 'name') ?? 'bugfix'), dryRun: input.dryRun !== false, sideEffectsStarted: false });
+      case 'recipe_run': {
+        const requested = readString(input, 'name');
+        const recipe = recipeCatalog().find((candidate) => candidate.name === requested);
+        return ok(recipe === undefined
+          ? { ...planFor(readString(input, 'prompt') ?? requested ?? 'bugfix'), dryRun: input.dryRun !== false, sideEffectsStarted: false }
+          : { recipe, route: recipe.route, operations: recipe.steps, permissions: recipe.permissions, dryRun: input.dryRun !== false, sideEffectsStarted: false });
+      }
       case 'dry_run':
         return ok({ ...planFor(readString(input, 'prompt') ?? readString(input, 'query') ?? ''), sideEffects: { writes: [], shell: [], gitMutations: [], network: [] }, sideEffectsStarted: false });
       case 'response_mode':
@@ -897,13 +902,32 @@ function routeIntent(prompt: string): {
   };
 }
 
-function recipeCatalog(): readonly { readonly name: string; readonly steps: readonly string[]; readonly optional: boolean }[] {
+interface RecipeDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly route: string;
+  readonly steps: readonly string[];
+  readonly permissions: readonly string[];
+  readonly optional: boolean;
+  readonly requiresConfirmation: boolean;
+}
+
+function recipeCatalog(): readonly RecipeDefinition[] {
   return [
-    { name: 'bugfix', steps: ['workspace_context', 'git_context', 'test_context', 'live_logs_query'], optional: false },
-    { name: 'code-review', steps: ['review_context', 'changed_symbols', 'discover_tests'], optional: false },
-    { name: 'frontend-debug', steps: ['debug_ui', 'console_context', 'network_context', 'capture_ui_state'], optional: true },
-    { name: 'release-check', steps: ['git_context', 'regression_report', 'benchmark_run'], optional: false },
+    recipe('bugfix', 'Inspect, fix, and verify a code defect.', 'debug', ['workspace_context', 'git_context', 'test_context', 'live_logs_query'], ['filesystem.read', 'git.read'], false),
+    recipe('code-review', 'Review changed code and affected tests.', 'review', ['review_context', 'changed_symbols', 'discover_tests'], ['filesystem.read', 'git.read'], false),
+    recipe('frontend-debug', 'Inspect browser and UI evidence without assuming an attached browser.', 'frontend', ['debug_ui', 'console_context', 'network_context', 'capture_ui_state'], ['filesystem.read', 'browser.read'], true),
+    recipe('release-check', 'Run the generic release evidence gate.', 'release', ['git_context', 'regression_report', 'benchmark_run'], ['filesystem.read', 'git.read', 'process.execute'], false),
+    recipe('safe-git-commit-and-push', 'Inspect scope, verify, scan, commit, and push only task-owned changes.', 'release', ['git_status', 'git_diff', 'skill_match', 'project_test', 'git'], ['filesystem.read', 'git.read', 'process.execute', 'git.write', 'network.write'], true),
+    recipe('nava-release-build-install-verify', 'Prepare a NAVA release gate; installation and restart require a later explicit confirmation.', 'release', ['diagnostic_bundle_create', 'git_context', 'discover_tests', 'project_lint', 'project_typecheck', 'project_build', 'regression_report'], ['filesystem.read', 'git.read', 'process.execute', 'filesystem.write'], true),
+    recipe('mt5-seven-terminal-backtest', 'Prepare and track a dynamic seven-terminal MT5 validation run with external artifacts.', 'test', ['skills_list', 'workspace_context', 'shell', 'task_list', 'session_handoff'], ['filesystem.read', 'process.execute', 'filesystem.write'], true),
+    recipe('obsidian-project-update', 'Read the vault schema and update durable project knowledge after validated work.', 'workspace', ['skills_list', 'workspace_context', 'read_many_files', 'write_file', 'git_diff'], ['filesystem.read', 'filesystem.write'], true),
+    recipe('tunnel-reconnect-and-verify', 'Capture evidence, plan recovery, reconnect only with confirmation, then verify health.', 'debug', ['diagnostic_bundle_create', 'self_heal_plan', 'shell', 'mcp_health', 'diagnostic_bundle_create'], ['filesystem.read', 'process.execute'], true),
   ];
+}
+
+function recipe(name: string, description: string, route: string, steps: readonly string[], permissions: readonly string[], requiresConfirmation: boolean): RecipeDefinition {
+  return { name, description, route, steps, permissions, optional: false, requiresConfirmation };
 }
 
 function planFor(prompt: string): { readonly route: string; readonly operations: readonly string[]; readonly permissions: readonly string[] } {

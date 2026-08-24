@@ -71,7 +71,7 @@ import {
   serializeStringRecordSetting,
   loadCheckpointEncryptionKey,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
@@ -224,8 +224,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     callTimeoutMs: readSettings().mcpCallTimeoutMs,
     idleTimeoutMs: readSettings().mcpIdleTimeoutMs,
   });
+  const activityLogPath = mcpActivityLogPath(dataPath);
   const mcpServices: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
+    activityLogPath,
     localProviders: () => {
       const settings = readSettings();
       return {
@@ -236,6 +238,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     capabilities: capabilityRuntime.service,
     extensions: extensionsService,
     workspaceInfo: workspaceInfoService,
+    workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
     workspaceQuery: workspaceQueryService,
     projectSnapshot: projectSnapshotService,
     project: projectService,
@@ -246,7 +249,6 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     process: processService,
     codex: codexService,
   };
-  const activityLogPath = mcpActivityLogPath(dataPath);
   let activityLogDiagnostic: ((key: string, message: string) => void) | null = null;
   const activityTracker = new ActivityTracker(composeActivitySinks([
     createFileActivitySink(activityLogPath),

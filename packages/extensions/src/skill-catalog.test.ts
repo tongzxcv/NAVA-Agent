@@ -64,4 +64,16 @@ Do the thing.
     const escape = await catalog.read({ skillId: 'cursor-skills-cursor/demo-skill', relativePath: '../outside.md' });
     expect(escape.ok).toBe(false);
   });
+
+  it('discovers repository-owned .agents skills from the active workspace', async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'nava-home-'));
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'nava-workspace-'));
+    temporaryRoots.push(home, workspaceRoot);
+    const skillRoot = path.join(workspaceRoot, '.agents', 'skills', 'nava-project');
+    await mkdir(skillRoot, { recursive: true });
+    await writeFile(path.join(skillRoot, 'SKILL.md'), `---\nname: nava-project\ndescription: Project-owned NAVA workflow\n---\n# NAVA project\n`, 'utf8');
+
+    const listed = await new SkillCatalog({ homeDir: home, workspaceRoot, settings: DEFAULT_EXTENSIONS_SETTINGS }).list();
+    expect(listed).toMatchObject({ ok: true, value: { skills: [expect.objectContaining({ id: 'workspace-agents-skills/nava-project' })] } });
+  });
 });

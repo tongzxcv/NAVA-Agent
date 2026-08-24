@@ -101,6 +101,7 @@ export class SkillCatalog {
     const workspaceRoot = this.options.workspaceRoot?.trim();
     if (workspaceRoot !== undefined && workspaceRoot.length > 0) {
       defaults.push(
+        { source: 'workspace-agents-skills', path: path.join(workspaceRoot, '.agents', 'skills') },
         { source: 'workspace-cursor-skills', path: path.join(workspaceRoot, '.cursor', 'skills') },
         { source: 'workspace-claude-skills', path: path.join(workspaceRoot, '.claude', 'skills') },
       );

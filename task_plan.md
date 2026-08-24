@@ -1,3 +1,53 @@
+# NAVA v4.9 source preparation (do not install yet)
+
+## SCQA
+
+- **Situation:** NAVA v4.8.7 is installed and in active use; source already exposes 213 configurable tools, durable tasks, recipes, recovery, audit, and skill discovery.
+- **Complication:** Multi-chat writes lack an explicit workspace lease, incident evidence is spread across several tools, and account/release/MT5/Obsidian workflows are not packaged for one-step discovery.
+- **Question:** How can the missing safeguards and workflows be prepared without interrupting or updating the live installation?
+- **Answer:** Add a small persistent workspace-lease module, a redacted diagnostic bundle tool, three focused NAVA skills, and deterministic recipes in source only; verify and commit without packaging/installing/restarting NAVA or Tunnel.
+
+## Acceptance criteria
+
+- [x] Concurrent reads remain allowed; conflicting workspace writes can be claimed, inspected, renewed, and released with stale-lease recovery.
+- [x] A read-only diagnostic bundle summarizes version, health, activity, tasks, recovery, and bounded/redacted logs without secrets.
+- [x] Skills cover multi-chat coordination, incident diagnosis, and account/Tunnel switching without duplicating generic skills.
+- [x] Recipes cover safe Git publish, release preparation, MT5 seven-terminal preparation, Obsidian update, and Tunnel reconnect verification.
+- [x] Focused tests plus lint/typecheck/build pass using the repository toolchain.
+- [x] Changes are secret/artifact scanned and committed only in source; installed NAVA/Tunnel remain untouched.
+
+## Phases
+
+- [completed] Inspect persistence, tool schemas, recipe/skill patterns, and write-operation seams.
+- [completed] Implement workspace leases and diagnostic bundle with focused tests.
+- [completed] Add focused skills and deterministic recipes with validation.
+- [completed] Run focused/full verification and secret/artifact guard.
+- [completed] Commit source changes and hand off as ready-to-install, without deployment.
+
+## Safety boundaries
+
+- Do not modify `D:\Program Files\NAVA Agent`, `%APPDATA%\tunnel-client`, Runtime API keys, tunnel profiles, workspaces, or the live SQLite database.
+- Do not stop/restart NAVA, Tunnel, Codex, MT5, or unrelated processes.
+- Do not package or install this source update until the user explicitly says they are ready.
+- Preserve existing permissions, destructive confirmation, path guards, and transport behavior.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| `Get-ChildItem -Filter` rejected an array of planning filenames | 1 | Switched to `rg --files` and read the three discovered files explicitly. |
+| Expected `packages/domain/src/ports.ts` did not exist | 1 | Use `rg --files packages/domain/src` to locate the actual split port modules before reading them. |
+| Default PATH had Node 25 and no `corepack` | 1 | Use the previously verified portable Node 24.19.0/Corepack under `E:\AI_CACHE\tools\lnwjud` for all repository checks. |
+| First leased-write test returned `INTERNAL_ERROR` | 1 | Corrected the test double to match the real four-argument `FileService.writeFile(actor, workspaceId, request, signal)` signature; production code was not changed. |
+| Skill validator failed with `ModuleNotFoundError: No module named 'yaml'` | 1 | Ran the required skill-sync audit and a deterministic frontmatter/name/placeholder fallback; all three project skills passed structure checks. |
+| First structural-validation PowerShell command had an empty-pipe parser error | 1 | Split the skill-sync audit and structural checks into separate commands; both then completed. |
+| Offline lockfile refresh lacked cached registry metadata for `@eslint/js` | 1 | Added only the deterministic local workspace-link entry for `@lnwjud/audit`; no package resolution or install was needed. |
+| Full MCP suite had three stale advertised-tool-count assertions (`207`) | 1 | Updated only the stdio/HTTP compatibility counts to the new default catalog size (`213`); all behavioral tests had already passed. |
+| Public-repository hygiene test expected the old `213 configurable tools` README wording | 1 | Updated the assertion to require `219 configurable tools` and `213 are advertised by default`; all 8 checks then passed. |
+| Whole-tree secret/artifact scan reported generated installers, bundled binaries, and dependency fixtures | 1 | Confirmed the reports are ignored build/dependency output, then applied the commit gate to task-owned staged source files only. |
+
+---
+
 # NAVA Desktop updater EPIPE hardening
 
 ## Goal
