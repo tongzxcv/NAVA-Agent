@@ -113,6 +113,48 @@ describe('RipgrepAdapter', () => {
     });
   });
 
+  it('returns partial filename results with a warning when ripgrep reports a recoverable enumeration error', async () => {
+    const runner: ProcessRunner = {
+      async run(): Promise<ProcessRunResult> {
+        return {
+          exitCode: 2,
+          stdout: ['src\\app.ts', 'src\\worker.ts'].join('\n'),
+          stderr: 'rg: transient directory enumeration failure',
+        };
+      },
+    };
+    const resolver: ExecutableResolver = { resolve: async (): Promise<Result<string>> => ({ ok: true, value: 'rg.exe' }) };
+    const adapter = new RipgrepAdapter(resolver, runner);
+
+    await expect(adapter.searchFiles({ rootPath: 'C:\\workspace' })).resolves.toEqual({
+      ok: true,
+      value: {
+        paths: ['src\\app.ts', 'src\\worker.ts'],
+        truncated: true,
+        warning: 'Search process exited with code 2: rg: transient directory enumeration failure',
+      },
+    });
+  });
+
+  it('returns an actionable search error when ripgrep fails without partial output', async () => {
+    const runner: ProcessRunner = {
+      async run(): Promise<ProcessRunResult> {
+        return { exitCode: 2, stdout: '', stderr: 'rg: access denied' };
+      },
+    };
+    const resolver: ExecutableResolver = { resolve: async (): Promise<Result<string>> => ({ ok: true, value: 'rg.exe' }) };
+    const adapter = new RipgrepAdapter(resolver, runner);
+
+    await expect(adapter.searchFiles({ rootPath: 'C:\\workspace' })).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'SEARCH_FAILED',
+        message: 'Search process exited with code 2: rg: access denied',
+        recoverable: true,
+      },
+    });
+  });
+
   it('applies context-economy filters to automatic discovery and allows explicit enumeration', async () => {
     let receivedArgs: readonly string[] = [];
     const runner: ProcessRunner = {

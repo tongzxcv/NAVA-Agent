@@ -40,14 +40,25 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.8.4
+## Current release: v4.8.5
 
-The current published installer and runtime contract are `v4.8.4`. The runtime
+The current published installer and runtime contract are `v4.8.5`. The runtime
 advertises **213 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.8.5
+
+- Keeps concurrent reads for different registered workspaces independent and
+  adds regression coverage proving both workspaces start without a global lock.
+- Restricts filename/text searches to the requested directory instead of
+  accidentally scanning an entire containing drive root.
+- Preserves partial ripgrep results with a bounded warning and reports fatal
+  search failures as actionable `SEARCH_FAILED` errors.
+- Resolves absolute full-scan paths to the longest matching registered
+  workspace, preventing unrelated project scans.
 
 ### What's new in v4.8.4
 
@@ -244,7 +255,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current release is `nava-agent-Setup-4.8.4.exe`.
+   The current release is `nava-agent-Setup-4.8.5.exe`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -490,7 +501,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.8.4.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.8.5.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -839,7 +850,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (213 configurable tools; 207 advertised by default)
 
-This index is generated from the current v4.8.4 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.8.5 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

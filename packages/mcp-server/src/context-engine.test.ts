@@ -137,6 +137,71 @@ describe('context engine', () => {
     expect(many.value.failedFiles).toBe(0);
   });
 
+  it('routes an absolute full-scan path only to its owning registered workspace', async () => {
+    const searched: Array<{ workspaceId: string | undefined; path: string | undefined }> = [];
+    const scopedServices: McpApplicationServices = {
+      workspaceInfo: {
+        async list(): Promise<ReturnType<typeof ok>> {
+          return ok([
+            { id: 'autobots', rootPath: 'D:\\EA\\Autobots', realRootPath: 'D:\\EA\\Autobots' },
+            { id: 'beelzebub', rootPath: 'D:\\EA\\BEELZEBUB EA_Lab', realRootPath: 'D:\\EA\\BEELZEBUB EA_Lab' },
+          ]);
+        },
+      },
+      search: {
+        async searchFiles(_actor, workspaceId, request): Promise<ReturnType<typeof ok>> {
+          searched.push({ workspaceId, path: request.path });
+          return ok({ paths: ['README.md'], truncated: false });
+        },
+        async searchText(): Promise<ReturnType<typeof ok>> {
+          return ok({ matches: [], truncated: false });
+        },
+      },
+    };
+
+    const result = await new ContextEngine(scopedServices, actor).fullScan({
+      path: 'D:\\EA\\BEELZEBUB EA_Lab',
+      pageSize: 20,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        files: [{ workspaceId: 'beelzebub', path: 'README.md' }],
+        scannedWorkspaces: 1,
+      },
+    });
+    expect(searched).toEqual([{ workspaceId: 'beelzebub', path: undefined }]);
+  });
+
+  it('starts reads for different workspaces concurrently', async () => {
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const concurrentServices = services();
+    concurrentServices.search = {
+      async searchText(_actor, workspaceId): Promise<ReturnType<typeof ok>> {
+        started.push(`text:${workspaceId}`);
+        if (started.length === 4) release();
+        await gate;
+        return ok({ matches: [], truncated: false });
+      },
+      async searchFiles(_actor, workspaceId): Promise<ReturnType<typeof ok>> {
+        started.push(`files:${workspaceId}`);
+        if (started.length === 4) release();
+        await gate;
+        return ok({ paths: [], truncated: false });
+      },
+    };
+
+    const result = await new ContextEngine(concurrentServices, actor).searchAll({ query: 'anything' });
+
+    expect(result.ok).toBe(true);
+    expect(started).toEqual(expect.arrayContaining([
+      'text:workspace-1', 'files:workspace-1', 'text:workspace-2', 'files:workspace-2',
+    ]));
+  });
+
   it('uses the context ledger to avoid resending unchanged files', async () => {
     const engine = new ContextEngine(services(), actor);
     const first = await engine.collect({ query: 'login', workspaceId: 'workspace-1', pageSize: 1 });

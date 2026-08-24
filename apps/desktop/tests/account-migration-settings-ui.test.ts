@@ -28,7 +28,7 @@ const dashboard: DashboardSnapshot = {
   workLog: [],
   inFlight: [],
   tunnel: { state: 'stopped', source: 'desktop', hasApiKey: true, clientPath: 'D:\\Program Files\\NAVA Agent\\tunnel-client.exe', profileExists: true, message: null, logPath: null },
-  appVersion: '4.8.4',
+  appVersion: '4.8.5',
 };
 
 function render(locale: 'th' | 'en'): string {

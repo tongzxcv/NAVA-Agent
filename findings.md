@@ -1,5 +1,22 @@
 # Findings
 
+## 2026-08-24 multi-chat workspace isolation
+
+- The reported failure is present in `mcp-activity.log`: `search_files` failed after 2.673 seconds and `workspace_full_scan` failed immediately for the BEELZEBUB absolute path.
+- No other NAVA tool call overlapped the failed `search_files` interval. The next Autobots call started 7 ms after it completed.
+- BEELZEBUB was not a registered project workspace at failure time; it was registered about 46 minutes later.
+- Current live calls using the registered BEELZEBUB workspace ID succeed: bounded `search_files` returns paths and indexed `workspace_full_scan` reports 5,999 files.
+- `RipgrepAdapter` discards stdout whenever ripgrep exits above 1 and maps the result to generic `INTERNAL_ERROR`; `result-mapper.ts` further hides the internal message as `Operation failed`.
+- `workspace_full_scan` resolves workspace IDs first but does not map an absolute requested path to the longest containing registered workspace.
+- Existing MCP serving already tracks multiple in-flight calls and has no global all-tool mutex. The minimum fix belongs in search/result handling and context path resolution, not in a new scheduler.
+- Root cause: `SearchService` used an absolute path only to choose the containing workspace, then always passed the workspace root to ripgrep. Before BEELZEBUB was registered, `D:\EA\BEELZEBUB EA_Lab` therefore caused a scan of all `D:\`.
+- The first packaged v4.8.5 runtime exposed a second independent issue: legacy Runtime-key decryption depended on auto-loading `Microsoft.PowerShell.Security`, which failed inside the installed Electron process.
+- Windows `ConvertFrom-SecureString` legacy output is a hexadecimal CurrentUser DPAPI blob containing UTF-16 text. It can be migrated safely with direct `ProtectedData.Unprotect` and does not require the PowerShell Security module.
+- New Runtime-key writes now use the existing direct DPAPI v2 format; existing legacy ciphertext remains readable and the plaintext key is never logged or rewritten during startup.
+- Final live evidence: the UI reports v4.8.5, local MCP online, and `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)`; `/healthz` and `/readyz` both return HTTP 200.
+- Final concurrent Autobots and BEELZEBUB reads completed successfully, and the absolute BEELZEBUB full scan selected exactly one workspace with 5,999 indexed files.
+
+
 ## 2026-08-23 title-bar icon follow-up
 
 - The user screenshot shows the NAVA name and v4.8.4 badge are correct, but the small title-bar icon is still the old gold legacy mark.

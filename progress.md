@@ -1,5 +1,31 @@
 # Progress
 
+## 2026-08-24 multi-chat workspace isolation
+
+- Recovered the exact incident from the installed NAVA activity log without modifying runtime state.
+- Re-ran the underlying ripgrep enumeration directly; the current tree enumerates 6,099 paths successfully.
+- Verified current NAVA `search_files` and indexed `workspace_full_scan` against registered BEELZEBUB EA Lab.
+- Confirmed the source worktree is clean at commit `7d33888` before starting this update.
+- Selected a minimal TDD scope: partial search diagnostics, absolute full-scan workspace resolution, and concurrent different-workspace reads.
+- RED: targeted Vitest produced exactly three expected failures; the separate-workspace concurrency test passed before implementation.
+- GREEN slice 1: partial and fatal ripgrep behavior now passes 8/8 adapter tests with bounded actionable diagnostics.
+- GREEN slice 2: absolute full scan now selects only the longest containing workspace; combined targeted tests pass 14/14.
+- Targeted TypeScript checks pass for `@lnwjud/search` and `@lnwjud/mcp-server` after rebuilding the changed domain package.
+- RED root-cause test confirmed an absolute BEELZEBUB path was reduced to the containing `D:\` machine root before ripgrep execution.
+- GREEN root-cause slice: SearchService now passes the bounded requested directory to ripgrep and preserves both configured and canonical workspace roots; focused behavior tests pass 19/19.
+- Package suites pass: application 62/62, search 14/14, and MCP server 148/148. Root TypeScript build passes.
+- Synchronized source/package metadata and user documentation to NAVA v4.8.5.
+- Full lint, root typecheck, and all 19-package builds pass with the isolated Node 24 toolchain.
+- Desktop focused suites pass 24/24; packaging metadata passes 4/4; public repository hygiene passes 8/8.
+- Installed v4.8.5 over a byte-verified 86-file rollback backup and confirmed all six copied runtime artifacts by SHA256.
+- Live verification exposed a PowerShell module-autoload failure while decrypting the existing Runtime API key; added RED tests for legacy and v2 secret formats, then implemented direct-DPAPI protection/migration without a new dependency.
+- Shared tests pass 15/15 and the full Desktop suite passes 228/228, including the new Runtime-secret regression.
+- Re-ran lint, typecheck, and the full 19-package build successfully with Node 24.
+- Reinstalled the final app over a second exact rollback backup at `E:\AI_CACHE\nava-agent-setup\20260824-143500-v4.8.5-before-dpapi-fix`.
+- Secure Tunnel now starts from the UI; health is `200 live`, readiness is `200 ready`, local MCP listens at `127.0.0.1:18765`, and the UI reports connected from this app.
+- Final live parallel test completed Autobots search, BEELZEBUB search, and BEELZEBUB absolute full scan successfully; the activity log records overlapping starts and only `SUCCESS` completions.
+
+
 ## 2026-08-23 title-bar icon follow-up
 
 - Cancelled the previously scheduled Windows shutdown with `shutdown.exe /a`.

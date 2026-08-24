@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { err, ok, type Result } from '@lnwjud/domain';
-import type { FileActor, GitService, SearchService } from '@lnwjud/application';
+import path from 'node:path';
+import { err, ok, type AppError, type Result } from '@lnwjud/domain';
+import { isAbsoluteFsPath, type FileActor, type GitService, type SearchService } from '@lnwjud/application';
 import { classifyContextPath } from '@lnwjud/search';
 import type { McpApplicationServices } from './tools/tool-types.js';
 import { ContextEconomyRuntime, type ContextEconomyStats, type ContextDeliveryKind } from './context-economy.js';
@@ -185,7 +186,7 @@ export class ContextEngine {
 
     const settled = await Promise.allSettled(workspaceIds.value.map((workspaceId) => this.collectWorkspace(workspaceId, request)));
     const successful: WorkspaceCollection[] = [];
-    let firstError: { code: 'INVALID_INPUT' | 'WORKSPACE_NOT_FOUND' | 'PATH_OUTSIDE_WORKSPACE' | 'SECRET_ACCESS_DENIED' | 'PERMISSION_DENIED' | 'PERMISSION_REQUIRED' | 'FILE_NOT_FOUND' | 'FILE_TOO_LARGE' | 'BINARY_FILE' | 'PROCESS_NOT_FOUND' | 'PROCESS_TIMEOUT' | 'EXECUTABLE_NOT_FOUND' | 'GIT_NOT_REPOSITORY' | 'CODEX_NOT_AVAILABLE' | 'INTERNAL_ERROR'; message: string; recoverable: boolean } | undefined;
+    let firstError: AppError | undefined;
     for (const entry of settled) {
       if (entry.status === 'fulfilled' && entry.value.ok) successful.push(entry.value.value);
       else if (entry.status === 'fulfilled' && !entry.value.ok && firstError === undefined) firstError = entry.value.error;
@@ -265,17 +266,17 @@ export class ContextEngine {
 
   public async fullScan(request: WorkspaceFullScanRequest): Promise<Result<WorkspaceFullScanResult>> {
     this.economy.beginRequest();
-    const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
-    if (!workspaceIds.ok) return workspaceIds;
-    if (request.includeIgnored === false && request.workspaceId !== undefined && this.services.workspaceIndex !== undefined) {
-      const indexed = await this.fullScanFromIndex(request.workspaceId, request.path, request.pageSize);
+    const target = await this.resolveFullScanTarget(request.workspaceId, request.path);
+    if (!target.ok) return target;
+    if (request.includeIgnored === false && target.value.workspaceIds.length === 1 && this.services.workspaceIndex !== undefined) {
+      const indexed = await this.fullScanFromIndex(target.value.workspaceIds[0]!, target.value.path, request.pageSize);
       if (indexed !== null) return indexed;
     }
     if (this.services.search === undefined) return err({ code: 'INTERNAL_ERROR', message: 'Search service is unavailable', recoverable: true });
     const maxResults = 500;
-    const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => ({
+    const settled = await Promise.allSettled(target.value.workspaceIds.map(async (workspaceId) => ({
       workspaceId,
-      result: await this.safeSearchFiles(workspaceId, { query: '*', includeIgnored: request.includeIgnored !== false, ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob),
+      result: await this.safeSearchFiles(workspaceId, { query: '*', includeIgnored: request.includeIgnored !== false, ...(target.value.path === undefined ? {} : { path: target.value.path }) }, maxResults, request.glob),
     })));
     const files: Array<{ readonly workspaceId: string; readonly path: string }> = [];
     let hasMore = false;
@@ -399,6 +400,27 @@ export class ContextEngine {
       return typeof id === 'string' && id.trim().length > 0 ? [id] : [];
     });
     return ok(ids);
+  }
+
+  private async resolveFullScanTarget(workspaceId: string | undefined, requestedPath: string | undefined): Promise<Result<{
+    readonly workspaceIds: readonly string[];
+    readonly path?: string;
+  }>> {
+    if (workspaceId !== undefined || requestedPath === undefined || !isAbsoluteFsPath(requestedPath)) {
+      const workspaceIds = await this.resolveWorkspaceIds(workspaceId);
+      return workspaceIds.ok
+        ? ok({ workspaceIds: workspaceIds.value, ...(requestedPath === undefined ? {} : { path: requestedPath }) })
+        : workspaceIds;
+    }
+    const listed = await this.services.workspaceInfo?.list?.(this.actor);
+    if (listed === undefined) return err({ code: 'INVALID_INPUT', message: 'workspaceId is required when workspace listing is unavailable', recoverable: false });
+    if (!listed.ok) return err(listed.error);
+    if (!Array.isArray(listed.value)) return err({ code: 'INTERNAL_ERROR', message: 'Workspace list has an invalid shape', recoverable: true });
+    const matches = listed.value.flatMap((entry) => workspaceMatch(entry, requestedPath));
+    matches.sort((left, right) => right.root.length - left.root.length);
+    const match = matches[0];
+    if (match === undefined) return err({ code: 'PATH_OUTSIDE_WORKSPACE', message: 'Path is not inside a registered workspace', recoverable: false });
+    return ok({ workspaceIds: [match.id], ...(match.relativePath.length === 0 ? {} : { path: match.relativePath }) });
   }
 
   private async collectWorkspace(workspaceId: string, request: WorkspaceContextRequest): Promise<Result<WorkspaceCollection>> {
@@ -666,6 +688,20 @@ function validateRequest(request: WorkspaceContextRequest): Result<void> {
     return err({ code: 'INVALID_INPUT', message: 'Context responseTargetBytes is invalid', recoverable: false });
   }
   return ok(undefined);
+}
+
+function workspaceMatch(value: unknown, requestedPath: string): Array<{ readonly id: string; readonly root: string; readonly relativePath: string }> {
+  if (typeof value !== 'object' || value === null || !('id' in value)) return [];
+  const entry = value as { id?: unknown; rootPath?: unknown; realRootPath?: unknown };
+  if (typeof entry.id !== 'string' || entry.id.trim().length === 0) return [];
+  const id = entry.id;
+  const roots = [entry.realRootPath, entry.rootPath].filter((root): root is string => typeof root === 'string' && root.length > 0);
+  return roots.flatMap((root) => {
+    const flavor = path.win32.isAbsolute(root) ? path.win32 : path.posix;
+    const relativePath = flavor.relative(flavor.resolve(root), flavor.resolve(requestedPath));
+    const outside = relativePath === '..' || relativePath.startsWith(`..${flavor.sep}`) || flavor.isAbsolute(relativePath);
+    return outside ? [] : [{ id, root, relativePath }];
+  });
 }
 
 function normalizePageSize(value: number): number {

@@ -1,8 +1,9 @@
+import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { RipgrepAdapter, type ContextDiscoveryMode, type SearchFilesRequest as AdapterFilesRequest, type SearchFilesResult, type SearchTextRequest as AdapterTextRequest, type SearchTextResult } from '@lnwjud/search';
-import type { WorkspaceRepository } from '@lnwjud/workspace';
+import type { Workspace, WorkspaceRepository } from '@lnwjud/workspace';
 import type { FileActor } from './file-service.js';
-import { resolveWorkspaceForPath } from './workspace-locator.js';
+import { isAbsoluteFsPath, resolveWorkspaceForPath } from './workspace-locator.js';
 
 export interface SearchTextRequest {
   readonly query: string;
@@ -37,8 +38,10 @@ export class SearchService {
     if (request.query.length === 0) return err(appError('INVALID_INPUT', 'Search query is required'));
     const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path ?? '.');
     if (!workspace.ok) return workspace;
+    const rootPath = searchRootPath(workspace.value, request.path);
+    if (!rootPath.ok) return rootPath;
     return this.adapter.searchText({
-      rootPath: workspace.value.realRootPath,
+      rootPath: rootPath.value,
       query: request.query,
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
@@ -53,8 +56,10 @@ export class SearchService {
     if (!validation.ok) return validation;
     const workspace = await resolveWorkspaceForPath(this.workspaces, workspaceId, request.path ?? '.');
     if (!workspace.ok) return workspace;
+    const rootPath = searchRootPath(workspace.value, request.path);
+    if (!rootPath.ok) return rootPath;
     return this.adapter.searchFiles({
-      rootPath: workspace.value.realRootPath,
+      rootPath: rootPath.value,
       ...(request.glob === undefined ? {} : { glob: request.glob }),
       ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }),
       ...(request.discovery === undefined ? {} : { discovery: request.discovery }),
@@ -67,4 +72,20 @@ export class SearchService {
       ? ok(undefined)
       : err(appError('INVALID_INPUT', 'Search result limit is invalid'));
   }
+}
+
+function searchRootPath(workspace: Workspace, requestedPath: string | undefined): Result<string> {
+  if (requestedPath === undefined || requestedPath === '.') return ok(workspace.realRootPath);
+  const flavor = path.win32.isAbsolute(workspace.realRootPath) ? path.win32 : path.posix;
+  const candidate = isAbsoluteFsPath(requestedPath)
+    ? flavor.resolve(requestedPath)
+    : flavor.resolve(workspace.realRootPath, requestedPath);
+  const withinWorkspace = [workspace.realRootPath, workspace.rootPath].some((root) => {
+    const rootFlavor = path.win32.isAbsolute(root) ? path.win32 : path.posix;
+    const relative = rootFlavor.relative(rootFlavor.resolve(root), rootFlavor.resolve(candidate));
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${rootFlavor.sep}`) && !rootFlavor.isAbsolute(relative));
+  });
+  return !withinWorkspace
+    ? err(appError('PATH_OUTSIDE_WORKSPACE', 'Path is outside the workspace'))
+    : ok(candidate);
 }

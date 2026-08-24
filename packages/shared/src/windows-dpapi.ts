@@ -81,7 +81,7 @@ function decodeProtectedKey(value: string, expectedLength: number): Buffer {
   if (trimmed.startsWith(KEY_PREFIX_V2)) {
     plain = unprotectWithWindowsDpapi(trimmed.slice(KEY_PREFIX_V2.length));
   } else if (trimmed.startsWith(KEY_PREFIX_V1)) {
-    plain = unprotectLegacySecureString(trimmed.slice(KEY_PREFIX_V1.length));
+    plain = unprotectLegacyWindowsSecureString(trimmed.slice(KEY_PREFIX_V1.length));
   } else {
     throw new Error('Protected key file has an unsupported format');
   }
@@ -90,13 +90,18 @@ function decodeProtectedKey(value: string, expectedLength: number): Buffer {
   return key;
 }
 
-function unprotectLegacySecureString(cipherText: string): string {
+export function unprotectLegacyWindowsSecureString(cipherText: string): string {
+  if (!/^[0-9a-f]+$/i.test(cipherText.trim()) || cipherText.trim().length % 2 !== 0) {
+    throw new Error('Legacy DPAPI ciphertext has an invalid format');
+  }
   const script = [
     '$ErrorActionPreference = "Stop"',
-    '$encrypted = [Console]::In.ReadToEnd().Trim()',
-    '$secure = ConvertTo-SecureString -String $encrypted',
-    '$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)',
-    'try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }',
+    "[Reflection.Assembly]::Load('System.Security, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a') | Out-Null",
+    '$hex = [Console]::In.ReadToEnd().Trim()',
+    '$protected = New-Object byte[] ($hex.Length / 2)',
+    'for ($index = 0; $index -lt $protected.Length; $index++) { $protected[$index] = [Convert]::ToByte($hex.Substring($index * 2, 2), 16) }',
+    '$bytes = [Security.Cryptography.ProtectedData]::Unprotect($protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '[Text.Encoding]::Unicode.GetString($bytes)',
   ].join('; ');
   return runPowerShellDpapi(script, cipherText);
 }

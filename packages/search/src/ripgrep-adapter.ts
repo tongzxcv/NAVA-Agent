@@ -80,6 +80,7 @@ export interface SearchMatch {
 export interface SearchTextResult {
   readonly matches: readonly SearchMatch[];
   readonly truncated: boolean;
+  readonly warning?: string;
 }
 
 export interface SearchFilesRequest {
@@ -93,6 +94,7 @@ export interface SearchFilesRequest {
 export interface SearchFilesResult {
   readonly paths: readonly string[];
   readonly truncated: boolean;
+  readonly warning?: string;
 }
 
 const SEARCH_PROCESS_TIMEOUT_MS = 45_000;
@@ -116,9 +118,7 @@ export class RipgrepAdapter {
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--', request.query, '.');
     const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS, ...(request.signal === undefined ? {} : { signal: request.signal }) });
-    if (!processResult.timedOut && processResult.exitCode !== 0 && processResult.exitCode !== 1) {
-      return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
-    }
+    const warning = searchProcessWarning(processResult);
     const matches: SearchMatch[] = [];
     for (const line of processResult.stdout.split(/\r?\n/)) {
       const match = this.parseMatch(line);
@@ -127,7 +127,14 @@ export class RipgrepAdapter {
       matches.push(match);
       if (matches.length >= maxResults) break;
     }
-    return ok({ matches, truncated: processResult.timedOut === true || matches.length >= maxResults && processResult.stdout.includes('"type":"match"') });
+    if (warning !== undefined && matches.length === 0) {
+      return err({ code: 'SEARCH_FAILED', message: warning, recoverable: true });
+    }
+    return ok({
+      matches,
+      truncated: processResult.timedOut === true || warning !== undefined || matches.length >= maxResults && processResult.stdout.includes('"type":"match"'),
+      ...(warning === undefined ? {} : { warning }),
+    });
   }
 
   public async searchFiles(request: SearchFilesRequest): Promise<Result<SearchFilesResult>> {
@@ -143,15 +150,20 @@ export class RipgrepAdapter {
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--');
     const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS, ...(request.signal === undefined ? {} : { signal: request.signal }) });
-    if (!processResult.timedOut && processResult.exitCode !== 0 && processResult.exitCode !== 1) {
-      return err({ code: 'INTERNAL_ERROR', message: 'Search process failed', recoverable: true });
-    }
+    const warning = searchProcessWarning(processResult);
     const discoveredPaths = processResult.stdout
       .split(/\r?\n/)
       .filter((entry) => entry.length > 0)
       .filter((entry) => discovery === 'explicit' || classifyContextPath(entry, discovery).discoverable);
+    if (warning !== undefined && discoveredPaths.length === 0) {
+      return err({ code: 'SEARCH_FAILED', message: warning, recoverable: true });
+    }
     const paths = discoveredPaths.slice(0, maxResults);
-    return ok({ paths, truncated: processResult.timedOut === true || discoveredPaths.length > maxResults });
+    return ok({
+      paths,
+      truncated: processResult.timedOut === true || warning !== undefined || discoveredPaths.length > maxResults,
+      ...(warning === undefined ? {} : { warning }),
+    });
   }
 
   private parseMatch(line: string): SearchMatch | null {
@@ -176,6 +188,12 @@ export class RipgrepAdapter {
     if (typeof data.line_number !== 'number' || typeof data.lines !== 'object' || data.lines === null || !('text' in data.lines) || typeof data.lines.text !== 'string') return false;
     return true;
   }
+}
+
+function searchProcessWarning(result: ProcessRunResult): string | undefined {
+  if (result.timedOut === true || result.exitCode === 0 || result.exitCode === 1) return undefined;
+  const diagnostic = result.stderr.trim().replace(/\s+/g, ' ').slice(0, 240);
+  return `Search process exited with code ${result.exitCode}${diagnostic.length === 0 ? '' : `: ${diagnostic}`}`;
 }
 
 interface MatchRecord {

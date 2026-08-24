@@ -27,6 +27,30 @@ describe('SearchService', () => {
     expect(receivedRoot).toBe(workspace.realRootPath);
   });
 
+  it('searches the requested absolute subdirectory instead of the containing machine root', async () => {
+    const workspace: Workspace = { id: 'drive-d', displayName: 'Local Disk D:', rootPath: 'D:\\', realRootPath: 'D:\\', createdAt: new Date(0).toISOString() };
+    let receivedRoot = '';
+    const adapter: SearchAdapter = {
+      async searchText() { return { ok: true, value: { matches: [], truncated: false } }; },
+      async searchFiles(request) { receivedRoot = request.rootPath; return { ok: true, value: { paths: [], truncated: false } }; },
+    };
+    const repository: WorkspaceRepository = {
+      async list(): Promise<Workspace[]> { return [workspace]; },
+      async get(id: string): Promise<Workspace | null> { return id === workspace.id ? workspace : null; },
+      async insert(): Promise<void> {},
+      async delete(): Promise<void> {},
+    };
+
+    const result = await new SearchService(repository, adapter).searchFiles(
+      { clientId: 'test', clientName: 'test' },
+      undefined,
+      { path: 'D:\\EA\\BEELZEBUB EA_Lab' },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(receivedRoot).toBe('D:\\EA\\BEELZEBUB EA_Lab');
+  });
+
   it('passes automatic versus explicit discovery through to the search adapter', async () => {
     const workspace: Workspace = { id: 'workspace-1', displayName: 'Fixture', rootPath: 'C:\\workspace', realRootPath: 'C:\\workspace', createdAt: new Date(0).toISOString() };
     const discoveryModes: string[] = [];

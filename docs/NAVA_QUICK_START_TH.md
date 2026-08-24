@@ -1,10 +1,10 @@
 ---
 title: คู่มือเริ่มใช้ NAVA Agent
-version: 4.8.4
-updated: 2026-08-23
+version: 4.8.5
+updated: 2026-08-24
 ---
 
-# คู่มือเริ่มใช้ NAVA Agent v4.8.4
+# คู่มือเริ่มใช้ NAVA Agent v4.8.5
 
 NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับไฟล์ Git คำสั่ง และโปรแกรมบนเครื่อง Windows ของคุณผ่าน MCP โดยงานยังรันอยู่บนเครื่องนี้
 
