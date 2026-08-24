@@ -1,5 +1,19 @@
 # Findings
 
+## 2026-08-25 Desktop updater EPIPE
+
+- Crash diagnostics recorded `main-uncaught-exception` / `write EPIPE` at `2026-08-24T17:27:19.852Z` for installed v4.8.6.
+- The native dialog stack ends in `console.info` called by `NsisUpdater.checkForUpdates`; this is updater logging, not an MCP tool failure.
+- The Desktop main process started at 20:27 local time with parent PID 26428, and that parent no longer exists. The inherited output pipe can therefore reject later writes.
+- Desktop mode has no stdout/stderr error handler. The existing handler is installed only by `bootstrapMcpStdio`, so it does not protect the packaged GUI updater.
+- The updater uses the dependency's default console logger. A safe updater logger plus Desktop stream error guards is the smallest complete fix.
+- Secure Tunnel health and `workspace_list` still succeed while the native error dialog is visible; no data corruption is indicated.
+- Relaunch through a confirmed `explorer.exe` parent still generated repeated EPIPE crash records, falsifying the launcher-only hypothesis. The packaged Desktop must not depend on console streams at all.
+- The minimal permanent change is two-layered: disable electron-updater's default console logger and absorb only `EPIPE`/`ECONNRESET` on GUI stdout/stderr. Unexpected output errors still throw, and MCP stdio keeps its existing peer-close shutdown path.
+- Installed v4.8.7 completed the automatic startup update check and displayed the unpublished-release status without increasing the crash log beyond 19 prior v4.8.6 events.
+- After the scoped GUI restart, the Tunnel required one explicit start. The UI then reported `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)`, and remote MCP health/workspace discovery succeeded.
+
+
 ## 2026-08-24 Secure Tunnel response-budget hardening
 
 - Production incident: `read_file` returned `D:\EA\Autobots\research\V031_ENTRY_EDGE_PHASE1_SCANS_FULL.csv` (14,786,001 bytes / 14.1 MiB) through Secure Tunnel.

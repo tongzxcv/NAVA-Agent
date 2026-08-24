@@ -1,3 +1,46 @@
+# NAVA Desktop updater EPIPE hardening
+
+## Goal
+
+Stop repeated Electron main-process dialogs when the packaged updater logs after its inherited stdout/stderr pipe has closed.
+
+## Acceptance criteria
+
+- [x] Packaged Desktop logging cannot throw an uncaught `EPIPE`/`ECONNRESET`.
+- [x] Auto-updater uses a safe logger instead of the inherited console stream.
+- [x] Existing stdio peer-close behavior remains intact.
+- [x] Installed NAVA checks for updates without a JavaScript error dialog.
+- [x] Tunnel and local MCP recover after the scoped app restart.
+- [x] Task-owned files are verified, committed, and pushed.
+
+## Phases
+
+- [completed] Stabilize the installed app and capture a deterministic regression.
+- [completed] Apply the smallest Desktop-only stream/logger fix.
+- [completed] Run focused/full verification and build the installed artifact.
+- [completed] Back up, install, live-test updater/Tunnel, scan, commit, and push.
+
+## Safety boundaries
+
+- Restart only `D:\Program Files\NAVA Agent\NAVA Agent.exe`; do not terminate unrelated Node/Codex/MT5 processes.
+- Preserve the Runtime API key, Tunnel profile, workspaces, permissions, and database.
+- Do not weaken stdio transport shutdown semantics.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Inline Node SQLite query had PowerShell quoting syntax error | 1 | Switched approach instead of repeating the same command. |
+| `better-sqlite3` was not resolvable from the storage package | 1 | Used built-in `node:sqlite` read-only access; no persisted updater overrides were present. |
+| Relaunching the packaged GUI through `explorer.exe` still produced repeated `write EPIPE` events | 1 | The GUI console socket itself is unusable; temporarily disable scheduled update checks after a scoped database backup, then install the code fix. |
+| Initial implementation patch used an incorrect nearby import context in `main.ts` | 1 | Inspect the exact import block and apply the same minimal change against current source. |
+| NSIS packaging again failed because electron-builder cannot create winCodeSign macOS symlinks without Windows link privilege | 1 | Use the completed `win-unpacked` runtime produced before signing, verify its ASAR/version hashes, and install only scoped artifacts as in the prior release. |
+| First Computer Use accessibility click reported an unknown outcome, then the refreshed tree showed no state change | 1 | Re-observed the window before any retry as required by the UI-control safety workflow. |
+| Refreshed accessibility click lacked coordinate geometry | 1 | Captured a current screenshot and used its screenshot ID for one bounded coordinate click. |
+| Repository-wide artifact scan again descended into ignored build/dependency trees and produced known binary false positives | 1 | Stopped the read-only scan and run the guard against the explicit staged source/test/doc set only. |
+
+---
+
 # NAVA Secure Tunnel response-budget hardening
 
 ## SCQA

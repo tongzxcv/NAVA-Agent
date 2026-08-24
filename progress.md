@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-08-25 Desktop updater EPIPE
+
+- Confirmed repeated dialogs are the same updater-triggered `write EPIPE` incident, not the previous large-response Tunnel fault.
+- Selected TDD scope: one safe-write/logger public seam, preserve stdio peer-close behavior, then installed updater live check.
+- Scoped restart through Windows Explorer did not stop the dialogs; proceeding with a reversible updater-schedule mitigation before the permanent build.
+- Backed up the database, persisted temporary `update_auto_check=false` and `update_check_on_startup=false`, relaunched NAVA, and observed no new EPIPE record after the startup window.
+- RED: the new GUI output-guard test failed because the public guard module did not exist. GREEN: three focused cases now pass for EPIPE, ECONNRESET, and an unexpected error.
+- Wired the guard only into GUI/log-viewer modes and disabled electron-updater's default console logger; stdio startup remains on its existing transport-specific handler.
+- Released source metadata/docs as v4.8.7. Desktop passes 231/231, packaging metadata 4/4, root lint/typecheck, and all 19 package builds.
+- Installed hash-matched v4.8.7 EXE/ASAR after backing up v4.8.6 at `E:\AI_CACHE\nava-agent-setup\20260825-004407-v4.8.6-before-v4.8.7-epipe-fix`.
+- Restored automatic update defaults, observed the startup check complete with no new crash record, restarted the Tunnel from the NAVA UI, and verified remote MCP health plus workspace discovery.
+- Staged-only secret/artifact guard passed for 31 intentional source, test, version, documentation, and planning files; no generated runtime, log, database, screenshot, installer, or credential file is staged.
+
+
 ## 2026-08-24 Secure Tunnel response-budget hardening
 
 - Confirmed the source worktree is clean at pushed commit `80e6937` before this task.

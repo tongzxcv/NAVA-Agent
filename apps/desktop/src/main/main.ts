@@ -53,6 +53,7 @@ import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
 import { CrashDiagnosticsRecorder, RendererRecoveryPolicy } from './crash-recovery.js';
+import { installProcessOutputErrorGuards } from './process-output-guard.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -945,6 +946,7 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
     return;
   }
   try {
+    autoUpdater.logger = null;
     autoUpdater.autoDownload = desktopUserSettings.updateAutoDownload;
     autoUpdater.autoInstallOnAppQuit = false;
     updateInstallCoordinator = new UpdateInstallCoordinator({
@@ -1279,9 +1281,9 @@ if (!gotInstanceLock) {
   }
   if (wantsMcpStdio(process.argv)) {
     bootstrapMcpStdio();
-  } else if (process.argv.includes('--log-viewer')) {
-    bootstrapLogViewerOnly();
   } else {
-    bootstrapDesktop();
+    installProcessOutputErrorGuards(process.stdout, process.stderr);
+    if (process.argv.includes('--log-viewer')) bootstrapLogViewerOnly();
+    else bootstrapDesktop();
   }
 }
