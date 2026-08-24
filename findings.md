@@ -89,6 +89,17 @@
 - The regenerated PDF is a valid 4-page PDF (152,203 bytes). Both installed copies match SHA256 `7E68D823D342B8421B171E9C26CC4A64F6185890D0E2B0D7A7BE2B26E1ED97E0`.
 - Visual QA of the rendered source confirms the affected Codex command blocks now use a uniform dark background with readable light text.
 
+# 2026-08-25 NAVA v4.9.0 guide refresh
+
+- The installed Desktop guide is still the four-page v4.8.7 PDF from 2026-08-23, while the installed application is v4.9.0.
+- The repository source of truth is `docs/NAVA_QUICK_START_TH.md`; its frontmatter, title, and workflow currently omit workspace leases and `diagnostic_bundle_create`.
+- `docs/nava-guide.css` already contains the verified `pre code` override that keeps command text light on a dark background; retain this stylesheet unchanged unless visual QA finds a new defect.
+- Edge created the local candidate PDF asynchronously after the launcher returned; the candidate is 203,315 bytes. NAVA's optional PDF provider is unavailable for this E: artifact, so validation must use local rendering.
+- Edge accessibility confirms the candidate contains six pages and exposes the v4.9.0 title, lease guidance, diagnostics, recovery steps, and final paths as text. The first screenshot was obscured by extension welcome tabs from the isolated QA profile, not by PDF content.
+- The visible first PDF page behind Edge's account-sync prompt already confirms the title, Thai body text, gold/teal headings, warning box, table, and dark command block render with readable contrast. The prompt itself must not be automated.
+- Guest-mode visual QA passed all six pages. Thai text, tables, inline code, warning blocks, dark command blocks, URLs, v4.9.0 multi-chat guidance, account migration, troubleshooting, and final paths are visible without clipping or white-on-white text.
+- The candidate, Desktop copy, and installed copy are valid `%PDF-` files with identical SHA256 `213DCA4F53A8806ACC132CF5EC3AD545F2726AB702E949E7ACB32AC74887F145`.
+
 # 2026-08-25 NAVA v4.9.0 deployment
 
 - The verified source release contains 219 configurable tools; 213 are advertised by default and the six Codex delegation tools remain opt-in.

@@ -1,3 +1,45 @@
+# NAVA v4.9.0 user-guide refresh
+
+## Goal
+
+Update the Thai quick-start source and the Desktop PDF so they match the installed NAVA v4.9.0 runtime, explain the new multi-chat coordination and diagnostic tools in beginner-friendly language, and preserve readable print contrast.
+
+## Acceptance criteria
+
+- [x] Markdown frontmatter/title and operating instructions identify v4.9.0.
+- [x] The guide explains safe multi-chat reads/writes, workspace leases, and diagnostic bundles without requiring raw MCP syntax.
+- [x] A newly generated PDF passes text/page inspection and visual contrast checks.
+- [x] The verified PDF replaces the Desktop and installed guide copies with matching SHA256 hashes.
+- [x] Task-owned source/planning changes pass the secret/artifact gate, are committed, and are pushed.
+
+## Phases
+
+- [completed] Inspect the current source, stylesheet, PDF, and v4.9.0 behavior.
+- [completed] Update the minimum guide sections and version references.
+- [completed] Generate and visually inspect a new PDF.
+- [completed] Replace both guide copies, verify hashes, scan, commit, and push.
+
+## Safety boundaries
+
+- Do not alter the running NAVA, Tunnel, Runtime API key, profile, workspaces, or permissions.
+- Keep the existing print stylesheet and its explicit dark-code-block contrast fix.
+- Never include a real secret, account identifier, or Tunnel ID in the guide.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| The dedicated PDF writer reported `No devices available` for the connected Remote Desktop account | 1 | Use the previously verified local Windows fallback: native Markdown-to-HTML conversion plus Edge headless printing with an isolated profile. |
+| The first Edge `--headless=new` invocation returned before creating the PDF | 1 | Inspect the isolated run artifacts, then retry with the established Edge `--headless`/wait invocation rather than repeating the same command. |
+| NAVA PDF inspection first required `workspaceId`, then returned `INTERNAL_ERROR` for the registered E: workspace | 2 | Keep the generated PDF and use local browser rendering plus available local PDF libraries/tools for inspection; do not retry the same unavailable provider. |
+| Edge headless PDF screenshot produced a blank viewer canvas | 1 | Open the generated PDF in the normal local Edge window and inspect it page by page with Computer Use screenshots. |
+| The first normal Edge visual profile opened policy-installed extension welcome tabs over the PDF window | 1 | Ignore the untrusted pages, stop only the isolated profile created for QA, and relaunch the PDF with extensions and first-run pages disabled. |
+| The clean Edge profile displayed an account-sync prompt over the PDF | 1 | Do not interact with the login/privacy prompt; stop only this QA profile and relaunch the local PDF in an isolated Guest/InPrivate window. |
+| Edge's PDF page-number control rejected UIA `set_value` with `Requested property was not in the CacheRequest` | 1 | Reobserved the unchanged window and will use the viewer's documented `Ctrl+Alt+G` keyboard navigation instead. |
+| The first post-copy hash loop piped directly after `foreach`, causing `An empty pipe element is not allowed` | 1 | Store the loop results in an array before formatting; the earlier copy already verified all three hashes matched. |
+
+---
+
 # NAVA v4.9.0 deployment
 
 ## SCQA

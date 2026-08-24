@@ -150,6 +150,24 @@
 - After explicit confirmation, submitted the read-only `workspace_list` prompt while `Chat` remained checked and NAVA Agent remained attached.
 - The regular Chat conversation `ตรวจสอบ Workspace` returned all four expected workspaces in a couple of seconds and has no `Work` badge.
 - Correlated the Chat response with a new tunnel forwarded-command event at `2026-08-23T01:15:34.2819305+07:00`. Chat-surface/web-quota fallback passed, with ordinary Chat plan limits still applicable.
+# 2026-08-25 NAVA v4.9.0 guide refresh
+
+- Inspected the stale Desktop PDF, Markdown source, print stylesheet, and prior generation evidence.
+- Selected a minimal documentation-only update: version sync, multi-chat/lease guidance, diagnostic workflow, and v4.9 troubleshooting language.
+- Updated the Markdown source to v4.9.0 and added copy-ready Thai prompts for safe multi-chat writes, read-only lease checks, bounded diagnostics, and `ExceptionGroup` recovery.
+- The dedicated PDF writer could not run because its Remote Desktop account has no connected device; switched to the existing local Edge print workflow without adding a dependency.
+- Native Markdown-to-HTML generation succeeded; the first Edge `--headless=new` print returned without a PDF, so the retry will use the established waiting invocation.
+- The candidate appeared after Edge completed asynchronously. NAVA PDF inspection could not use its optional provider, so local page/text/visual checks are next.
+- A headless screenshot confirmed the PDF viewer itself does not paint in headless mode; switched to read-only visual inspection in a normal Edge window.
+- The PDF accessibility tree confirms six populated pages. Visual QA is being relaunched in a clean extension-disabled profile because the first isolated profile was covered by extension welcome tabs.
+- The clean-profile screenshot proved page-one styling and code contrast but exposed an account-sync modal; no modal action was taken, and QA will continue in Guest/InPrivate mode.
+- Guest mode removed the prompts and produced a clean page-one screenshot. The page selector does not support UIA value replacement, so remaining pages will use the viewer's keyboard navigation.
+- Visually inspected pages 1-6 in Edge Guest mode; all content and contrast checks passed.
+- Backed up both old 152,203-byte PDFs, then replaced the Desktop and installed copies with the verified 203,315-byte v4.9.0 candidate; all three SHA256 hashes matched.
+- Public repository hygiene passed 8/8 with the portable Node 24 toolchain.
+- Whole-tree guard reported no matches in task-owned files; the staged-only gate covered four text files with zero large blobs, artifact paths, or secret-pattern paths.
+- All guide-refresh acceptance gates are complete; commit, push, and post-push clean-state verification are the final recorded operations.
+
 # 2026-08-25 NAVA v4.9.0 deployment
 
 - Synchronized all source/package metadata and release notes to v4.9.0.
