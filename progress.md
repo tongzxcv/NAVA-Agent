@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-08-25 v4.9.0 deployment
+
+- **Status:** authorized; release metadata and installation preflight in progress.
+- Recovered the completed source-preparation plan and clean commit `388545a`; branch is one commit ahead of its `nava` remote.
+- Confirmed the required isolated toolchain remains Node 24.19.0 with pnpm 10.15.0.
+- Selected v4.9.0 because the prepared change adds persistent writer coordination, a diagnostic primitive, skills, and recipes rather than a v4.8.7 patch-only repair.
+- Synchronized root/app/package/shared metadata and packaging assertions to v4.9.0, added release notes, and corrected the release smoke check to the existing `nava-agent-Setup-${version}.exe` artifact name.
+- Lint, typecheck, 17 packaging/release/hygiene tests, and the full 19-package build passed. First packaging attempt reached electron-builder but failed only while extracting macOS symlinks in its Windows cache; no installed files were touched.
+
+
 ## 2026-08-25 v4.9 source preparation
 
 - **Status:** source implementation complete and verified; intentionally not installed or activated.
@@ -140,3 +150,13 @@
 - After explicit confirmation, submitted the read-only `workspace_list` prompt while `Chat` remained checked and NAVA Agent remained attached.
 - The regular Chat conversation `ตรวจสอบ Workspace` returned all four expected workspaces in a couple of seconds and has no `Work` badge.
 - Correlated the Chat response with a new tunnel forwarded-command event at `2026-08-23T01:15:34.2819305+07:00`. Chat-surface/web-quota fallback passed, with ordinary Chat plan limits still applicable.
+# 2026-08-25 NAVA v4.9.0 deployment
+
+- Synchronized all source/package metadata and release notes to v4.9.0.
+- Passed lint, typecheck, release/packaging/public-hygiene checks, and the complete 19-package build.
+- Packaged `nava-agent-Setup-4.9.0.exe` after preparing an isolated Windows Electron Builder cache; preserved the optional missing Windows OCR warning without treating it as a release failure.
+- Backed up the complete v4.8.7 install, application data, Tunnel profile, and database before copying the hash-verified v4.9.0 unpacked runtime into `D:\Program Files\NAVA Agent`.
+- Relaunched only NAVA-owned processes and verified the installed v4.9.0 GUI, local MCP listener, 213 advertised tools, all six new tools, bounded diagnostics, and preserved workspace state.
+- Started the real Secure Tunnel and verified its owner lock, control-plane metadata, installed stdio MCP process, `200 live`, `200 ready`, and connected state in the NAVA UI.
+- Staged exactly 28 task-owned release/documentation files; the staged gate found zero large blobs, artifact paths, or secret-pattern paths and `git diff --check` passed.
+- Deployment gates are complete; commit/push and post-push clean-state verification are the final recorded operations.

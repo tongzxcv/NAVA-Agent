@@ -1,5 +1,15 @@
 # Findings
 
+## 2026-08-25 v4.9.0 deployment
+
+- The prepared source is clean at commit `388545a`; only the release metadata/planning commit remains before packaging.
+- Installed v4.8.7 was previously proven at PID 8080 with EXE SHA256 `0F7FA63052212560FB03DC44DE7D5D71321FE333840C5A408BE43628B346511B` and must be backed up before replacement.
+- `scripts/set-version.mjs` is the repository's existing single source of truth for root/app/package versions, shared constants, packaging assertions, and README release references.
+- Packaging and installation must preserve the existing `%APPDATA%\tunnel-client` profile/key and the application SQLite database; these are state, not release artifacts.
+- `electron-builder.yml` has long produced `nava-agent-Setup-${version}.exe`, while `scripts/verify-release.ps1` still expected the legacy `lnwjud-Setup-*` name; the smoke gate must use the real artifact name.
+- The first v4.9.0 packaging attempt built the complete app and `win-unpacked` tree, then failed because electron-builder's bundled 7-Zip used `-snld` on two Darwin library symlinks inside `winCodeSign-2.6.0`; this is a Windows privilege/cache extraction issue, not a source or compile failure.
+
+
 ## 2026-08-25 v4.9 source preparation
 
 - Installed NAVA is v4.8.7 and must remain running and unchanged during this task.
@@ -78,6 +88,16 @@
 - The smallest correct fix is a specific `pre code` rule with transparent background and inherited foreground color; inline code outside fenced blocks should remain unchanged.
 - The regenerated PDF is a valid 4-page PDF (152,203 bytes). Both installed copies match SHA256 `7E68D823D342B8421B171E9C26CC4A64F6185890D0E2B0D7A7BE2B26E1ED97E0`.
 - Visual QA of the rendered source confirms the affected Codex command blocks now use a uniform dark background with readable light text.
+
+# 2026-08-25 NAVA v4.9.0 deployment
+
+- The verified source release contains 219 configurable tools; 213 are advertised by default and the six Codex delegation tools remain opt-in.
+- Windows packaging succeeds with an isolated reusable Electron Builder cache; the installer SHA256 is `7D9ADD572401ED962958554995DCF771B10BD63DB6EA91CF976A897AE39F960B`.
+- The full v4.8.7 application, user data, Tunnel profile, and SQLite database were backed up under `E:\AI_CACHE\nava-agent-setup\20260825-022515-v4.8.7-before-v4.9.0` before replacement.
+- The installed executable reports v4.9.0 and matches the packaged SHA256 `EB3220A792724B6FA17727A59748425C2D33BC97A5A0B19156F2B6B51CB64736`; installed `app.asar` matches `23851FF2405FB81C70C7FDD4CFED07F50EF8712213B02187724655A1BEFD76A0`.
+- A real HTTP MCP SDK session discovered 213 advertised tools and successfully called the bounded read-only `diagnostic_bundle_create` tool at version 4.9.0 with zero reported issues; all six new lease/diagnostic tools were present.
+- NAVA reclaimed the stale v4.8.7 Tunnel lock safely. The current lock identifies the v4.9.0 Electron PID, the Tunnel fetched metadata for `NAVA Web Fallback`, and its stdio MCP child is running from the installed application.
+- Tunnel `/healthz` returns `200 live`, `/readyz` returns `200 ready`, and the NAVA accessibility tree reports `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)` with eight registered workspaces.
 
 ## 2026-08-23 v4.8.4 update
 

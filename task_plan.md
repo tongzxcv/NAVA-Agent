@@ -1,3 +1,49 @@
+# NAVA v4.9.0 deployment
+
+## SCQA
+
+- **Situation:** Commit `388545a` contains the verified workspace-lease, diagnostic, skill, and recipe changes while installed NAVA v4.8.7 remains active.
+- **Complication:** The source still carries v4.8.7 metadata and deployment must preserve the live database, Runtime API key, Tunnel profile, workspaces, permissions, and a byte-verifiable rollback copy.
+- **Question:** How can the prepared source become the installed NAVA release without risking unrelated processes or user state?
+- **Answer:** Synchronize only release metadata to v4.9.0, rerun release checks, package, back up the installed application and database, install the verified artifact, restart only NAVA/Tunnel, and prove local MCP plus the new tools work.
+
+## Acceptance criteria
+
+- [x] Source/package metadata and release notes identify v4.9.0.
+- [x] Lint, typecheck, tests, build, packaging, and release checks pass.
+- [x] Existing install and database have rollback backups before replacement.
+- [x] Installed EXE/ASAR match the packaged v4.9.0 artifacts.
+- [x] NAVA, local MCP, Secure Tunnel, workspaces, and new tools are verified live.
+- [x] Task-owned release changes are scanned, committed, and pushed; worktree is clean.
+
+## Phases
+
+- [completed] Inspect release/install state and synchronize v4.9.0 metadata.
+- [completed] Run source and packaging verification.
+- [completed] Back up and install v4.9.0 without changing user configuration.
+- [completed] Verify live runtime, Tunnel, workspace state, and new tools.
+- [completed] Scan, commit, push, and record rollback evidence.
+
+## Safety boundaries
+
+- Stop/restart only NAVA Agent and its owned Tunnel process; do not terminate Codex, MT5, or unrelated Node processes.
+- Preserve `%APPDATA%\tunnel-client`, Runtime API key, profile YAML, workspaces, permissions, and live SQLite data.
+- Copy rollback material before replacing installed files; never delete the existing installation or user data.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| electron-builder could not extract two macOS symlinks from `winCodeSign-2.6.0.7z`: `A required privilege is not held by the client` | 1 | Built an isolated Windows-only cache from the successfully extracted files and reran packaging; no admin or source dependency change was needed. |
+| `rg` wildcard paths under `node_modules` were invalid on Windows | 1 | Enumerated the exact cache directories before inspection instead of passing wildcard directory names. |
+| `Copy-Item -LiteralPath` treated `*` literally while preparing the builder cache | 1 | Repeated the copy with explicit `Get-ChildItem` input and verified 83 files before packaging. |
+| The first live SDK verifier imported `@modelcontextprotocol/client` from a root that does not expose it | 1 | Imported the existing package-local SDK entry from `packages/mcp-server/node_modules`; the real HTTP MCP session then passed. |
+| Legacy `/healthz` and `/readyz` checks returned 404 in v4.9.0 | 1 | Verified the listener and all six new tools through the MCP SDK, which is the supported runtime protocol for this build. |
+| The first PowerShell Tunnel health loop piped directly after `foreach`, producing `An empty pipe element is not allowed` | 1 | Collected the loop results into an array first; `/healthz` and `/readyz` then returned `200 live` and `200 ready`. |
+| Whole-tree artifact scanning reported ignored installers, packaged binaries, images, and binary false positives | 1 | Applied the commit gate to the 28 staged task-owned text files only; zero large blobs, artifact paths, or secret-pattern paths were present. |
+
+---
+
 # NAVA v4.9 source preparation (do not install yet)
 
 ## SCQA
