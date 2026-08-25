@@ -1,3 +1,23 @@
+# NAVA secure SSH progress
+
+## 2026-08-25
+
+- Read required `ponytail` and `planning-with-files` guidance.
+- Recovered repository context and confirmed a clean starting worktree.
+- Started capability/tool/settings architecture inspection.
+- Selected the minimum contract: one native OpenSSH-backed `remote_ssh` tool using SSH config aliases, strict host-key verification, key/agent authentication, bounded tasks, and scoped file transfer.
+- Added the SSH backend, MCP schema/tool, permission/destructive policy integration, health wiring, Desktop capability summary, IPC validation, and focused tests.
+- Focused capability/MCP tests pass (56 assertions total); capabilities, MCP, and Desktop typechecks pass with the pinned Node 24 toolchain.
+- Bumped source to v4.10.1, updated the Thai guide/README, and regenerated the 226-tool contract (220 tools advertised by default).
+- Full lint, typecheck, 19-package test suite, and production build pass on pinned Node 24; Desktop reports 231 passing tests and MCP reports 162.
+- Packaging, packaging tests, and the release gate pass; the verified v4.10.1 unpacked runtime was installed after a complete v4.10.0 rollback backup.
+- Installed EXE, ASAR, MCP stdio bundle, and Node runtime hashes match the package. A real local MCP session advertises 220 tools and returns a ready `remote_ssh` status with strict host-key verification.
+- Updated the Thai PDF on the Desktop and in the installed application; visual QA confirms readable Thai text and high-contrast command blocks.
+- Secure Tunnel started after a delayed UI response; `127.0.0.1:8080/healthz` returns `200 live` and `/readyz` returns `200 ready`, while local MCP remains healthy on port 18765.
+- Authenticated VPS validation remains intentionally pending because this Windows account has no OpenSSH Host profile and no loaded SSH-agent identity; no password or private-key material was requested or captured.
+
+---
+
 # Progress
 
 ## 2026-08-25 WSE evidence and human promotion

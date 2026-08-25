@@ -1,14 +1,16 @@
 ---
 title: คู่มือเริ่มใช้ NAVA Agent
-version: 4.10.0
+version: 4.10.1
 updated: 2026-08-25
 ---
 
-# คู่มือเริ่มใช้ NAVA Agent v4.10.0
+# คู่มือเริ่มใช้ NAVA Agent v4.10.1
 
 NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับไฟล์ Git คำสั่ง และโปรแกรมบนเครื่อง Windows ของคุณผ่าน MCP โดยงานยังรันอยู่บนเครื่องนี้
 
 รุ่น v4.10.0 เพิ่ม **WSE (Workspace State Engine)** สำหรับเก็บผลลัพธ์การทำงานแบบไม่เก็บเนื้อหา ประเมินความสำเร็จ/ความเร็ว และจัดอันดับกลยุทธ์แบบออฟไลน์ โดยต้องให้ผู้ใช้ยืนยันก่อนเปลี่ยนกลยุทธ์เสมอ
+
+รุ่น v4.10.1 เพิ่ม **Secure SSH สำหรับ VPS** ใช้ key หรือ SSH agent เท่านั้น ตรวจ host key เสมอ และไม่รับรหัสผ่านหรือเนื้อหา private key ผ่าน Chat/MCP
 
 > สำคัญ: NAVA ไม่ได้ทำให้โควต้า AI ไม่จำกัด การใช้จาก Chat ปกติจะนับตามแผนและข้อจำกัดของ ChatGPT ส่วน Codex/Work ใช้สิทธิ์ของผลิตภัณฑ์นั้น
 
@@ -111,6 +113,60 @@ http://127.0.0.1:18765/mcp
 ```text
 ใช้ NAVA ตรวจ git status ของโปรเจกต์ THANATOS แบบอ่านอย่างเดียว แล้วสรุปจำนวนไฟล์
 ```
+
+## ให้ NAVA เข้า VPS ผ่าน Secure SSH
+
+NAVA ใช้ OpenSSH ที่มากับ Windows ไม่ควบคุมหน้าต่าง Remote Desktop จึงเหมาะกับคำสั่ง ติดตั้งระบบ ตรวจ log และรับส่งไฟล์ ส่วนงานที่ต้องเห็น GUI เช่น MT5 ยังใช้ RDP ตามปกติ
+
+### ตั้งค่าครั้งแรก
+
+1. เตรียม SSH key สำหรับ VPS และติดตั้ง public key ที่ฝั่ง VPS
+2. สร้างไฟล์ `%USERPROFILE%\.ssh\config`
+3. เพิ่ม Host alias โดยแทนค่าตัวอย่างด้วยข้อมูลจริง:
+
+```sshconfig
+Host nava-vps
+  HostName <VPS-IP-OR-DNS>
+  User <VPS-USER>
+  IdentityFile C:\Users\<WINDOWS-USER>\.ssh\id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking yes
+```
+
+4. เปิด PowerShell แล้วเชื่อมครั้งแรกด้วย `ssh nava-vps` เพื่อตรวจ fingerprint กับผู้ให้บริการ VPS และบันทึกลง `known_hosts`
+5. ห้ามใส่ password, private key หรือ Runtime API key ลงใน Chat
+
+### ทดสอบจาก NAVA
+
+```text
+ใช้ NAVA เรียก remote_ssh operation=status แล้วตรวจว่า OpenSSH พร้อม
+จากนั้นเรียก operation=test ด้วย profile nava-vps และ Workspace ปัจจุบัน แบบไม่แก้ไข VPS
+```
+
+### สั่งงาน Linux VPS
+
+```text
+ใช้ NAVA ผ่าน remote_ssh profile nava-vps, remote_shell=posix
+รัน executable uname พร้อม arguments -a ใน Workspace ปัจจุบัน
+```
+
+### สั่งงาน Windows VPS
+
+```text
+ใช้ NAVA ผ่าน remote_ssh profile nava-vps, remote_shell=powershell
+รัน executable Get-ComputerInfo ใน Workspace ปัจจุบัน
+```
+
+งานนานให้ใช้ `execution=background` แล้วเก็บ `task_id` เพื่อตรวจด้วย `status`, `logs`, `wait`, `result` หรือยกเลิกด้วย `cancel`
+
+การ upload/download ใช้ `local_path` แบบ absolute ที่อยู่ใน Workspace/Capability Roots เท่านั้น และใช้ `remote_path` ฝั่ง VPS การโอนไฟล์อาจเขียนทับข้อมูล จึงต้องยืนยันใน Chat ก่อน
+
+ถ้า `test` ไม่ผ่าน:
+
+- `Host key verification failed` — ตรวจ fingerprint และ `known_hosts`; NAVA จะไม่ปิดการตรวจ host key ให้
+- `Permission denied (publickey)` — ตรวจ User, IdentityFile, public key บน VPS หรือ SSH agent
+- `Could not resolve hostname` — ตรวจ HostName/DNS ใน SSH config
+- `Connection timed out/refused` — ตรวจพอร์ต 22, firewall และบริการ SSH ฝั่ง VPS
 
 ## ใช้กับ ChatGPT Web
 

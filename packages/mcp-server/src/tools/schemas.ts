@@ -195,6 +195,25 @@ export const wslFilesystemCapabilitySchema = z.object({
   ...capabilityRequestSchema,
 }).strict();
 
+export const remoteSshCapabilitySchema = z.object({
+  operation: z.enum(['status', 'test', 'run', 'upload', 'download', 'wait', 'logs', 'result', 'cancel']).default('status'),
+  workspaceId: workspaceIdSchema.optional(),
+  profile: z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).optional(),
+  remote_shell: z.enum(['posix', 'powershell']).default('posix'),
+  executable: z.string().trim().min(1).max(1_024).optional(),
+  arguments: z.array(z.string().max(32_768)).max(128).optional(),
+  local_path: pathSchema.optional(),
+  remote_path: z.string().trim().min(1).max(4_096).refine((value) => !value.startsWith('-') && !/[\r\n\0]/.test(value), 'Remote path is invalid').optional(),
+  execution: z.enum(['foreground', 'background', 'auto']).default('auto'),
+  task_id: z.string().trim().min(1).max(128).optional(),
+  timeout_seconds: z.number().min(0.1).max(14_400).optional(),
+  max_output_bytes: z.number().int().min(1).max(8 * 1024 * 1024).optional(),
+  tail_lines: z.number().int().min(0).max(10_000).optional(),
+  include_stdout: z.boolean().default(true),
+  include_stderr: z.boolean().default(true),
+  ...capabilityRequestSchema,
+}).strict();
+
 const domStepSchema = z.object({
   action: z.string().trim().min(1).max(128),
   parameters: capabilityParametersSchema.optional(),
@@ -282,7 +301,7 @@ export const windowCapabilitySchema = z.object({
 
 export const healthCapabilitySchema = z.object({
   operation: z.enum(['check_all', 'check_tool']).default('check_all'),
-  tool: z.enum(['shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health', 'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch', 'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs']).optional(),
+  tool: z.enum(['shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health', 'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch', 'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs', 'remote_ssh']).optional(),
   request_id: z.string().trim().min(1).max(128).optional(),
 }).strict();
 

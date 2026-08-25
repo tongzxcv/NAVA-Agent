@@ -8,6 +8,7 @@ import {
   LocalCapabilityService,
   NodeBrowserCdpProtocol,
   PowerShellWindowsCapabilityBridge,
+  RemoteSshCapabilityBackend,
   SchedulerCapabilityBackend,
   ShellCapabilityBackend,
   WebFetchCapabilityBackend,
@@ -97,7 +98,20 @@ export function createLocalCapabilityRuntime(
     allowedRootsProvider: capabilityRootsProvider,
     availabilityProbe: wslAvailabilityProbe,
   });
-  const health = new HealthCapabilityBackend({ domCdp: browserBackend, accessibility: accessibilityBackend, wslExec: wslBackend, wslFs: wslFsBackend });
+  const sshAvailabilityProbe = async (): Promise<Result<unknown>> => {
+    const result = await shellBackend.execute({ operation: 'run', executable: 'where.exe', arguments: ['ssh.exe', 'scp.exe'], cwd: dataPath, execution: 'foreground', timeout_seconds: 5, max_output_bytes: 32 * 1024, userConfirmed: false });
+    if (!result.ok) return { ok: true, value: { available: false, ready: false, local: true, reason: 'openssh_client_unavailable' } };
+    const value = isRecord(result.value) ? result.value : {};
+    const ready = value.state === 'completed' && value.exit_code === 0;
+    return { ok: true, value: { available: ready, ready, local: true, ...(ready ? {} : { reason: 'ssh_or_scp_executable_unavailable' }) } };
+  };
+  const remoteSshBackend = new RemoteSshCapabilityBackend({
+    runner: shellBackend,
+    allowedRoots: [dataPath],
+    allowedRootsProvider: capabilityRootsProvider,
+    availabilityProbe: sshAvailabilityProbe,
+  });
+  const health = new HealthCapabilityBackend({ domCdp: browserBackend, accessibility: accessibilityBackend, wslExec: wslBackend, wslFs: wslFsBackend, remoteSsh: remoteSshBackend });
   const service = new LocalCapabilityService({
     shell: shellBackend,
     domCdp: browserBackend,
@@ -117,6 +131,7 @@ export function createLocalCapabilityRuntime(
     scheduler: schedulerBackend,
     wslExec: wslBackend,
     wslFs: wslFsBackend,
+    remoteSsh: remoteSshBackend,
   });
   return { service, health };
 }
@@ -189,6 +204,7 @@ const capabilityTitles: Readonly<Record<(typeof capabilityToolNames)[number], st
   scheduler: 'Manage Windows scheduled tasks',
   wsl_exec: 'Run scoped Linux developer tasks',
   wsl_fs: 'Translate scoped Windows and WSL paths',
+  remote_ssh: 'Connect securely to a VPS',
 };
 
 const capabilityDescriptions: Readonly<Record<(typeof capabilityToolNames)[number], string>> = {
@@ -210,6 +226,7 @@ const capabilityDescriptions: Readonly<Record<(typeof capabilityToolNames)[numbe
   scheduler: 'schtasks.exe list/create/run/delete operations',
   wsl_exec: 'WSL2 argv-only execution inside registered workspaces',
   wsl_fs: 'Path translation and metadata without raw WSL filesystem access',
+  remote_ssh: 'Key-based SSH commands and scoped SCP file transfer',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

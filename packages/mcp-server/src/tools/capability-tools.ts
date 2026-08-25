@@ -22,6 +22,7 @@ import {
   windowCapabilitySchema,
   wslCapabilitySchema,
   wslFilesystemCapabilitySchema,
+  remoteSshCapabilitySchema,
 } from './schemas.js';
 
 export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
@@ -192,6 +193,14 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: wslFilesystemCapabilitySchema,
       handler: async (input, signal) => execute('wsl_fs', input, signal),
+    }),
+    defineTool({
+      name: 'remote_ssh',
+      description: 'Secure VPS access through a named OpenSSH Host profile. Status/test/run use ssh.exe; upload/download use scp.exe. Authentication comes only from the user SSH config, private key, or SSH agent. Host-key verification is always strict, passwords and private-key contents are never accepted, and local transfer paths stay inside registered roots.',
+      permission: 'DANGEROUS',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: remoteSshCapabilitySchema,
+      handler: async (input, signal) => execute('remote_ssh', input, signal),
     }),
   ];
 }

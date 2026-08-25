@@ -1,3 +1,50 @@
+# NAVA secure SSH support
+
+## Goal
+
+Add a safe, profile-based SSH capability for VPS command execution and file transfer, then build, install, and verify the updated NAVA runtime without exposing credentials or disturbing unrelated processes.
+
+## Acceptance criteria
+
+- [x] NAVA can test an SSH profile, execute a bounded remote command, and upload/download a file.
+- [x] Host-key verification is enabled by default; passwords and private-key contents are never accepted or logged.
+- [x] Existing permission, audit, timeout, cancellation, and response-size controls remain in force.
+- [x] Focused tests, lint, typecheck, build, package/runtime verification, and secret/artifact checks pass.
+- [x] Existing NAVA/Tunnel settings and data are backed up and preserved during installation.
+- [x] Task-owned changes are committed and pushed to the NAVA repository.
+
+## Phases
+
+- [completed] Inspect existing capability/tool/settings patterns and define the minimum SSH contract.
+- [completed] Implement the SSH backend, tool registration, tests, and user-facing profile guidance.
+- [completed] Run focused and full source verification.
+- [completed] Back up, package, install, and live-test NAVA plus the local MCP runtime.
+- [completed] Scan, commit, and push task-owned changes.
+
+## Safety boundaries
+
+- Never place a VPS password, private-key content, Runtime API key, host address, or username in source, tests, logs, or Git.
+- Use native OpenSSH only; do not add an SSH dependency or bypass host-key checking.
+- Do not terminate Codex, MT5, or unrelated processes. Restart only NAVA-owned processes during deployment.
+- Preserve the live database, workspaces, permissions, Tunnel profile, Runtime API key, and rollback material.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| A single patch tried to delete and re-add each existing planning file | 1 | Preserve prior planning history and prepend the new active task instead. |
+| Two Windows `rg` commands used wildcard path operands and returned OS error 123 | 1 | Search directories with `--glob` or enumerate package manifests; do not reuse wildcard path operands. |
+| The first SSH transfer test rejected an in-root upload on Windows | 1 | Canonicalize configured roots with `realpath()` before containment checks so path-sensitive Windows aliases compare correctly. |
+| Focused MCP tests found the deterministic tool-order fixture missing `remote_ssh` | 1 | Add the new public tool to the exact-order and schema contract assertions. |
+| MCP package typecheck initially resolved the stale capabilities declaration before the dependency build | 1 | Build `@lnwjud/capabilities` first, then MCP and Desktop typechecks pass. |
+| Full lint rejected four unnecessary quote escapes in SSH command-formatting template literals | 1 | Remove only the redundant escapes; command output remains byte-for-byte equivalent. |
+| Full Desktop tests found an old 207-tool acceptance count after the runtime had already reached 219 before this change | 1 | Synchronize the production stdio/Desktop acceptance and E2E catalog to the current 220 default tools, including leases, diagnostics, and SSH. |
+| Silent NSIS returned exit 0 but did not replace the custom `D:\Program Files` installation | 1 | Use the already verified `win-unpacked` runtime and hash-check direct scoped replacement, preserving the full pre-update backup. |
+| The first external live-smoke script used a Windows drive path as an ESM specifier | 1 | Use an explicit `file:///C:/...` module URL; do not repeat the unsupported `C:/...` import. |
+| Headless Edge did not write directly to the Thai PDF filename | 1 | Generate to an ASCII artifact name, visually verify it, then copy the exact verified bytes to both Thai destination paths. |
+
+---
+
 # NAVA WSE evidence and human-promotion update
 
 ## SCQA

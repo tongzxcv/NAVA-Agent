@@ -24,6 +24,7 @@ describe('LocalCapabilityService', () => {
       scheduler: { execute: async (): Promise<ReturnType<typeof ok>> => { calls.push('scheduler'); return ok({ value: 'scheduler' }); } },
       wslExec: { execute: async (): Promise<ReturnType<typeof ok>> => { calls.push('wsl_exec'); return ok({ value: 'wsl' }); } },
       wslFs: { execute: async (): Promise<ReturnType<typeof ok>> => { calls.push('wsl_fs'); return ok({ value: 'wsl-fs' }); } },
+      remoteSsh: { execute: async (): Promise<ReturnType<typeof ok>> => { calls.push('remote_ssh'); return ok({ value: 'ssh' }); } },
     });
 
     await expect(service.execute('shell', {})).resolves.toMatchObject({ ok: true, value: { value: 'shell' } });
@@ -44,7 +45,8 @@ describe('LocalCapabilityService', () => {
     await expect(service.execute('scheduler', {})).resolves.toMatchObject({ ok: true, value: { value: 'scheduler' } });
     await expect(service.execute('wsl_exec', {})).resolves.toMatchObject({ ok: true, value: { value: 'wsl' } });
     await expect(service.execute('wsl_fs', {})).resolves.toMatchObject({ ok: true, value: { value: 'wsl-fs' } });
-    expect(calls).toEqual(['shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health', 'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch', 'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs']);
+    await expect(service.execute('remote_ssh', {})).resolves.toMatchObject({ ok: true, value: { value: 'ssh' } });
+    expect(calls).toEqual(['shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'window', 'health', 'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch', 'audio', 'screen_record', 'office', 'scheduler', 'wsl_exec', 'wsl_fs', 'remote_ssh']);
   });
 
   it('reports an unsupported capability without throwing', async () => {

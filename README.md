@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>225 configurable tools for local files, Git, processes, Windows automation, WSL, browser control, indexing, observability, and extensibility; 219 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>226 configurable tools for local files, Git, processes, Windows automation, WSL, secure SSH, browser control, indexing, observability, and extensibility; 220 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" />
   <img alt="Node" src="https://img.shields.io/badge/Node.js-24.x-339933" />
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-219%20tools-6f42c1" />
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-220%20tools-6f42c1" />
 </p>
 
 ---
@@ -40,14 +40,24 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.10.0
+## Current release: v4.10.1
 
-The current published installer and runtime contract are `v4.10.0`. The runtime
-advertises **219 MCP tools**. The earlier 184-tool snapshot remains only as the
+The current published installer and runtime contract are `v4.10.1`. The runtime
+advertises **220 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.10.1
+
+- Adds `remote_ssh` for key/agent-based VPS connection tests, bounded command
+  execution, durable background tasks, and scoped upload/download with native
+  `ssh.exe` and `scp.exe`.
+- Requires a named OpenSSH Host profile, `BatchMode=yes`, and strict host-key
+  verification. MCP requests never accept passwords or private-key contents.
+- Keeps local transfer paths inside registered NAVA roots and routes remote
+  deletion or overwrite operations through the existing confirmation policy.
 
 ### What's new in v4.10.0
 
@@ -293,7 +303,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current release is `nava-agent-Setup-4.10.0.exe`.
+   The current release is `nava-agent-Setup-4.10.1.exe`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -466,6 +476,7 @@ The **AI File Delete Policy** in Desktop Settings is separate. When enabled, onl
 - `rg` for fast code search; lnwjud has bounded fallbacks where supported.
 - Chrome/Chromium for managed CDP/browser capabilities.
 - WSL for `wsl_exec` and `wsl_fs`.
+- Windows OpenSSH Client plus a key/agent-backed Host profile for `remote_ssh`.
 - Microsoft Office applications for Office automation actions that require the
   native Office stack.
 - FFmpeg and other media helpers for capabilities that report them as available.
@@ -539,7 +550,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.10.0.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.10.1.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -886,9 +897,9 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
-## Complete MCP tool catalog (225 configurable tools; 219 advertised by default)
+## Complete MCP tool catalog (226 configurable tools; 220 advertised by default)
 
-This index is generated from the current v4.10.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.10.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
@@ -946,177 +957,178 @@ This index is generated from the current v4.10.0 `ToolRegistry`, not copied from
 | 52 | `scheduler` | DANGEROUS | Manage Windows scheduled tasks with schtasks.exe. list enumerates tasks, create registers a new task, run starts one immediately. delete requires the user to confirm in chat first, then pass userConfirmed: true. |
 | 53 | `wsl_exec` | EXECUTE | Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings; background calls return the existing task_id contract. |
 | 54 | `wsl_fs` | READ | Translate paths and inspect metadata between a registered Windows workspace and WSL without exposing raw \\wsl$ read/write access. |
-| 55 | `skills_list` | DANGEROUS | List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source. |
-| 56 | `skills_read` | DANGEROUS | Read a local skill SKILL.md (or a relative file inside the skill folder). Follow the skill instructions with lnwjud tools and mcp_call. |
-| 57 | `mcp_list` | DANGEROUS | List local MCP servers discovered from Cursor, Claude Desktop, and lnwjud settings. Does not flatten child tools into the lnwjud catalog. |
-| 58 | `mcp_describe` | DANGEROUS | Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas. |
-| 59 | `mcp_call` | DANGEROUS | Call a tool on a discovered local MCP server. Because child side effects cannot be proven non-destructive at this boundary, every mcp_call requires explicit chat confirmation and userConfirmed: true. |
-| 60 | `workspace_context` | READ | Aggregate ranked workspace context with snippets, symbols, Git/test relevance, economy metadata, and continuation; automatic discovery can be explicitly expanded. |
-| 61 | `workspace_context_continue` | READ | Continue a workspace_context result without discarding unreturned candidates. |
-| 62 | `workspace_full_scan` | READ | Enumerate workspace files with full access by default; set includeIgnored false to use the persistent automatic index. |
-| 63 | `workspace_full_scan_continue` | READ | Continue a workspace_full_scan result page. |
-| 64 | `workspace_snapshot` | READ | Return workspace identity and project snapshot metadata without source contents. |
-| 65 | `search_all` | READ | Search text and filenames across one or all registered workspaces with automatic economy filters or an explicit includeIgnored override. |
-| 66 | `read_many_files` | READ | Read many workspace files in parallel while preserving one result or error per requested path. |
-| 67 | `read_file_page` | READ | Read a deterministic line chunk with explicit continuation instead of silently truncating a large file. |
-| 68 | `read_file_page_continue` | READ | Continue read_file_page from the next deterministic line chunk. |
-| 69 | `workspace_index` | READ | Build or refresh the persistent workspace index using automatic context filters unless ignored paths are explicitly included. |
-| 70 | `workspace_index_status` | READ | Return persistent index metadata and lossless watcher queue telemetry. |
-| 71 | `workspace_index_watch` | READ | Watch all workspace paths and incrementally re-index only changed paths with configurable debounce/concurrency. |
-| 72 | `workspace_index_stop` | READ | Stop a workspace watcher after draining all queued path updates. |
-| 73 | `session_handoff` | READ | Create a concise same-chat continuation message from the real phase tracker, current git status/diff, and durable background task IDs. |
-| 74 | `verify_incremental` | EXECUTE | Cache project typecheck results by current Git status/diff fingerprint; unchanged edits return a cache hit. |
-| 75 | `symbol_search` | READ | Search indexed symbols across the workspace. |
-| 76 | `find_definition` | READ | Find deterministic symbol definitions. |
-| 77 | `find_references` | READ | Find textual and indexed references to a symbol. |
-| 78 | `find_implementations` | READ | Find interface and class implementations. |
-| 79 | `call_hierarchy` | READ | Return a deterministic call hierarchy approximation. |
-| 80 | `import_graph` | READ | Return indexed imports and exports for a module. |
-| 81 | `dependency_graph` | READ | Return package and module dependency metadata. |
-| 82 | `module_graph` | READ | Return the workspace module graph. |
-| 83 | `type_search` | READ | Search indexed TypeScript, JavaScript, and Python types. |
-| 84 | `trace_symbol` | READ | Combine definition, references, imports, tests, and recent context. |
-| 85 | `context_ranking` | READ | Explain ranking signals without removing lower-ranked context. |
-| 86 | `debug_context` | READ | Gather deterministic debugging context and continuation metadata. |
-| 87 | `review_context` | READ | Gather code-review context. |
-| 88 | `change_context` | READ | Gather changed files, symbols, dependencies, and tests. |
-| 89 | `symbol_context` | READ | Gather context around a symbol. |
-| 90 | `test_context` | READ | Gather relevant test context. |
-| 91 | `dependency_context` | READ | Gather dependency-related context. |
-| 92 | `git_context` | READ | Gather Git status, diff, and history context. |
-| 93 | `frontend_context` | READ | Gather frontend project context. |
-| 94 | `backend_context` | READ | Gather backend project context. |
-| 95 | `route_intent` | READ | Classify a prompt with a deterministic, overridable route. |
-| 96 | `recipe_list` | READ | List built-in and user recipe names. |
-| 97 | `recipe_describe` | READ | Describe a recipe plan and permissions. |
-| 98 | `recipe_run` | EXECUTE | Preview or run a deterministic recipe plan. |
-| 99 | `dry_run` | READ | Return a no-side-effect execution preview. |
-| 100 | `review_changes` | READ | Review current Git changes and affected context. |
-| 101 | `changed_symbols` | READ | Find symbols in changed files. |
-| 102 | `affected_modules` | READ | Find modules affected by current changes. |
-| 103 | `git_history_context` | READ | Return relevant recent Git history. |
-| 104 | `git_blame_context` | READ | Return line ownership context for a file. |
-| 105 | `discover_tests` | READ | Discover project tests without imposing an execution limit. |
-| 106 | `run_affected_tests` | EXECUTE | Plan or run tests affected by changed files. |
-| 107 | `test_failures` | READ | Summarize recorded test failures. |
-| 108 | `coverage_context` | READ | Return coverage context when project tooling provides it. |
-| 109 | `test_history` | READ | Return recent test execution history. |
-| 110 | `cache_stats` | READ | Return shared cache hit/miss telemetry. |
-| 111 | `cache_clear` | WRITE | Clear safe local runtime caches. |
-| 112 | `cache_invalidate` | WRITE | Invalidate cache entries for a path or workspace. |
-| 113 | `hook_list` | READ | List registered lifecycle hooks. |
-| 114 | `hook_register` | WRITE | Register a deterministic lifecycle hook descriptor. |
-| 115 | `hook_remove` | WRITE | Remove a lifecycle hook descriptor. |
-| 116 | `skill_match` | READ | Match relevant local skills without loading all skill text. |
-| 117 | `skill_load` | READ | Load a selected local skill by identifier. |
-| 118 | `plugin_install` | DANGEROUS | Install a declared plugin after permission evaluation. |
-| 119 | `plugin_list` | READ | List installed and enabled plugins. |
-| 120 | `plugin_enable` | WRITE | Enable an installed plugin. |
-| 121 | `plugin_disable` | WRITE | Disable an installed plugin. |
-| 122 | `plugin_remove` | DANGEROUS | Remove an installed plugin. |
-| 123 | `session_context` | READ | Return persisted development-session context. |
-| 124 | `session_checkpoint` | WRITE | Persist a development-session checkpoint. |
-| 125 | `session_resume` | READ | Resume a persisted session context. |
-| 126 | `session_history` | READ | Return session checkpoints and decisions. |
-| 127 | `response_mode` | READ | Select compact, normal, verbose, or stream formatting. |
-| 128 | `inspect_web_app` | READ | Combine DOM, console, network, URL, and screenshot metadata. |
-| 129 | `debug_ui` | READ | Gather deterministic UI debugging context. |
-| 130 | `capture_ui_state` | READ | Capture a structured UI state. |
-| 131 | `form_context` | READ | Inspect form controls and values metadata. |
-| 132 | `network_context` | READ | Summarize browser network context. |
-| 133 | `console_context` | READ | Summarize browser console context. |
-| 134 | `browser_debug_context` | READ | Combine browser diagnostics for one request. |
-| 135 | `windows_environment` | READ | Inspect Windows environment metadata. |
-| 136 | `service_context` | READ | Inspect Windows service metadata. |
-| 137 | `process_context` | READ | Inspect process-tree context. |
-| 138 | `port_context` | READ | Inspect local listening-port context. |
-| 139 | `registry_context` | READ | Inspect registry context through the Windows capability boundary. |
-| 140 | `event_log_context` | READ | Inspect Windows event-log context. |
-| 141 | `installed_runtime_context` | READ | Inspect installed runtimes and package managers. |
-| 142 | `path_context` | READ | Resolve executable and PATH context. |
-| 143 | `startup_context` | READ | Inspect startup configuration context. |
-| 144 | `mcp_discover` | READ | Discover external MCP servers without flattening native tools. |
-| 145 | `mcp_health` | READ | Return external MCP connection health. |
-| 146 | `mcp_resources` | READ | List resources exposed by connected MCP servers. |
-| 147 | `task_create` | EXECUTE | Create a visible managed runtime task. |
-| 148 | `task_status` | READ | Read managed task state. |
-| 149 | `task_cancel` | EXECUTE | Cancel a managed runtime task. |
-| 150 | `task_result` | READ | Read a managed task result. |
-| 151 | `task_list` | READ | List managed runtime tasks. |
-| 152 | `delegate` | EXECUTE | Delegate a task through a policy/audit adapter. |
-| 153 | `delegate_status` | READ | Read delegated agent state. |
-| 154 | `delegate_cancel` | EXECUTE | Cancel a delegated agent task. |
-| 155 | `delegate_result` | READ | Read a delegated agent result. |
-| 156 | `parallel_delegate` | EXECUTE | Run isolated read-only agent tasks with collision metadata. |
-| 157 | `permission_check` | READ | Evaluate an action class without limiting allowed context reads. |
-| 158 | `permission_profile` | READ | Return the active Permission v2 profile. |
-| 159 | `live_logs_query` | READ | Query structured activity/log metadata with correlation IDs. |
-| 160 | `live_logs_status` | READ | Return Live Logs pipeline health and source status. |
-| 161 | `telemetry_dashboard` | READ | Return runtime performance telemetry. |
-| 162 | `context_economy_stats` | READ | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
-| 163 | `execution_plan` | READ | Return the cheapest deterministic execution plan and reason. |
-| 164 | `repo_map` | READ | Return a traversable repository structural map. |
-| 165 | `context_expand` | READ | Return optional import, caller, type, test, and change references. |
-| 166 | `recovery_status` | READ | Return reconnect, retry, continuation, cache, and worker recovery state. |
-| 167 | `tool_schema_list` | READ | List versioned tool schema metadata. |
-| 168 | `tool_schema_register` | WRITE | Register a backward-compatible tool schema descriptor. |
-| 169 | `capabilities` | READ | Discover capability categories without requiring every full schema. |
-| 170 | `tool_search` | READ | Search tools, tags, phases, and descriptions deterministically. |
-| 171 | `tool_dynamic_filter` | READ | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
-| 172 | `tool_describe` | READ | Describe one tool contract on demand. |
-| 173 | `tool_categories` | READ | List tool categories and counts. |
-| 174 | `tool_function_find` | READ | Find the best local tool/function candidates for a prompt. |
-| 175 | `tool_aliases` | READ | List stable shorthand aliases and their primitive tool targets. |
-| 176 | `mcp_hub` | READ | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
-| 177 | `dev_context` | READ | Run the unified deterministic development-context facade. |
-| 178 | `recipe_catalog` | READ | Return inspectable developer automation recipes. |
-| 179 | `capture_screenshot` | READ | Capture screenshot metadata for visual validation. |
-| 180 | `compare_screenshot` | READ | Compare screenshot metadata or supplied artifacts. |
-| 181 | `dom_snapshot` | READ | Return a structured DOM snapshot. |
-| 182 | `layout_metadata` | READ | Return layout metadata for visual validation. |
-| 183 | `visual_context` | READ | Combine screenshot, DOM, layout, console, and network references. |
-| 184 | `inspect_workbook` | READ | Inspect workbook structure through an optional spreadsheet plugin. |
-| 185 | `compare_workbook_layout` | READ | Compare workbook layout metadata through an optional spreadsheet plugin. |
-| 186 | `render_excel_preview` | READ | Render an Excel preview through an optional spreadsheet plugin. |
-| 187 | `inspect_pdf` | READ | Inspect PDF metadata and page structure through an optional PDF plugin. |
-| 188 | `compare_pdf_pages` | READ | Compare PDF page metadata through an optional PDF plugin. |
-| 189 | `project_profile_get` | READ | Read project intelligence conventions. |
-| 190 | `project_profile_set` | WRITE | Update project intelligence conventions. |
-| 191 | `handoff_context` | READ | Build a structured cross-agent handoff bundle. |
-| 192 | `benchmark_run` | EXECUTE | Run or preview a benchmark scenario. |
-| 193 | `regression_report` | READ | Return benchmark and regression results. |
-| 194 | `sandbox_exec` | EXECUTE | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
-| 195 | `event_watch` | EXECUTE | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
-| 196 | `crash_trace` | READ | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
-| 197 | `lsp_diagnostics` | READ | Read diagnostics from an owned language-server child process. |
-| 198 | `lsp_rename` | WRITE | Create a cross-file LSP rename edit plan before any workspace write. |
-| 199 | `debug_attach` | EXECUTE | Attach a DAP client only to an owned workspace debug adapter. |
-| 200 | `debug_step` | EXECUTE | Perform a bounded DAP stepping/read operation in an owned debug session. |
-| 201 | `git_worktree_spawn` | DANGEROUS | Create an owned Git worktree for isolated agent work with collision metadata. |
-| 202 | `db_inspect` | READ | Inspect a local database schema through a configured, read-only connection. |
-| 203 | `db_query` | DANGEROUS | Run a bounded local database query under explicit connection and mutation policy. |
-| 204 | `office_ppt` | DANGEROUS | Automate PowerPoint through the existing Office policy boundary. |
-| 205 | `office_outlook` | DANGEROUS | Read or draft Outlook operations through the existing Office policy boundary. |
-| 206 | `pdf_extract_tables` | READ | Extract bounded PDF text and tables through a local document provider. |
-| 207 | `docx_merge` | WRITE | Create a deterministic DOCX merge plan and write only after approval. |
-| 208 | `self_heal_plan` | READ | Propose safe, deterministic, reversible recovery steps without applying mutations. |
-| 209 | `self_heal_apply` | DANGEROUS | Apply an approved reversible recovery plan without automatic destructive retries. |
-| 210 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
-| 211 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
-| 212 | `wse_experience_capture` | WRITE | Capture bounded redacted tool outcomes as persistent WSE experience evidence. |
-| 213 | `wse_experience_list` | READ | List bounded WSE experience metadata without raw prompts or tool payloads. |
-| 214 | `wse_evaluate` | READ | Evaluate recorded WSE experience deterministically. |
-| 215 | `wse_strategy_score` | READ | Score fixed WSE routing strategies offline with reason codes. |
-| 216 | `wse_strategy_status` | READ | Return the active human-approved WSE strategy and promotion history. |
-| 217 | `wse_strategy_promote` | DANGEROUS | Promote or roll back a WSE ranking strategy after explicit human confirmation. |
-| 218 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
-| 219 | `workspace_lease_acquire` | WRITE | Acquire one expiring writer lease for a workspace while reads remain concurrent. |
-| 220 | `workspace_lease_status` | READ | List active non-expired workspace writer leases and expiry metadata. |
-| 221 | `workspace_lease_renew` | WRITE | Refresh an owned workspace writer lease before expiry. |
-| 222 | `workspace_lease_release` | WRITE | Release an owned workspace writer lease. |
-| 223 | `workspace_lease_call` | DANGEROUS | Run one non-read MCP tool under a matching workspace writer lease while preserving child permission checks. |
-| 224 | `diagnostic_bundle_create` | READ | Return bounded read-only NAVA health, recovery, task, crash, and redacted activity evidence. |
-| 225 | `git_worktree_remove` | DANGEROUS | Remove only a ledger-owned Git worktree after dry-run and explicit confirmation. |
+| 55 | `remote_ssh` | DANGEROUS | Secure VPS access through a named OpenSSH Host profile. Uses key/agent authentication, strict host-key verification, bounded tasks, and root-scoped SCP transfers; it never accepts passwords or private-key contents. |
+| 56 | `skills_list` | DANGEROUS | List local agent skills discovered from Cursor, Claude, Agents, workspace skill roots, and lnwjud settings. Filter with query or source. |
+| 57 | `skills_read` | DANGEROUS | Read a local skill SKILL.md (or a relative file inside the skill folder). Follow the skill instructions with lnwjud tools and mcp_call. |
+| 58 | `mcp_list` | DANGEROUS | List local MCP servers discovered from Cursor, Claude Desktop, and lnwjud settings. Does not flatten child tools into the lnwjud catalog. |
+| 59 | `mcp_describe` | DANGEROUS | Connect to one local MCP server (if needed) and return its tool names, descriptions, and input schemas. |
+| 60 | `mcp_call` | DANGEROUS | Call a tool on a discovered local MCP server. Because child side effects cannot be proven non-destructive at this boundary, every mcp_call requires explicit chat confirmation and userConfirmed: true. |
+| 61 | `workspace_context` | READ | Aggregate ranked workspace context with snippets, symbols, Git/test relevance, economy metadata, and continuation; automatic discovery can be explicitly expanded. |
+| 62 | `workspace_context_continue` | READ | Continue a workspace_context result without discarding unreturned candidates. |
+| 63 | `workspace_full_scan` | READ | Enumerate workspace files with full access by default; set includeIgnored false to use the persistent automatic index. |
+| 64 | `workspace_full_scan_continue` | READ | Continue a workspace_full_scan result page. |
+| 65 | `workspace_snapshot` | READ | Return workspace identity and project snapshot metadata without source contents. |
+| 66 | `search_all` | READ | Search text and filenames across one or all registered workspaces with automatic economy filters or an explicit includeIgnored override. |
+| 67 | `read_many_files` | READ | Read many workspace files in parallel while preserving one result or error per requested path. |
+| 68 | `read_file_page` | READ | Read a deterministic line chunk with explicit continuation instead of silently truncating a large file. |
+| 69 | `read_file_page_continue` | READ | Continue read_file_page from the next deterministic line chunk. |
+| 70 | `workspace_index` | READ | Build or refresh the persistent workspace index using automatic context filters unless ignored paths are explicitly included. |
+| 71 | `workspace_index_status` | READ | Return persistent index metadata and lossless watcher queue telemetry. |
+| 72 | `workspace_index_watch` | READ | Watch all workspace paths and incrementally re-index only changed paths with configurable debounce/concurrency. |
+| 73 | `workspace_index_stop` | READ | Stop a workspace watcher after draining all queued path updates. |
+| 74 | `session_handoff` | READ | Create a concise same-chat continuation message from the real phase tracker, current git status/diff, and durable background task IDs. |
+| 75 | `verify_incremental` | EXECUTE | Cache project typecheck results by current Git status/diff fingerprint; unchanged edits return a cache hit. |
+| 76 | `symbol_search` | READ | Search indexed symbols across the workspace. |
+| 77 | `find_definition` | READ | Find deterministic symbol definitions. |
+| 78 | `find_references` | READ | Find textual and indexed references to a symbol. |
+| 79 | `find_implementations` | READ | Find interface and class implementations. |
+| 80 | `call_hierarchy` | READ | Return a deterministic call hierarchy approximation. |
+| 81 | `import_graph` | READ | Return indexed imports and exports for a module. |
+| 82 | `dependency_graph` | READ | Return package and module dependency metadata. |
+| 83 | `module_graph` | READ | Return the workspace module graph. |
+| 84 | `type_search` | READ | Search indexed TypeScript, JavaScript, and Python types. |
+| 85 | `trace_symbol` | READ | Combine definition, references, imports, tests, and recent context. |
+| 86 | `context_ranking` | READ | Explain ranking signals without removing lower-ranked context. |
+| 87 | `debug_context` | READ | Gather deterministic debugging context and continuation metadata. |
+| 88 | `review_context` | READ | Gather code-review context. |
+| 89 | `change_context` | READ | Gather changed files, symbols, dependencies, and tests. |
+| 90 | `symbol_context` | READ | Gather context around a symbol. |
+| 91 | `test_context` | READ | Gather relevant test context. |
+| 92 | `dependency_context` | READ | Gather dependency-related context. |
+| 93 | `git_context` | READ | Gather Git status, diff, and history context. |
+| 94 | `frontend_context` | READ | Gather frontend project context. |
+| 95 | `backend_context` | READ | Gather backend project context. |
+| 96 | `route_intent` | READ | Classify a prompt with a deterministic, overridable route. |
+| 97 | `recipe_list` | READ | List built-in and user recipe names. |
+| 98 | `recipe_describe` | READ | Describe a recipe plan and permissions. |
+| 99 | `recipe_run` | EXECUTE | Preview or run a deterministic recipe plan. |
+| 100 | `dry_run` | READ | Return a no-side-effect execution preview. |
+| 101 | `review_changes` | READ | Review current Git changes and affected context. |
+| 102 | `changed_symbols` | READ | Find symbols in changed files. |
+| 103 | `affected_modules` | READ | Find modules affected by current changes. |
+| 104 | `git_history_context` | READ | Return relevant recent Git history. |
+| 105 | `git_blame_context` | READ | Return line ownership context for a file. |
+| 106 | `discover_tests` | READ | Discover project tests without imposing an execution limit. |
+| 107 | `run_affected_tests` | EXECUTE | Plan or run tests affected by changed files. |
+| 108 | `test_failures` | READ | Summarize recorded test failures. |
+| 109 | `coverage_context` | READ | Return coverage context when project tooling provides it. |
+| 110 | `test_history` | READ | Return recent test execution history. |
+| 111 | `cache_stats` | READ | Return shared cache hit/miss telemetry. |
+| 112 | `cache_clear` | WRITE | Clear safe local runtime caches. |
+| 113 | `cache_invalidate` | WRITE | Invalidate cache entries for a path or workspace. |
+| 114 | `hook_list` | READ | List registered lifecycle hooks. |
+| 115 | `hook_register` | WRITE | Register a deterministic lifecycle hook descriptor. |
+| 116 | `hook_remove` | WRITE | Remove a lifecycle hook descriptor. |
+| 117 | `skill_match` | READ | Match relevant local skills without loading all skill text. |
+| 118 | `skill_load` | READ | Load a selected local skill by identifier. |
+| 119 | `plugin_install` | DANGEROUS | Install a declared plugin after permission evaluation. |
+| 120 | `plugin_list` | READ | List installed and enabled plugins. |
+| 121 | `plugin_enable` | WRITE | Enable an installed plugin. |
+| 122 | `plugin_disable` | WRITE | Disable an installed plugin. |
+| 123 | `plugin_remove` | DANGEROUS | Remove an installed plugin. |
+| 124 | `session_context` | READ | Return persisted development-session context. |
+| 125 | `session_checkpoint` | WRITE | Persist a development-session checkpoint. |
+| 126 | `session_resume` | READ | Resume a persisted session context. |
+| 127 | `session_history` | READ | Return session checkpoints and decisions. |
+| 128 | `response_mode` | READ | Select compact, normal, verbose, or stream formatting. |
+| 129 | `inspect_web_app` | READ | Combine DOM, console, network, URL, and screenshot metadata. |
+| 130 | `debug_ui` | READ | Gather deterministic UI debugging context. |
+| 131 | `capture_ui_state` | READ | Capture a structured UI state. |
+| 132 | `form_context` | READ | Inspect form controls and values metadata. |
+| 133 | `network_context` | READ | Summarize browser network context. |
+| 134 | `console_context` | READ | Summarize browser console context. |
+| 135 | `browser_debug_context` | READ | Combine browser diagnostics for one request. |
+| 136 | `windows_environment` | READ | Inspect Windows environment metadata. |
+| 137 | `service_context` | READ | Inspect Windows service metadata. |
+| 138 | `process_context` | READ | Inspect process-tree context. |
+| 139 | `port_context` | READ | Inspect local listening-port context. |
+| 140 | `registry_context` | READ | Inspect registry context through the Windows capability boundary. |
+| 141 | `event_log_context` | READ | Inspect Windows event-log context. |
+| 142 | `installed_runtime_context` | READ | Inspect installed runtimes and package managers. |
+| 143 | `path_context` | READ | Resolve executable and PATH context. |
+| 144 | `startup_context` | READ | Inspect startup configuration context. |
+| 145 | `mcp_discover` | READ | Discover external MCP servers without flattening native tools. |
+| 146 | `mcp_health` | READ | Return external MCP connection health. |
+| 147 | `mcp_resources` | READ | List resources exposed by connected MCP servers. |
+| 148 | `task_create` | EXECUTE | Create a visible managed runtime task. |
+| 149 | `task_status` | READ | Read managed task state. |
+| 150 | `task_cancel` | EXECUTE | Cancel a managed runtime task. |
+| 151 | `task_result` | READ | Read a managed task result. |
+| 152 | `task_list` | READ | List managed runtime tasks. |
+| 153 | `delegate` | EXECUTE | Delegate a task through a policy/audit adapter. |
+| 154 | `delegate_status` | READ | Read delegated agent state. |
+| 155 | `delegate_cancel` | EXECUTE | Cancel a delegated agent task. |
+| 156 | `delegate_result` | READ | Read a delegated agent result. |
+| 157 | `parallel_delegate` | EXECUTE | Run isolated read-only agent tasks with collision metadata. |
+| 158 | `permission_check` | READ | Evaluate an action class without limiting allowed context reads. |
+| 159 | `permission_profile` | READ | Return the active Permission v2 profile. |
+| 160 | `live_logs_query` | READ | Query structured activity/log metadata with correlation IDs. |
+| 161 | `live_logs_status` | READ | Return Live Logs pipeline health and source status. |
+| 162 | `telemetry_dashboard` | READ | Return runtime performance telemetry. |
+| 163 | `context_economy_stats` | READ | Return context discovery, deduplication, ledger, and token-efficiency telemetry. |
+| 164 | `execution_plan` | READ | Return the cheapest deterministic execution plan and reason. |
+| 165 | `repo_map` | READ | Return a traversable repository structural map. |
+| 166 | `context_expand` | READ | Return optional import, caller, type, test, and change references. |
+| 167 | `recovery_status` | READ | Return reconnect, retry, continuation, cache, and worker recovery state. |
+| 168 | `tool_schema_list` | READ | List versioned tool schema metadata. |
+| 169 | `tool_schema_register` | WRITE | Register a backward-compatible tool schema descriptor. |
+| 170 | `capabilities` | READ | Discover capability categories without requiring every full schema. |
+| 171 | `tool_search` | READ | Search tools, tags, phases, and descriptions deterministically. |
+| 172 | `tool_dynamic_filter` | READ | Return a bounded ranked tool set using deterministic scoring with optional local rerank fallback. |
+| 173 | `tool_describe` | READ | Describe one tool contract on demand. |
+| 174 | `tool_categories` | READ | List tool categories and counts. |
+| 175 | `tool_function_find` | READ | Find the best local tool/function candidates for a prompt. |
+| 176 | `tool_aliases` | READ | List stable shorthand aliases and their primitive tool targets. |
+| 177 | `mcp_hub` | READ | Describe the additive MCP hub boundary without flattening child tools or retaining credentials. |
+| 178 | `dev_context` | READ | Run the unified deterministic development-context facade. |
+| 179 | `recipe_catalog` | READ | Return inspectable developer automation recipes. |
+| 180 | `capture_screenshot` | READ | Capture screenshot metadata for visual validation. |
+| 181 | `compare_screenshot` | READ | Compare screenshot metadata or supplied artifacts. |
+| 182 | `dom_snapshot` | READ | Return a structured DOM snapshot. |
+| 183 | `layout_metadata` | READ | Return layout metadata for visual validation. |
+| 184 | `visual_context` | READ | Combine screenshot, DOM, layout, console, and network references. |
+| 185 | `inspect_workbook` | READ | Inspect workbook structure through an optional spreadsheet plugin. |
+| 186 | `compare_workbook_layout` | READ | Compare workbook layout metadata through an optional spreadsheet plugin. |
+| 187 | `render_excel_preview` | READ | Render an Excel preview through an optional spreadsheet plugin. |
+| 188 | `inspect_pdf` | READ | Inspect PDF metadata and page structure through an optional PDF plugin. |
+| 189 | `compare_pdf_pages` | READ | Compare PDF page metadata through an optional PDF plugin. |
+| 190 | `project_profile_get` | READ | Read project intelligence conventions. |
+| 191 | `project_profile_set` | WRITE | Update project intelligence conventions. |
+| 192 | `handoff_context` | READ | Build a structured cross-agent handoff bundle. |
+| 193 | `benchmark_run` | EXECUTE | Run or preview a benchmark scenario. |
+| 194 | `regression_report` | READ | Return benchmark and regression results. |
+| 195 | `sandbox_exec` | EXECUTE | Run an artifact-based Windows Sandbox job with networking disabled and read-only mapped input. |
+| 196 | `event_watch` | EXECUTE | Watch an allowlisted user-mode ETW or Windows Event Log diagnostic stream. |
+| 197 | `crash_trace` | READ | Return bounded crash and service-diagnostic context from allowlisted user-mode sources. |
+| 198 | `lsp_diagnostics` | READ | Read diagnostics from an owned language-server child process. |
+| 199 | `lsp_rename` | WRITE | Create a cross-file LSP rename edit plan before any workspace write. |
+| 200 | `debug_attach` | EXECUTE | Attach a DAP client only to an owned workspace debug adapter. |
+| 201 | `debug_step` | EXECUTE | Perform a bounded DAP stepping/read operation in an owned debug session. |
+| 202 | `git_worktree_spawn` | DANGEROUS | Create an owned Git worktree for isolated agent work with collision metadata. |
+| 203 | `db_inspect` | READ | Inspect a local database schema through a configured, read-only connection. |
+| 204 | `db_query` | DANGEROUS | Run a bounded local database query under explicit connection and mutation policy. |
+| 205 | `office_ppt` | DANGEROUS | Automate PowerPoint through the existing Office policy boundary. |
+| 206 | `office_outlook` | DANGEROUS | Read or draft Outlook operations through the existing Office policy boundary. |
+| 207 | `pdf_extract_tables` | READ | Extract bounded PDF text and tables through a local document provider. |
+| 208 | `docx_merge` | WRITE | Create a deterministic DOCX merge plan and write only after approval. |
+| 209 | `self_heal_plan` | READ | Propose safe, deterministic, reversible recovery steps without applying mutations. |
+| 210 | `self_heal_apply` | DANGEROUS | Apply an approved reversible recovery plan without automatic destructive retries. |
+| 211 | `skills_import` | WRITE | Import a compatible skill descriptor after validation and permission review. |
+| 212 | `agent_swarm_run` | EXECUTE | Plan bounded parallel subagents with ownership, collision, approval, and cancellation metadata. |
+| 213 | `wse_experience_capture` | WRITE | Capture bounded redacted tool outcomes as persistent WSE experience evidence. |
+| 214 | `wse_experience_list` | READ | List bounded WSE experience metadata without raw prompts or tool payloads. |
+| 215 | `wse_evaluate` | READ | Evaluate recorded WSE experience deterministically. |
+| 216 | `wse_strategy_score` | READ | Score fixed WSE routing strategies offline with reason codes. |
+| 217 | `wse_strategy_status` | READ | Return the active human-approved WSE strategy and promotion history. |
+| 218 | `wse_strategy_promote` | DANGEROUS | Promote or roll back a WSE ranking strategy after explicit human confirmation. |
+| 219 | `tool_batch` | DANGEROUS | Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. |
+| 220 | `workspace_lease_acquire` | WRITE | Acquire one expiring writer lease for a workspace while reads remain concurrent. |
+| 221 | `workspace_lease_status` | READ | List active non-expired workspace writer leases and expiry metadata. |
+| 222 | `workspace_lease_renew` | WRITE | Refresh an owned workspace writer lease before expiry. |
+| 223 | `workspace_lease_release` | WRITE | Release an owned workspace writer lease. |
+| 224 | `workspace_lease_call` | DANGEROUS | Run one non-read MCP tool under a matching workspace writer lease while preserving child permission checks. |
+| 225 | `diagnostic_bundle_create` | READ | Return bounded read-only NAVA health, recovery, task, crash, and redacted activity evidence. |
+| 226 | `git_worktree_remove` | DANGEROUS | Remove only a ledger-owned Git worktree after dry-run and explicit confirmation. |
 
 ## Detailed capability guide
 

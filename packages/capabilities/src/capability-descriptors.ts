@@ -51,4 +51,5 @@ export const capabilityDescriptors: readonly CapabilityDescriptor[] = Object.fre
   descriptor('scheduler', 'always', 'EXECUTE', 'scheduler', ['local task scheduler'], true, true),
   descriptor('wsl_exec', 'windows', 'EXECUTE', 'workspace', ['wsl.exe', 'registered workspace'], true, true),
   descriptor('wsl_fs', 'windows', 'READ', 'workspace', ['wsl.exe', 'registered workspace'], false, false),
+  descriptor('remote_ssh', 'optional', 'DANGEROUS', 'remote-host', ['ssh.exe', 'scp.exe', 'OpenSSH Host profile'], true, true),
 ]);

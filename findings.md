@@ -1,3 +1,20 @@
+# NAVA secure SSH findings
+
+- Repository starts clean on `fix/nava-tunnel-probe-timeout`, tracking `nava/fix/nava-tunnel-probe-timeout`.
+- Previous diagnosis proved local OpenSSH tools exist and the VPS exposes TCP 22; the failure path was RDP GUI launch/control, not reachability.
+- Native `ssh`, `scp`, and `sftp` are the smallest reliable implementation and avoid GUI automation.
+- The SSH capability must accept only a private-key path or the user's existing SSH agent/config; passwords and key contents stay outside MCP requests.
+- `%USERPROFILE%\.ssh` currently contains `known_hosts` but no `config`, and no SSH agent is running. The runtime can be installed now, but authenticated live VPS access still needs one OpenSSH profile plus a key or agent supplied by the user.
+- Reuse `ShellCapabilityBackend` as the process runner so SSH inherits bounded output, timeout, cancellation, background tasks, and durable task recovery.
+- Use one `remote_ssh` MCP tool with an OpenSSH Host alias. `ssh.exe` handles status/test/run and `scp.exe` handles upload/download; local file paths remain inside registered capability roots.
+- Commands use executable plus argv and an explicit `posix` or `powershell` remote shell. NAVA will not accept passwords, private-key contents, or a host-key bypass.
+- Packaged and installed v4.10.1 advertises 220 default MCP tools, including `remote_ssh`; a live `status` request reports native OpenSSH ready with strict host-key checking.
+- The complete v4.10.0 installation, user data, and Tunnel profile are backed up at `E:\AI_CACHE\nava-agent-setup\20260825-162300-v4.10.0-before-v4.10.1-ssh`.
+- The updated Thai PDF has readable dark text and high-contrast command blocks; identical verified bytes are installed on the Desktop and in the NAVA application directory.
+- Secure Tunnel started after a delayed UI response: both `/healthz` and `/readyz` return HTTP 200, so local Codex MCP and ChatGPT Web Tunnel paths are healthy.
+
+---
+
 # Findings
 
 ## 2026-08-25 WSE evidence and human promotion

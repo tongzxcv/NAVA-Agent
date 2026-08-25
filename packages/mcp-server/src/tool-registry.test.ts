@@ -26,7 +26,7 @@ describe('MCP tool registry', () => {
       'project_typecheck', 'project_build', 'shell', 'dom_cdp', 'accessibility', 'input_event', 'vision', 'vision_annotated_capture', 'ui_target_action', 'window', 'health',
       'system_info', 'notification', 'file_dialog', 'clipboard', 'web_fetch',
       'audio', 'screen_record', 'office', 'scheduler',
-      'wsl_exec', 'wsl_fs',
+      'wsl_exec', 'wsl_fs', 'remote_ssh',
       'skills_list', 'skills_read', 'mcp_list', 'mcp_describe', 'mcp_call',
       'workspace_context', 'workspace_context_continue', 'workspace_full_scan', 'workspace_full_scan_continue',
       'workspace_snapshot', 'search_all', 'read_many_files',
@@ -67,6 +67,7 @@ describe('MCP tool registry', () => {
     expect(byName.get('health')?.parse({ operation: 'check_all' })).toMatchObject({ ok: true });
     expect(byName.get('wsl_exec')?.parse({ workspaceId: 'workspace-1', executable: 'node', arguments: ['--version'] })).toMatchObject({ ok: true });
     expect(byName.get('wsl_fs')?.parse({ operation: 'translate', workspaceId: 'workspace-1', direction: 'windows_to_wsl', path: 'C:\\workspace' })).toMatchObject({ ok: true });
+    expect(byName.get('remote_ssh')?.parse({ operation: 'test', workspaceId: 'workspace-1', profile: 'nava-vps' })).toMatchObject({ ok: true });
   });
 
   it('blocks dangerous capability execution under the safe profile before reaching the backend', async () => {

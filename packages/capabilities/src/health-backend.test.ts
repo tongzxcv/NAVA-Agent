@@ -49,4 +49,14 @@ describe('HealthCapabilityBackend', () => {
       auditTarget: 'workspace',
     } });
   });
+
+  it('delegates SSH client readiness without making a network connection', async () => {
+    const backend = new HealthCapabilityBackend({
+      remoteSsh: { execute: async (): Promise<Result<unknown>> => ok({ available: true, ready: true, strict_host_key_checking: true }) },
+    });
+
+    await expect(backend.execute({ operation: 'check_tool', tool: 'remote_ssh' })).resolves.toMatchObject({ ok: true, value: {
+      tool: 'remote_ssh', available: true, ready: true, permission: 'DANGEROUS', strict_host_key_checking: true,
+    } });
+  });
 });

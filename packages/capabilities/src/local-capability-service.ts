@@ -24,6 +24,7 @@ export interface LocalCapabilityBackends {
   readonly scheduler?: CapabilityBackend;
   readonly wslExec?: CapabilityBackend;
   readonly wslFs?: CapabilityBackend;
+  readonly remoteSsh?: CapabilityBackend;
 }
 
 export class LocalCapabilityService implements CapabilityService {
@@ -59,6 +60,7 @@ export class LocalCapabilityService implements CapabilityService {
       case 'scheduler': return this.backends.scheduler;
       case 'wsl_exec': return this.backends.wslExec;
       case 'wsl_fs': return this.backends.wslFs;
+      case 'remote_ssh': return this.backends.remoteSsh;
     }
   }
 }

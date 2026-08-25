@@ -49,4 +49,12 @@ describe('central destructive policy', () => {
     expect(inspectDestructiveOperation('plugin_remove', { name: 'x' }).destructive).toBe(true);
     expect(inspectDestructiveOperation('hook_remove', { name: 'x' }).destructive).toBe(true);
   });
+
+  it('guards SSH file transfer and delete-like remote commands', () => {
+    expect(inspectDestructiveOperation('remote_ssh', { operation: 'test' }).destructive).toBe(false);
+    expect(inspectDestructiveOperation('remote_ssh', { operation: 'run', executable: 'ls', arguments: [] }).destructive).toBe(false);
+    expect(inspectDestructiveOperation('remote_ssh', { operation: 'run', executable: 'rm', arguments: ['file'] }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('remote_ssh', { operation: 'upload' }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('remote_ssh', { operation: 'download' }).destructive).toBe(true);
+  });
 });

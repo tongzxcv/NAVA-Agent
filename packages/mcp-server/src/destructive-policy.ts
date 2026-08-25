@@ -35,6 +35,11 @@ export function inspectDestructiveOperation(toolName: string, input: unknown): D
       return inspectShell(value);
     case 'wsl_exec':
       return inspectShell({ operation: value.operation, executable: value.executable, arguments: value.arguments });
+    case 'remote_ssh':
+      if (value.operation === 'upload' || value.operation === 'download') return destructive('SSH file transfer can overwrite remote or local data');
+      return value.operation === 'run'
+        ? inspectShell({ operation: 'run', executable: value.executable, arguments: value.arguments })
+        : { destructive: false };
     case 'process_start':
       return inspectShell({ operation: 'run', executable: value.executable, arguments: value.args });
     case 'codex_run':
