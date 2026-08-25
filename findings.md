@@ -1,3 +1,36 @@
+# 2026-08-25 NAVA EA forensics and ML capability
+
+- Active source is `C:\Users\Endlessly\NAVA-Tunnel-Fix` on `fix/nava-tunnel-probe-timeout` at `a1002a5`; existing custom work includes WSE and secure SSH.
+- Current NAVA already has broad generic primitives, so the new EA feature should orchestrate them instead of wrapping duplicate file/search/shell/Git functions.
+- The durable EA knowledge base already requires evidence-first promotion, calibrated money units, isolated research, and no profitability claim without native backtest/forward evidence.
+- Initial capability split: source logic extraction, behavior/black-box inference, and ML evidence audit. Each output must separate observation, inference, confidence, contradiction, and unknown.
+- Deployment is intentionally deferred so the later upstream update can be merged with this feature without overwriting NAVA-specific WSE/SSH work.
+- Both supplied ChatGPT tab mentions resolve to an older in-app-browser session that is no longer available. Their titles identify Autobots V0.31 and BEELZEBUB/NAVA continuation context, but no conversation content is treated as observed evidence yet.
+- Repository metadata is NAVA `4.10.1`; current acceptance catalog expects 226 configurable tools and 220 advertised by default.
+- The repo currently bundles three NAVA workflow skills: account switching, incident diagnosis, and multi-chat coordination. No EA-specific bundled skill exists.
+- No EA-specific MCP tool is present. Existing filesystem/search/shell/Git/WSE primitives already cover acquisition and execution; the missing value is deterministic EA evidence extraction and domain orchestration.
+- NAVA already discovers `%USERPROFILE%\.agents\skills` globally and exposes those files through `skills_list`/`skills_read`, independent of the active EA workspace.
+- A global EA-forensics skill can therefore become usable immediately without changing the MCP protocol or increasing the tool catalog. This is the smallest path and avoids duplicating generic read/search/shell/Git tools.
+- Existing recipe coverage already includes seven-terminal MT5 validation and Obsidian project updates; the new skill should route into those capabilities instead of building another runner.
+- Existing `ea-research-lab` already owns hypothesis matrices, calibrated MT5 runs, evidence gates, artifact storage, and promote/reject verdicts. It does not cover logic reconstruction or ML dataset/model validity.
+- Global search found no dedicated reverse-engineering, black-box EA, data-leakage, feature-provenance, or walk-forward ML skill.
+- The clean split is two skills rather than one catch-all: `ea-forensics` for white/gray/black-box logic reconstruction, and `ea-ml-research` for datasets/features/models/walk-forward evidence.
+- Live NAVA `skills_list` confirms both `.agents\skills` and `.claude\skills` are enabled. Current EA skills are duplicated across those roots, so the new skills must be synchronized to avoid provider drift.
+- No extra NAVA runtime tool is required for discovery or execution: `skills_list`, `skills_read`, shell/search/file/Git tools, the seven-terminal recipe, and Obsidian recipe already form the execution surface.
+- Both new skill folders pass the equivalent frontmatter/name/reference validation. The official validator's checks were reproduced exactly except YAML parsing uses the simple one-line frontmatter contract already supported by NAVA.
+- Neither new skill name existed in any shared root before installation, so synchronization will not overwrite user content.
+- On this machine, writing the E-drive Codex skill root also materializes the same skill and hashes under `C:\Users\Endlessly\.codex\skills`; treat those two paths as mirrored storage even though the root metadata does not expose a simple link target.
+- Skill routing index rebuilt successfully with 230 skills. `ea-forensics` and `ea-ml-research` both score 83 for their intended queries and are returned as relevant matches.
+- Live installed NAVA discovers both skills from Claude and Agents roots without restart. `skills_read` successfully returns the main forensics instructions and the ML validation reference.
+- The EA knowledge base lives inside the very dirty parent `D:\EA` Git worktree. `wiki/index.md` and `wiki/log.md` already contain substantial unrelated unstaged edits, so any KB commit must stage only the new concept page and exact task-owned hunks.
+- KB lint does not flag the new concept page. It reports eight pre-existing index candidates in other project/NAVA pages; these are non-blocking and outside this task.
+- All three files in each skill match SHA256 across all five configured skill roots. Task-scoped secret/artifact scans returned no candidates or secret patterns.
+- The Thai guide is intentionally under the repository's ignored `docs/*` tree, so it must be force-staged explicitly like prior intentional NAVA documentation; no other ignored file should be added.
+- The Obsidian concept page was committed separately, then exact index/log additions were staged through the Git index without including 603 lines of unrelated existing user edits.
+- No NAVA executable, MCP catalog, Tunnel configuration, workspace, EA source, MT5 runtime, or installed application file changed in this task.
+
+---
+
 # NAVA secure SSH findings
 
 - Repository starts clean on `fix/nava-tunnel-probe-timeout`, tracking `nava/fix/nava-tunnel-probe-timeout`.

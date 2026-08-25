@@ -1,3 +1,44 @@
+# 2026-08-25 NAVA EA forensics and ML capability
+
+- Started a scoped SCQA/plan before editing runtime code.
+- Read the current NAVA branch/status and existing planning history; working tree had no uncommitted changes before this task.
+- Consulted the EA knowledge-base schema/index/log and existing NAVA build/release safeguards.
+- Selected an evidence-first, minimal design direction; authenticated chat inspection and current tool/skill inventory are next.
+- Attempted the exact supplied in-app-browser tab references; the referenced browser session is stale, so no alternate tab was opened and no private-chat content was inferred.
+- Inventoried repository skill roots, package metadata, public tool counts, WSE, and secure SSH registrations.
+- Confirmed there is no existing EA-specific bundled NAVA skill or MCP tool to extend directly.
+- Verified NAVA's skill catalog scans the global `.agents\skills` root and can read supporting files safely within a skill folder.
+- Chose a skill-first implementation; a new MCP tool will be added only if a deterministic gap remains after comparing existing EA research skills.
+- Compared `ea-research-lab` with the requested work and confirmed two missing domains: evidence-graded logic reconstruction and time-series ML validity.
+- Verified the live installed NAVA skill catalog and confirmed synchronized `.agents`/`.claude` roots are currently active.
+- Added repository-owned `ea-forensics` and `ea-ml-research` skills with focused references and a Thai usage guide.
+- `git diff --check` passed. The bundled Python validator is blocked by missing PyYAML; equivalent validation is pending through the existing Node toolchain.
+- Read the bundled validator contract. The first PowerShell fallback had a quoting/parser error before validation ran; a corrected delimited-variable invocation is next.
+- Corrected structural validation passed for both skills and all four referenced files.
+- Ran the pre-sync doctor check and verified all ten destination directories are absent.
+- Initial whole-root sync stopped safely after the first copies because a later Codex destination became visible as already existing, indicating aliased roots; no existing differing skill was overwritten.
+- Verified both Codex paths now contain identical skill hashes; Claude, Agents, and ZCode roots remain missing and will be filled with hash-aware copy.
+- Synchronized both complete skill directories across Codex, Claude, Agents, and ZCode roots; sync doctor reports no SKILL.md drift.
+- Rebuilt the local skill router index and confirmed both domain queries select the new skills with relevant scores.
+- Live NAVA discovery/read smoke passed without restarting or replacing the installed app.
+- Inspected the Obsidian repository state and isolated the intended KB write set from extensive unrelated parent-worktree changes.
+- Added the new EA forensics/ML concept page plus index and dated log entries without touching `raw` or project source.
+- Read the KB linter workflow and script; it performs read-only structure/index/log checks.
+- KB linter completed; only pre-existing index candidates were reported, and the new page/index/log entry passed.
+- First package-test command could not start because the inherited PATH has Node 25.8.2 and no Corepack. `git diff --check` still passed; tests will use the verified portable Node 24 toolchain.
+- Located the isolated toolchain at `E:\AI_CACHE\tools\lnwjud\node-v24.19.0-win-x64`; no machine-wide PATH or runtime change is needed.
+- Portable Node 24.19.0 test run passed all 8 `@lnwjud/extensions` tests; `git diff --check` passed.
+- Read the secret/artifact guard implementation. The final scan will target only task-owned skill/docs/planning files so ignored dependencies and packaged binaries cannot create unrelated noise.
+- Recursive hash verification passed for 30 installed skill-file copies across five roots; task-scoped secret/artifact guard passed every intended file.
+- Reviewed the NAVA diff and confirmed only planning files plus the two new skill trees are visible; the Thai guide is intentionally ignored and requires an exact force-add.
+- Staged exactly ten task-owned files. Public repository hygiene passed 8/8 and staged secret/artifact scans passed.
+- Staged diff check found formatting-only extra blank lines at EOF in the seven new skill/guide files; cleanup and resync are pending before commit.
+- Removed the redundant EOF lines, resynchronized all shared skill roots, and reran sync, staged diff, and staged secret/artifact gates successfully.
+- Committed the NAVA source/skill/guide set, then committed the Obsidian concept page and exact index/log hunks separately while preserving all unrelated `D:\EA` changes.
+- Deployment remains intentionally deferred for the later combined upstream NAVA update.
+
+---
+
 # NAVA secure SSH progress
 
 ## 2026-08-25

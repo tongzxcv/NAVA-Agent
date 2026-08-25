@@ -1,3 +1,54 @@
+# NAVA EA forensics and ML analysis capability
+
+## SCQA
+
+- **Situation:** NAVA already provides bounded filesystem, search, Git, shell, WSE, workspace diagnostics, and remote SSH capabilities, while the machine also has established MT5/EA validation rules and an Obsidian EA knowledge base.
+- **Complication:** The requested reverse-engineering, trading-logic extraction, and ML/AI analysis workflow is not yet a single evidence-driven capability. A generic "analyze EA" tool would duplicate existing tools, risk overclaiming what can be inferred from EX5 binaries, and encourage overfit or leakage.
+- **Question:** What is the smallest auditable skill/tool set that helps analyze source, black-box behavior, and ML evidence without changing trading logic or claiming profitability?
+- **Answer:** Inspect the two supplied authenticated chat histories and current NAVA tool/skill contracts, define explicit source/black-box/ML modes and evidence levels, then add one orchestration skill plus only the deterministic local analysis primitives that are genuinely missing.
+
+## Acceptance criteria
+
+- [ ] The two supplied ChatGPT conversations are summarized into concrete EA-analysis requirements without copying secrets or private account data.
+- [x] Existing NAVA and global EA skills/tools are inventoried so the new capability does not duplicate search, shell, Git, backtest, or knowledge-base functions.
+- [x] Source-analysis, black-box inference, and ML-audit modes clearly distinguish observed facts, inferred rules, confidence, and unknowns.
+- [x] EX5 analysis remains lawful clean-room/static-metadata or behavior-based work; no license, access-control, account, or broker protection bypass is added.
+- [x] ML checks cover at least leakage, temporal split, feature provenance, class imbalance, calibration, drift, and out-of-sample evidence without promising profitability.
+- [x] New code/skill passes focused tests, validation, lint/typecheck/build as applicable, documentation, and secret/artifact checks.
+- [x] Task-owned changes are committed; the installed NAVA runtime is not replaced until the combined update is separately approved.
+
+## Phases
+
+- [completed] Attempt chat recovery and inventory current EA/NAVA capabilities; the referenced old browser session was unavailable and is recorded as a limitation.
+- [completed] Freeze the minimal capability contract and evidence/safety boundaries.
+- [completed] Implement the skill-first solution; no duplicate MCP tool was justified.
+- [completed] Update user documentation and the EA knowledge base; run validation/build gates.
+- [completed] Scan and commit task-owned changes, leaving deployment for the later combined NAVA update.
+
+## Safety boundaries
+
+- Do not claim source recovery from EX5 or infer unavailable proprietary logic as fact.
+- Do not bypass licenses, authentication, account binding, broker controls, or third-party protections.
+- Do not enable live trading, deploy to a VPS, alter production EAs, or auto-promote an ML model.
+- Keep raw EA code, reports, credentials, and private chat content out of Git and bounded in analysis outputs.
+- Preserve existing NAVA WSE, SSH, Tunnel, permissions, workspaces, and rollback paths.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Initial three-file planning patch assumed identical prior section titles | 1 | Read each file header and prepend against its actual title. |
+| The supplied in-app browser tab references point to a prior Codex session that is no longer connected | 1 | Do not claim or silently replace the stale authenticated tabs; continue with local capability inventory and keep chat-specific requirements pending a fresh tab mention. |
+| The bundled skill validator could not start because this Python lacks PyYAML | 1 | Do not install a dependency for two Markdown files; inspect the validator contract and run an equivalent structural validation with the existing Node workspace dependencies. |
+| PowerShell structural-validator string parsed `$skillFile:` as a scoped variable | 1 | Delimit the variable as `${skillFile}` and rerun the same checks; no skill file was changed. |
+| Skill sync encountered an existing destination after the first root was copied | 1 | The Codex roots may alias the same storage. Inspect root targets and resume with hash-aware idempotent copy: skip identical files, stop on drift, copy only missing destinations. |
+| Default PATH exposes unsupported Node 25.8.2 and no Corepack | 1 | Use the repository's previously verified portable Node 24/Corepack toolchain under `E:\AI_CACHE\tools`; do not change machine-wide Node. |
+| Staged diff check found one extra blank line at EOF in seven new documentation files | 1 | Remove only the redundant final blank lines, resync owned skill copies, restage, and rerun the staged gate. |
+| The new Obsidian concept page also had one redundant blank line at EOF | 1 | Remove the single blank line, restage only the new page, and commit it separately from the dirty parent worktree. |
+| The first hand-built cached KB hunks inherited PowerShell CRLF as trailing whitespace | 1 | Unstage only those hunks, apply an LF patch file, verify `git diff --cached --check`, then commit exactly index and log additions. |
+
+---
+
 # NAVA secure SSH support
 
 ## Goal
