@@ -18,9 +18,11 @@ Read [references/validation-gates.md](references/validation-gates.md) before tra
 5. Use chronological train/development/holdout partitions or rolling/anchored walk-forward validation. Keep one final holdout untouched until the design is frozen.
 6. Fit scalers, encoders, selectors, thresholds, and calibration only on the training portion of each fold.
 7. Compare the smallest adequate model first. Add neural networks, reinforcement learning, or LLM decisions only when simpler baselines measurably fail and the added uncertainty is testable.
-8. Translate predictions into trading decisions with frozen thresholds, abstention rules, turnover limits, costs, latency, and broker constraints.
-9. Evaluate statistical quality and trading behavior separately. Route native MT5 execution validation to `ea-research-lab` and calibrate account/tester money units before trusting money metrics.
-10. Require explicit human promotion. Use shadow or recommendation-only mode first; never let training output silently replace a live model or EA rule.
+8. Separate discovery from confirmation. Freeze and preregister the candidate formula, exclusions, metrics, sample start, and review/promotion gates before reading fresh forward outcomes.
+9. Translate predictions into trading decisions with frozen thresholds, abstention rules, turnover limits, costs, latency, and broker constraints.
+10. Evaluate statistical quality and trading behavior separately. Route native MT5 execution validation to `ea-research-lab` and calibrate account/tester money units before trusting money metrics.
+11. Keep the live baseline unchanged while candidates run in shadow or recommendation-only mode. Reject candidates that fail validation even when their discovery score looked attractive.
+12. Require explicit human promotion after the preregistered forward gate; never let training output silently replace a live model or EA rule.
 
 ## Model-specific boundaries
 

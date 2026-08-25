@@ -9,7 +9,7 @@
 
 ## Acceptance criteria
 
-- [ ] The two supplied ChatGPT conversations are summarized into concrete EA-analysis requirements without copying secrets or private account data.
+- [x] The two supplied ChatGPT conversations are summarized into concrete EA-analysis requirements without copying secrets or private account data.
 - [x] Existing NAVA and global EA skills/tools are inventoried so the new capability does not duplicate search, shell, Git, backtest, or knowledge-base functions.
 - [x] Source-analysis, black-box inference, and ML-audit modes clearly distinguish observed facts, inferred rules, confidence, and unknowns.
 - [x] EX5 analysis remains lawful clean-room/static-metadata or behavior-based work; no license, access-control, account, or broker protection bypass is added.
@@ -19,7 +19,7 @@
 
 ## Phases
 
-- [completed] Attempt chat recovery and inventory current EA/NAVA capabilities; the referenced old browser session was unavailable and is recorded as a limitation.
+- [completed] Claim the two exact external Chrome tabs, read them without reload or input, and inventory current EA/NAVA capabilities.
 - [completed] Freeze the minimal capability contract and evidence/safety boundaries.
 - [completed] Implement the skill-first solution; no duplicate MCP tool was justified.
 - [completed] Update user documentation and the EA knowledge base; run validation/build gates.
@@ -38,7 +38,7 @@
 | Error | Attempt | Resolution |
 |---|---:|---|
 | Initial three-file planning patch assumed identical prior section titles | 1 | Read each file header and prepend against its actual title. |
-| The supplied in-app browser tab references point to a prior Codex session that is no longer connected | 1 | Do not claim or silently replace the stale authenticated tabs; continue with local capability inventory and keep chat-specific requirements pending a fresh tab mention. |
+| The first pass misclassified `source=extension` tab mentions as stale in-app-browser references | 1 | Match the supplied extension instance plus exact provider tab ID, title, and URL; both live Chrome tabs were then claimed read-only without reloading them. |
 | The bundled skill validator could not start because this Python lacks PyYAML | 1 | Do not install a dependency for two Markdown files; inspect the validator contract and run an equivalent structural validation with the existing Node workspace dependencies. |
 | PowerShell structural-validator string parsed `$skillFile:` as a scoped variable | 1 | Delimit the variable as `${skillFile}` and rerun the same checks; no skill file was changed. |
 | Skill sync encountered an existing destination after the first root was copied | 1 | The Codex roots may alias the same storage. Inspect root targets and resume with hash-aware idempotent copy: skip identical files, stop on drift, copy only missing destinations. |
@@ -46,6 +46,9 @@
 | Staged diff check found one extra blank line at EOF in seven new documentation files | 1 | Remove only the redundant final blank lines, resync owned skill copies, restage, and rerun the staged gate. |
 | The new Obsidian concept page also had one redundant blank line at EOF | 1 | Remove the single blank line, restage only the new page, and commit it separately from the dirty parent worktree. |
 | The first hand-built cached KB hunks inherited PowerShell CRLF as trailing whitespace | 1 | Unstage only those hunks, apply an LF patch file, verify `git diff --cached --check`, then commit exactly index and log additions. |
+| A PowerShell hash-report loop piped directly after nested `foreach` blocks and parsed as an empty pipe element | 1 | Store the loop output in an array before formatting; no files were changed. |
+| The first cached-only KB log patch had an incorrect hunk count and Git rejected it as corrupt | 1 | Leave the concept staging intact and use a one-line zero-context insertion against the verified index line; no unrelated log changes entered the index. |
+| Piping the zero-context patch through Windows PowerShell added a CR byte that `git diff --cached --check` reported as trailing whitespace | 1 | Unstage only the log path and apply the same verified one-line hunk from an LF patch created with `apply_patch`. |
 
 ---
 

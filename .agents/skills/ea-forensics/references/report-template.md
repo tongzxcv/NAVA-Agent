@@ -33,6 +33,19 @@
 | Claim or expected rule | Conflicting evidence | Impact | Next falsifying test |
 |---|---|---|---|
 
+## Change boundary and parity
+
+- Declared change scope:
+- Protected trade-critical paths:
+- Input or `.set` migration required:
+
+| Before/after check | Evidence | Result | Native test still required |
+|---|---|---|---|
+| Trade-critical functions | | | |
+| Session/input equivalence | | | |
+| Compile/static checks | | | |
+| Tester/runtime behavior | | | |
+
 ## Verdict
 
 Use one: `LOGIC_MAPPED`, `PARTIAL_INFERENCE`, `CONTRADICTED`, or `INSUFFICIENT_EVIDENCE`.

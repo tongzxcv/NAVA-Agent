@@ -22,6 +22,14 @@ NAVA ใช้ Tool เดิมสำหรับอ่านไฟล์ ค�
 
 > ใช้ NAVA ค้นหาและอ่าน Skill `ea-ml-research` ตรวจชุดข้อมูลและแผน ML ของ Autobots แบบ read-only ก่อน รายงาน leakage, split, baseline, feature provenance และหลักฐานที่ยังขาด ห้าม train หรือแก้ไฟล์จนกว่าผมยืนยัน
 
+ถ้ากำลังหา Candidate จากข้อมูลเก่าแล้วจะเก็บ Forward ใหม่:
+
+> แยก discovery กับ confirmation ให้ชัด Freeze และ preregister สูตร Candidate, baseline, metric, เวลาเริ่มเก็บข้อมูลใหม่ และ gate 30/50/100 cases ก่อน ห้ามนำข้อมูล discovery มานับซ้ำ และคง Live ตัวเดิมไว้จนกว่าจะผ่าน gate และผมยืนยัน
+
+ถ้าแก้เฉพาะ UI/Input โดยห้ามกระทบ Logic เทรด:
+
+> ใช้ `ea-forensics` ล็อก scope เป็น UI/Input only เทียบฟังก์ชัน trade-critical ก่อนและหลัง ทดสอบค่าเวลา/อินพุตว่าเทียบเท่าของเดิม ระบุ Tester/Runtime ที่ยังไม่ได้รัน และถ้าชื่อ input เปลี่ยนให้สร้าง `.set` ใหม่พร้อมคู่มือย้ายค่า
+
 ## ระดับหลักฐาน
 
 - `PROVEN_SOURCE` — มี source และตำแหน่งอ้างอิงชัดเจน

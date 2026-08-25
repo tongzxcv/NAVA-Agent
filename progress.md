@@ -4,7 +4,17 @@
 - Read the current NAVA branch/status and existing planning history; working tree had no uncommitted changes before this task.
 - Consulted the EA knowledge-base schema/index/log and existing NAVA build/release safeguards.
 - Selected an evidence-first, minimal design direction; authenticated chat inspection and current tool/skill inventory are next.
-- Attempted the exact supplied in-app-browser tab references; the referenced browser session is stale, so no alternate tab was opened and no private-chat content was inferred.
+- Corrected the browser classification, matched both exact external Chrome tabs, and read their visible conversation content without reloading, typing, or changing either active chat.
+- Extracted two concrete workflow additions: preregistered fresh-forward candidate gates for ML research, and explicit scope/equivalence/parity proof for source/UI changes.
+- Added those requirements to the repository-owned skills, references, and Thai guide. The first read-only hash report had a PowerShell pipeline parse error before any sync occurred; the corrected array-based report is next.
+- Synchronized both skill trees to all five configured roots; the sync doctor and recursive SHA256 comparison pass, and the skill-router index rebuilt with 230 skills.
+- Live NAVA `skills_list` and `skills_read` return the revised forensics workflow and ML promotion gates without an application restart.
+- Focused verification passes: extensions 8/8, public repository hygiene 8/8, skill frontmatter/reference validation, and `git diff --check`.
+- Updated the existing Obsidian concept/log with project-neutral rules only. KB lint completed with eight pre-existing index candidates and no blocker for this change.
+- The first cached-only KB log hunk was rejected before staging because its count was invalid; the concept page remains the only staged KB file and the retry uses the verified index line.
+- The PowerShell-piped retry staged the correct line but added CR trailing whitespace; it will be replaced index-only from an LF patch, without touching the dirty log worktree.
+- Replaced the KB log staging with the LF-only one-line hunk; cached diff checks pass and no unrelated `D:\EA` changes are staged.
+- Task-scoped secret/artifact scans pass for both skills, the Thai guide, planning files, and the two KB files. Final commits are next; installed NAVA remains untouched.
 - Inventoried repository skill roots, package metadata, public tool counts, WSE, and secure SSH registrations.
 - Confirmed there is no existing EA-specific bundled NAVA skill or MCP tool to extend directly.
 - Verified NAVA's skill catalog scans the global `.agents\skills` root and can read supporting files safely within a skill folder.

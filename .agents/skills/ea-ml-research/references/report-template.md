@@ -35,6 +35,17 @@
 | Test | Result | Evidence gap |
 |---|---|---|
 
+## Candidate freeze and fresh forward
+
+- Discovery cutoff and evidence hash:
+- Candidate formula and baseline:
+- Fresh-forward start:
+- Preregistered review/promotion gates:
+- Live baseline unchanged: yes / no
+
+| Gate | Required cases/time | Observed result | Decision |
+|---|---:|---|---|
+
 ## Verdict
 
 Use one: `ML_RESEARCH_PASS`, `ML_REJECTED`, or `ML_NEEDS_MORE_EVIDENCE`.

@@ -41,6 +41,12 @@ For imbalanced classification, prefer precision/recall, PR-AUC, balanced metrics
 
 ## 6. Promotion gate
 
+- Freeze discovery evidence before starting confirmation.
+- Preregister the exact candidate rule, baseline, metrics, exclusions, sample start, and review thresholds.
+- Do not reuse discovery rows as fresh forward evidence or move a threshold after seeing confirmation outcomes.
+- Keep every candidate separate by project, version, and data contract. A gate such as 30/50/100 cases is valid only when preregistered for that project; it is not a universal sample-size rule.
+- Keep Live unchanged until the formal gate passes and the user explicitly approves promotion.
+
 Allowed verdicts:
 
 - `ML_RESEARCH_PASS`: methodology and evidence gates pass; not live approval.

@@ -5,7 +5,10 @@
 - The durable EA knowledge base already requires evidence-first promotion, calibrated money units, isolated research, and no profitability claim without native backtest/forward evidence.
 - Initial capability split: source logic extraction, behavior/black-box inference, and ML evidence audit. Each output must separate observation, inference, confidence, contradiction, and unknown.
 - Deployment is intentionally deferred so the later upstream update can be merged with this feature without overwriting NAVA-specific WSE/SSH work.
-- Both supplied ChatGPT tab mentions resolve to an older in-app-browser session that is no longer available. Their titles identify Autobots V0.31 and BEELZEBUB/NAVA continuation context, but no conversation content is treated as observed evidence yet.
+- Both supplied links are live external-Chrome tab mentions (`source=extension`), not stale in-app-browser references. Exact extension-instance, provider-tab, title, and URL matching succeeded without navigation or reload.
+- Autobots V0.31 demonstrates the required research contract: keep Live unchanged, freeze discovery, preregister each candidate, reject weak candidates, then start a fresh shadow/forward sample with explicit 30/50/100-case review gates before any promotion.
+- BEELZEBUB demonstrates the required change-forensics contract: declare an explicit UI-only scope, preserve trade-critical functions, prove input/session equivalence, compile cleanly, package new presets when identifiers change, and label native tester/runtime evidence as pending when it was not run.
+- The two chats are active on separate projects. Their evidence should remain project-scoped; no result, threshold, preset, or readiness verdict transfers between Autobots and BEELZEBUB.
 - Repository metadata is NAVA `4.10.1`; current acceptance catalog expects 226 configurable tools and 220 advertised by default.
 - The repo currently bundles three NAVA workflow skills: account switching, incident diagnosis, and multi-chat coordination. No EA-specific bundled skill exists.
 - No EA-specific MCP tool is present. Existing filesystem/search/shell/Git/WSE primitives already cover acquisition and execution; the missing value is deterministic EA evidence extraction and domain orchestration.

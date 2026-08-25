@@ -28,13 +28,16 @@ Read [references/modes-and-evidence.md](references/modes-and-evidence.md) before
 5. Attach evidence to every claim. Use only these labels: `PROVEN_SOURCE`, `PROVEN_RUNTIME`, `SUPPORTED_INFERENCE`, `CONTRADICTED`, or `UNKNOWN`.
 6. For inferred rules, state confidence, competing explanations, and the smallest experiment that could falsify the claim.
 7. Validate source claims by compile/static checks and behavior claims through controlled MT5 experiments. Route batch validation to `ea-research-lab`; keep heavy evidence under `E:\AI_CACHE\mt5-backtests`.
-8. Update the relevant Obsidian project page when findings are durable. Never promote a strategy or alter production from forensic evidence alone.
+8. For a claimed UI-only, input-only, or refactor-only change, freeze the allowed scope and compare before/after trade-critical functions, defaults, state ownership, and a boundary-equivalence probe. Compilation or structural equality alone is not runtime parity; record any unrun native test explicitly.
+9. When input identifiers or serialization change, require a new preset plus a migration note; do not assume an old `.set` maps safely.
+10. Update the relevant Obsidian project page when findings are durable. Never promote a strategy or alter production from forensic evidence alone.
 
 ## Tool routing
 
 - Discover the registered project with `workspace_list` and keep all reads inside its workspace boundary.
 - Use `workspace_context`, `search_files`, `read_many_files`, Git tools, hashes, and bounded shell tasks for evidence collection.
 - Prefer logs, tester reports, deal/order history, and controlled input changes over screenshots or narrative recollection.
+- For VPS evidence, use the existing profile-based `remote_ssh` capability with bounded read-only commands; record the remote path, timestamp, and artifact hash without copying credentials into prompts or reports.
 - Use writer leases before changing a shared workspace. Forensics is read-only by default.
 
 ## Hard boundaries
