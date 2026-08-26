@@ -296,3 +296,25 @@
 - Killed only the owned Tunnel and stdio MCP PIDs, restarted Tunnel from the NAVA UI, obtained `/healthz=200 live` and `/readyz=200 ready`, then resumed the same checkpoint from the new MCP process. Cross-process persistence passed.
 
 ---
+
+# 2026-08-27 Continuity writer-lease discovery repair
+
+- Reproduced the discovery mismatch: the coordinator skill was repository-local,
+  but the installed MCP runtime exposed all five workspace lease tools.
+- Added a bounded direct-tool fallback to the repository copy of
+  `nava-continuity`; global synchronization and validation are in progress.
+- The first mechanical sync copied no files because `-LiteralPath` does not
+  expand wildcards. The default Python validator also lacked PyYAML. Both
+  failures were recorded; no existing skill content was overwritten.
+- Installed both skills across all five shared roots with matching SHA-256
+  hashes and rebuilt the local skill-router index (247 discovered skills).
+- Reused the existing validator dependency cache and UTF-8 mode; both skills
+  passed `quick_validate.py` without adding a package.
+- Live NAVA v4.10.2 `skills_list` discovered the coordinator from `.claude` and
+  `.agents`, while `skills_read` returned the coordinator workflow and the new
+  continuity fallback containing `workspace_lease_call`.
+- `git diff --check` passed. The whole-tree guard reported only pre-existing
+  build/dependency artifacts outside the four modified text files; no task-owned
+  secret or heavy artifact is being staged.
+
+---

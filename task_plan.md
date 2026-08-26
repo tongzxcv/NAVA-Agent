@@ -521,3 +521,35 @@ Ship and install a safe NAVA patch that removes remaining user-visible legacy br
 - [x] Run sync, secret/artifact, diff, and Git gates; commit only task-owned files.
 
 ---
+
+# 2026-08-27 Continuity writer-lease discovery repair
+
+## Goal
+
+Prevent a resumed NAVA chat from stopping when the coordinator skill is missing
+from global discovery even though the installed MCP runtime exposes workspace
+lease tools.
+
+## Plan
+
+- [x] Confirm the missing global skill and verify the live lease-tool inventory.
+- [x] Add a direct lease-tool fallback to `nava-continuity` and install
+  `nava-multi-chat-coordinator` across every shared skill root.
+- [x] Validate both skills, run sync/router/live-MCP checks, then scan and commit
+  only task-owned repository files.
+
+## Boundaries
+
+- Do not change the NAVA runtime, installer, Tunnel profile, credentials, EA
+  source, or Live workspace.
+- Preserve lease permission and human-confirmation requirements.
+- Do not bypass an active writer lease.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| `Copy-Item -LiteralPath` treated `*` as a literal filename | 1 | Switch to explicit file-level copies; empty destination directories contain no skill content. |
+| Default and bundled Python lacked the validator's `yaml` module; the first UTF-8 read also used the Thai Windows code page | 2 | Reuse the existing validator dependency cache through `PYTHONPATH` and set `PYTHONUTF8=1`; both skills then passed. |
+
+---

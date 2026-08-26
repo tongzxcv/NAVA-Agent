@@ -26,7 +26,25 @@ chat-full warning.
 4. State any contradiction or stale item. Continue from `nextAction` only after
    the verification agrees.
 5. Before the first mutation, follow `nava-multi-chat-coordinator` and acquire the
-   workspace writer lease.
+   workspace writer lease. If that skill is not discoverable, do not stop when
+   the lease tools are available: use the direct fallback below.
+
+## Writer-lease fallback
+
+When `nava-multi-chat-coordinator` cannot be loaded, call the NAVA tools
+directly:
+
+1. Call `workspace_lease_status` for the exact workspace ID.
+2. Call `workspace_lease_acquire` with a short owner label and a 15-minute TTL.
+3. Run every non-read workspace tool through `workspace_lease_call` using the
+   returned lease ID. Keep the child tool's normal confirmation requirements.
+4. Call `workspace_lease_renew` before expiry during long foreground work.
+5. Call `workspace_lease_release` during finalization, including after partial
+   failure. If the chat ends unexpectedly, let the lease expire.
+
+Stop before mutation only when the lease tools themselves are unavailable or
+another active writer owns the workspace. Never bypass the lease with direct
+shell, file, Git, or child-MCP mutations.
 
 The user can normally start a replacement chat with:
 

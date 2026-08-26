@@ -254,3 +254,20 @@
 - A replacement chat needs only a stable project key. The runtime returns `recovered=true` and `verificationRequired=true`; the skill then requires Git/workspace/Obsidian verification before mutation.
 
 ---
+
+# 2026-08-27 Continuity writer-lease discovery findings
+
+- `nava-multi-chat-coordinator` was tracked only inside the NAVA repository and
+  absent from all five shared skill roots, while `nava-continuity` required it.
+- The installed NAVA v4.10.2 MCP endpoint advertises
+  `workspace_lease_status`, `workspace_lease_acquire`,
+  `workspace_lease_renew`, `workspace_lease_call`, and
+  `workspace_lease_release`; the runtime capability was not missing.
+- The smallest durable repair is global skill synchronization plus a direct-tool
+  fallback in `nava-continuity`; no runtime rebuild is required.
+- Both skill entrypoints pass the official quick validator. All five roots match
+  their repository source by SHA-256, and the sync doctor reports no drift.
+- The live NAVA MCP process lists the coordinator from both Claude and Agents
+  roots and reads the updated continuity fallback through `skills_read`.
+
+---
