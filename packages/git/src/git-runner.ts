@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { WindowsProcessTree, type ProcessTreeTerminator } from '@lnwjud/process';
 
 export interface GitRunResult {
@@ -21,10 +23,36 @@ const MAX_TIMEOUT_MS = 300_000;
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_TERMINATION_RETRY_MS = 250;
 
+export function resolveGitExecutable(
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'win32') return 'git';
+  const pathEntries = (environment.Path ?? environment.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const extensions = (environment.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean);
+  for (const rawEntry of pathEntries) {
+    const entry = rawEntry.replace(/^"(.*)"$/, '$1');
+    for (const extension of extensions) {
+      const candidate = path.join(entry, `git${extension.toLowerCase()}`);
+      if (!isFile(candidate)) continue;
+      if (path.basename(path.dirname(candidate)).toLowerCase() === 'cmd') {
+        const installRoot = path.dirname(path.dirname(candidate));
+        for (const runtime of ['mingw64', 'mingw32']) {
+          const direct = path.join(installRoot, runtime, 'bin', 'git.exe');
+          if (isFile(direct)) return direct;
+        }
+      }
+      return candidate;
+    }
+  }
+  return 'git';
+}
+
 export class DirectGitRunner implements GitRunner {
   public constructor(
     private readonly processTree: ProcessTreeTerminator = new WindowsProcessTree(),
     private readonly terminationRetryMs = DEFAULT_TERMINATION_RETRY_MS,
+    private readonly gitExecutable = resolveGitExecutable(),
   ) {}
 
   public run(args: readonly string[], cwd: string, options: GitRunOptions = {}): Promise<GitRunResult> {
@@ -35,7 +63,7 @@ export class DirectGitRunner implements GitRunner {
     return new Promise((resolve) => {
       let child: ChildProcess;
       try {
-        child = spawn('git', [...args], {
+        child = spawn(this.gitExecutable, [...args], {
           cwd,
           env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
           shell: false,
@@ -107,6 +135,14 @@ export class DirectGitRunner implements GitRunner {
       options.signal?.addEventListener('abort', abort, { once: true });
       if (options.signal?.aborted === true) abort();
     });
+  }
+}
+
+function isFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
   }
 }
 

@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { ProcessTreeTerminator } from '@lnwjud/process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +13,7 @@ vi.mock('node:child_process', async (importOriginal) => ({
   spawn: spawnMock,
 }));
 
-import { DirectGitRunner } from './git-runner.js';
+import { DirectGitRunner, resolveGitExecutable } from './git-runner.js';
 
 function fakeChild(pid = 4_242): ChildProcess {
   return Object.assign(new EventEmitter(), {
@@ -32,7 +35,38 @@ beforeEach(() => {
   spawnMock.mockReset();
 });
 
+describe('resolveGitExecutable', () => {
+  it('bypasses the Git for Windows cmd wrapper when its real executable exists', async () => {
+    const installRoot = await mkdtemp(path.join(tmpdir(), 'nava-git-'));
+    const wrapper = path.join(installRoot, 'cmd', 'git.exe');
+    const direct = path.join(installRoot, 'mingw64', 'bin', 'git.exe');
+    try {
+      await mkdir(path.dirname(wrapper), { recursive: true });
+      await mkdir(path.dirname(direct), { recursive: true });
+      await writeFile(wrapper, 'wrapper');
+      await writeFile(direct, 'direct');
+
+      expect(resolveGitExecutable({ Path: path.dirname(wrapper), PATHEXT: '.EXE' }, 'win32')).toBe(direct);
+    } finally {
+      await rm(installRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('DirectGitRunner cancellation', () => {
+  it('spawns the selected Git executable directly', async () => {
+    const child = fakeChild();
+    spawnMock.mockReturnValue(child);
+    const terminator: ProcessTreeTerminator = { stop: vi.fn(async () => undefined) };
+    const directGit = 'C:\\Git\\mingw64\\bin\\git.exe';
+
+    const running = new DirectGitRunner(terminator, 250, directGit).run(['status'], 'C:\\workspace');
+    closeChild(child, 0);
+
+    await expect(running).resolves.toEqual({ exitCode: 0, stdout: '', stderr: '' });
+    expect(spawnMock).toHaveBeenCalledWith(directGit, ['status'], expect.objectContaining({ shell: false, windowsHide: true }));
+  });
+
   it('does not spawn Git when the invocation was already aborted', async () => {
     const child = fakeChild();
     spawnMock.mockImplementation(() => {
