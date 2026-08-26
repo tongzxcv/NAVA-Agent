@@ -123,6 +123,7 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
+const DASHBOARD_GIT_CACHE_MS = 60_000;
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -159,6 +160,30 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   });
   const workspaceService = new WorkspaceService(workspaceRepository);
   const gitService = new GitService(workspaceRepository);
+  let cachedGitSummary: {
+    readonly workspaceId: string;
+    readonly expiresAt: number;
+    readonly value: DashboardSnapshot['gitSummary'];
+  } | undefined;
+  let gitSummaryInFlight: {
+    readonly workspaceId: string;
+    readonly promise: Promise<DashboardSnapshot['gitSummary']>;
+  } | undefined;
+  const getDashboardGitSummary = async (workspace: Workspace): Promise<DashboardSnapshot['gitSummary']> => {
+    if (cachedGitSummary?.workspaceId === workspace.id && cachedGitSummary.expiresAt > Date.now()) {
+      return cachedGitSummary.value;
+    }
+    if (gitSummaryInFlight?.workspaceId === workspace.id) return gitSummaryInFlight.promise;
+    const promise = buildGitSummary(workspace, gitService, actor);
+    gitSummaryInFlight = { workspaceId: workspace.id, promise };
+    try {
+      const value = await promise;
+      cachedGitSummary = { workspaceId: workspace.id, expiresAt: Date.now() + DASHBOARD_GIT_CACHE_MS, value };
+      return value;
+    } finally {
+      if (gitSummaryInFlight?.promise === promise) gitSummaryInFlight = undefined;
+    }
+  };
   const codexDiscovery = new CodexDiscovery();
   const executableResolver = new PathExecutableResolver();
   const storedProfile = settingsRepository.get(permissionSettingKey);
@@ -370,7 +395,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const selectedWorkspace = await resolveSelectedWorkspace(workspaceService, settingsRepository);
       const gitSummary = selectedWorkspace === null
         ? { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' }
-        : await buildGitSummary(selectedWorkspace, gitService, actor);
+        : await getDashboardGitSummary(selectedWorkspace);
       const codex = await buildCodexSummary(codexDiscovery);
       const recentAuditEvents = await buildAuditSummary(auditRepository, settingsRepository);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);

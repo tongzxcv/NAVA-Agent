@@ -2,6 +2,8 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { GitService } from '@lnwjud/application';
+import { ok } from '@lnwjud/domain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopRuntime, type DesktopRuntime } from '../src/main/desktop-services.js';
 
@@ -12,6 +14,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await Promise.all(temporaryRoots.splice(0).map(async (root) => {
     try {
@@ -23,6 +26,28 @@ afterEach(async () => {
 });
 
 describe('DesktopRuntime persistence', () => {
+  it('coalesces and caches Git work across dashboard refreshes', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-git-cache-'));
+    const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-git-workspace-'));
+    temporaryRoots.push(rawDataRoot, rawWorkspaceRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const workspaceRoot = await realpath(rawWorkspaceRoot);
+    const status = vi.spyOn(GitService.prototype, 'status').mockResolvedValue(ok({ entries: [] }));
+    const branch = vi.spyOn(GitService.prototype, 'branch').mockResolvedValue(ok('main'));
+    const runtime = createDesktopRuntime(dataRoot);
+    try {
+      await runtime.services.addWorkspace({ rootPath: workspaceRoot });
+
+      await Promise.all(Array.from({ length: 8 }, async () => runtime.services.getDashboard()));
+      await runtime.services.getDashboard();
+
+      expect(status).toHaveBeenCalledTimes(1);
+      expect(branch).toHaveBeenCalledTimes(1);
+    } finally {
+      await runtime.close();
+    }
+  }, 30_000);
+
   it('applies and restores permission settings without restoring an MCP listener', async () => {
     const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-data-'));
     const rawWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-runtime-workspace-'));
