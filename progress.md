@@ -281,3 +281,18 @@
 - Started the real Secure Tunnel and verified its owner lock, control-plane metadata, installed stdio MCP process, `200 live`, `200 ready`, and connected state in the NAVA UI.
 - Staged exactly 28 task-owned release/documentation files; the staged gate found zero large blobs, artifact paths, or secret-pattern paths and `git diff --check` passed.
 - Deployment gates are complete; commit/push and post-push clean-state verification are the final recorded operations.
+# 2026-08-26 Rolling continuity checkpoint progress
+
+- Recovered the clean v4.10.1 branch and prior planning context.
+- Read SCQA, TDD/interface-testing, ponytail, skill-authoring, skill-sync, Obsidian, and secret/artifact guidance.
+- Inspected the existing multi-chat skill, session tools, persisted upgrade runtime, MCP server initialization, and skill discovery.
+- Chose a minimal extension of existing session state rather than an external Markdown cache or a second checkpoint subsystem.
+- Public behavior to prove first: latest project checkpoint survives runtime reconstruction, another project cannot contaminate resume, secrets are not retained, and MCP clients receive the rolling policy.
+- Added structured bounded project checkpoints, project-specific resume, atomic persistence, process-local write serialization, MCP server instructions, and backward compatibility for summary-only checkpoints.
+- Added and synchronized `nava-continuity`; NAVA live discovery found it from both `.agents` and Claude skill roots, and the local router ranked it first for chat-full continuity.
+- Full lint, typecheck, 19-package test/build, packaging, release, public-hygiene, and Windows packaging gates passed for v4.10.2.
+- Installed v4.10.2 after preserving application, user data, Tunnel profile, shortcut, and manifest under `E:\AI_CACHE\nava-agent-setup\20260826-094021-v4.10.1-before-v4.10.2-continuity`.
+- Live Secure Tunnel smoke test saved and resumed project `nava-continuity-smoke-20260826` with all structured fields intact.
+- Killed only the owned Tunnel and stdio MCP PIDs, restarted Tunnel from the NAVA UI, obtained `/healthz=200 live` and `/readyz=200 ready`, then resumed the same checkpoint from the new MCP process. Cross-process persistence passed.
+
+---

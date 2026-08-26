@@ -495,3 +495,29 @@ Ship and install a safe NAVA patch that removes remaining user-visible legacy br
 | Targeted typecheck initially used stale domain build output | 1 | Rebuilt `@lnwjud/domain`; then fixed the newly expanded `AppErrorCode` annotation and narrowed workspace IDs before rerunning. |
 | First SearchService test rerun raised `isAbsoluteFsPath is not defined` | 1 | Imported the existing native path classifier from `workspace-locator.ts`; no new helper added. |
 | Root typecheck required the new `SEARCH_FAILED` code in the Desktop MCP result allowlist | 1 | Added the code to the exhaustive `MCP_FAILURE_RESULT_CODES` map. |
+# 2026-08-26 Rolling continuity checkpoints
+
+## SCQA
+
+- **Situation:** NAVA already provides project tools, writer leases, a basic persisted `session_checkpoint`, and `session_handoff` from a repository tracker.
+- **Complication:** ChatGPT does not expose a dependable remaining-context meter. A long task can finish after the chat is already full, while the current checkpoint is global, summary-only, and not reliably selected by project in a new chat.
+- **Question:** How can a new chat resume the correct project safely without copying the old transcript or dirtying the project repository?
+- **Answer:** Extend the existing session tools into bounded project-scoped rolling checkpoints, advertise the checkpoint/resume policy in MCP server instructions, add a discoverable `nava-continuity` skill, and verify persistence through a fresh runtime instance plus a real MCP transport.
+
+## Scope and boundaries
+
+- Reuse `session_checkpoint`, `session_resume`, existing activity evidence, and workspace leases; do not add a parallel checkpoint service or dependency.
+- Keep state in NAVA's existing runtime state outside project repositories.
+- Persist only bounded summaries and evidence references; never retain prompts, credentials, secret values, or raw large logs.
+- Preserve backward compatibility for existing summary-only checkpoints.
+- Do not alter EA source, MT5 runtime, Tunnel credentials, or unrelated workspaces.
+
+## Plan
+
+- [x] Add failing public-behavior tests for project-scoped latest-checkpoint resume and MCP continuity instructions.
+- [x] Implement bounded structured rolling checkpoints and project-specific resume with recent-activity fallback.
+- [x] Add and synchronize the `nava-continuity` skill.
+- [x] Run focused and integration verification, then exercise save/resume through a real MCP client connection.
+- [x] Run sync, secret/artifact, diff, and Git gates; commit only task-owned files.
+
+---

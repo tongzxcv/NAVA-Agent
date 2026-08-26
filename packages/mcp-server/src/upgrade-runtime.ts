@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
@@ -28,6 +28,16 @@ interface SessionCheckpoint {
   readonly createdAt: string;
   readonly summary: string;
   readonly inputDigest: string;
+  readonly projectKey?: string;
+  readonly workspaceId?: string;
+  readonly objective?: string;
+  readonly phase?: string;
+  readonly completed?: readonly string[];
+  readonly files?: readonly string[];
+  readonly verification?: readonly string[];
+  readonly blockers?: readonly string[];
+  readonly boundaries?: readonly string[];
+  readonly nextAction?: string;
 }
 
 interface CacheCounters {
@@ -86,6 +96,12 @@ interface PersistedRuntimeState {
   readonly benchmarks?: readonly WseBenchmarkSnapshot[];
 }
 
+interface PersistedContinuityState {
+  readonly checkpoints?: readonly SessionCheckpoint[];
+  readonly lastCheckpointId?: string;
+  readonly lastProjectKey?: string;
+}
+
 interface WseExperience {
   readonly id: string;
   readonly callId: string;
@@ -101,6 +117,10 @@ interface WseExperience {
 const MAX_WSE_EXPERIENCES = 512;
 const MAX_WSE_PROMOTIONS = 64;
 const MIN_WSE_PROMOTION_SAMPLES = 10;
+const MAX_SESSION_CHECKPOINTS = 128;
+const MAX_CHECKPOINT_LIST_ITEMS = 20;
+const MAX_CHECKPOINT_TEXT_CHARS = 1_000;
+const continuityWriteLocks = new Map<string, Promise<void>>();
 type WseStrategy = 'baseline' | 'reliability-first' | 'latency-first';
 
 interface WsePromotion {
@@ -262,13 +282,12 @@ export class UpgradeRuntimeService {
       case 'plugin_remove':
         return ok(await this.changePlugin(name, readString(input, 'name') ?? readString(input, 'plugin')));
       case 'session_context':
-      case 'session_resume':
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
+      case 'session_resume':
+        return ok(this.resumeSession(input));
       case 'session_checkpoint': {
-        const checkpoint: SessionCheckpoint = { id: randomUUID(), createdAt: new Date().toISOString(), summary: summarize(readString(input, 'summary') ?? readString(input, 'prompt') ?? ''), inputDigest: digest(input) };
-        this.checkpoints.push(checkpoint);
-        this.session.set('lastCheckpointId', checkpoint.id);
-        await this.persistState();
+        const checkpoint = createSessionCheckpoint(input);
+        await this.persistSessionCheckpoint(checkpoint);
         return ok(checkpoint);
       }
       case 'session_history':
@@ -768,6 +787,61 @@ export class UpgradeRuntimeService {
     return this.actor;
   }
 
+  private resumeSession(input: Record<string, unknown>): Record<string, unknown> {
+    const requestedProjectKey = checkpointProjectKey(input);
+    const selected = this.checkpoints.filter((checkpoint) => checkpointProjectKeyFromStored(checkpoint) === requestedProjectKey);
+    const checkpoint = selected.at(-1) ?? null;
+    const requestedWorkspaceId = checkpoint?.workspaceId ?? checkpointString(input.workspaceId);
+    const recentActivity = (this.activity?.listRecent(64) ?? [])
+      .filter((event) => event.phase === 'completed')
+      .filter((event) => requestedWorkspaceId === undefined || event.workspaceId === requestedWorkspaceId)
+      .slice(-12)
+      .map((event) => ({
+        toolName: event.toolName,
+        resultCode: event.resultCode,
+        durationMs: event.durationMs,
+        timestamp: event.timestamp,
+        ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
+      }));
+    return {
+      projectKey: requestedProjectKey,
+      checkpoint,
+      checkpointCount: selected.length,
+      recentActivity,
+      recovered: checkpoint !== null,
+      verificationRequired: true,
+    };
+  }
+
+  private async persistSessionCheckpoint(checkpoint: SessionCheckpoint): Promise<void> {
+    const statePath = this.services.runtimeStatePath;
+    if (statePath === undefined) {
+      this.replaceContinuityState([...this.checkpoints, checkpoint], checkpoint);
+      return;
+    }
+    const continuityPath = continuityStatePath(statePath);
+    await withContinuityWriteLock(continuityPath, async () => {
+      const persisted = await readContinuityState(continuityPath);
+      const merged = dedupeCheckpoints([...(persisted.checkpoints ?? []), ...this.checkpoints, checkpoint])
+        .slice(-MAX_SESSION_CHECKPOINTS);
+      await writeJsonAtomic(continuityPath, {
+        checkpoints: merged,
+        lastCheckpointId: checkpoint.id,
+        lastProjectKey: checkpoint.projectKey ?? 'global',
+      });
+      this.replaceContinuityState(merged, checkpoint);
+    });
+  }
+
+  private replaceContinuityState(checkpoints: readonly SessionCheckpoint[], latest?: SessionCheckpoint): void {
+    this.checkpoints.splice(0, this.checkpoints.length, ...checkpoints.slice(-MAX_SESSION_CHECKPOINTS));
+    const selected = latest ?? this.checkpoints.at(-1);
+    if (selected !== undefined) {
+      this.session.set('lastCheckpointId', selected.id);
+      this.session.set('lastProjectKey', selected.projectKey ?? 'global');
+    }
+  }
+
   private async loadState(): Promise<void> {
     if (this.loaded) return;
     this.loaded = true;
@@ -794,6 +868,15 @@ export class UpgradeRuntimeService {
     } catch {
       // A corrupt optional state file is recoverable; the next mutation writes a fresh state.
     }
+    await this.loadContinuityState();
+  }
+
+  private async loadContinuityState(): Promise<void> {
+    const statePath = this.services.runtimeStatePath;
+    if (statePath === undefined) return;
+    const state = await readContinuityState(continuityStatePath(statePath));
+    const merged = dedupeCheckpoints([...this.checkpoints, ...(state.checkpoints ?? [])]).slice(-MAX_SESSION_CHECKPOINTS);
+    this.replaceContinuityState(merged, merged.find((entry) => entry.id === state.lastCheckpointId) ?? merged.at(-1));
   }
 
   private async persistState(): Promise<void> {
@@ -892,6 +975,119 @@ function digest(input: unknown): string {
 
 function summarize(value: string): string {
   return value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 240);
+}
+
+function createSessionCheckpoint(input: Record<string, unknown>): SessionCheckpoint {
+  const projectKey = checkpointProjectKey(input);
+  const workspaceId = checkpointString(input.workspaceId, 128);
+  const objective = checkpointString(input.objective);
+  const phase = checkpointString(input.phase, 240);
+  const completed = checkpointList(input.completed);
+  const files = checkpointList(input.files);
+  const verification = checkpointList(input.verification);
+  const blockers = checkpointList(input.blockers);
+  const boundaries = checkpointList(input.boundaries);
+  const nextAction = checkpointString(input.nextAction);
+  const summary = checkpointString(input.summary ?? input.prompt, 240)
+    ?? summarize(objective ?? nextAction ?? phase ?? 'Checkpoint saved');
+  const safePayload = {
+    projectKey,
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    ...(objective === undefined ? {} : { objective }),
+    ...(phase === undefined ? {} : { phase }),
+    ...(completed.length === 0 ? {} : { completed }),
+    ...(files.length === 0 ? {} : { files }),
+    ...(verification.length === 0 ? {} : { verification }),
+    ...(blockers.length === 0 ? {} : { blockers }),
+    ...(boundaries.length === 0 ? {} : { boundaries }),
+    ...(nextAction === undefined ? {} : { nextAction }),
+    summary,
+  };
+  return {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    ...safePayload,
+    inputDigest: digest(safePayload),
+  };
+}
+
+function checkpointProjectKey(input: Record<string, unknown>): string {
+  return (checkpointString(input.projectKey, 128) ?? checkpointString(input.workspaceId, 128) ?? 'global').toLowerCase();
+}
+
+function checkpointProjectKeyFromStored(checkpoint: SessionCheckpoint): string {
+  return (checkpoint.projectKey ?? checkpoint.workspaceId ?? 'global').toLowerCase();
+}
+
+function checkpointList(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => checkpointString(entry, 500))
+    .filter((entry): entry is string => entry !== undefined)
+    .slice(0, MAX_CHECKPOINT_LIST_ITEMS);
+}
+
+function checkpointString(value: unknown, maxChars = MAX_CHECKPOINT_TEXT_CHARS): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const redacted = value
+    .replace(/(\bauthorization\s*:\s*bearer\s+)[^\s]+/gi, '$1[redacted]')
+    .replace(/\b(token|secret|password|api[_ -]?key|private[_ -]?key)\s*[:=]\s*[^\s]+/gi, '$1=[redacted]')
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, '[redacted-api-key]')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim();
+  return redacted.length === 0 ? undefined : redacted.slice(0, maxChars);
+}
+
+function continuityStatePath(runtimeStatePath: string): string {
+  return `${runtimeStatePath}.continuity.json`;
+}
+
+async function readContinuityState(filePath: string): Promise<PersistedContinuityState> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(filePath, 'utf8'));
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    const record = parsed as Record<string, unknown>;
+    const checkpoints = Array.isArray(record.checkpoints) ? record.checkpoints.filter(isCheckpoint) : [];
+    return {
+      checkpoints,
+      ...(typeof record.lastCheckpointId === 'string' ? { lastCheckpointId: record.lastCheckpointId } : {}),
+      ...(typeof record.lastProjectKey === 'string' ? { lastProjectKey: record.lastProjectKey } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function dedupeCheckpoints(checkpoints: readonly SessionCheckpoint[]): SessionCheckpoint[] {
+  const byId = new Map<string, SessionCheckpoint>();
+  for (const checkpoint of checkpoints) byId.set(checkpoint.id, checkpoint);
+  return [...byId.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+async function withContinuityWriteLock(filePath: string, operation: () => Promise<void>): Promise<void> {
+  const previous = continuityWriteLocks.get(filePath) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const tail = previous.then(() => current);
+  continuityWriteLocks.set(filePath, tail);
+  await previous;
+  try {
+    await operation();
+  } finally {
+    release();
+    if (continuityWriteLocks.get(filePath) === tail) continuityWriteLocks.delete(filePath);
+  }
+}
+
+async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(value)}\n`, 'utf8');
+    await rename(temporaryPath, filePath);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
 }
 
 function hitRate(cache: CacheCounters): number {
@@ -1250,7 +1446,28 @@ function isRuntimeTask(value: unknown): value is RuntimeTask {
 function isCheckpoint(value: unknown): value is SessionCheckpoint {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
-  return typeof record.id === 'string' && typeof record.createdAt === 'string' && typeof record.summary === 'string' && typeof record.inputDigest === 'string';
+  return typeof record.id === 'string'
+    && typeof record.createdAt === 'string'
+    && typeof record.summary === 'string'
+    && typeof record.inputDigest === 'string'
+    && optionalString(record.projectKey)
+    && optionalString(record.workspaceId)
+    && optionalString(record.objective)
+    && optionalString(record.phase)
+    && optionalStringArray(record.completed)
+    && optionalStringArray(record.files)
+    && optionalStringArray(record.verification)
+    && optionalStringArray(record.blockers)
+    && optionalStringArray(record.boundaries)
+    && optionalString(record.nextAction);
+}
+
+function optionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function optionalStringArray(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every((entry) => typeof entry === 'string'));
 }
 
 function isPlugin(value: unknown): value is { readonly name: string; readonly enabled: boolean } {

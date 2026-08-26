@@ -1,7 +1,7 @@
 # ChatGPT Codex App + lnwjud Plugins: คู่มือทำงานยาว (Long Session Guide)
 
-> สถานะ: ใช้กับ lnwjud v4.7.1+ ผ่าน ChatGPT โหมดแชท + Plugins / MCP
-> เป้าหมาย: ยอมรับว่า AI run มี budget จำกัด แต่ทำให้งานที่เครื่อง **ไม่ถูกตัดตาม AI run** และให้ run ถัดไปต่อใน **แชทเดิม** ได้ทันที
+> สถานะ: ใช้กับ NAVA v4.10.2+ ผ่าน ChatGPT โหมดแชท + Plugins / MCP
+> เป้าหมาย: ยอมรับว่า AI run และแชทมี budget จำกัด แต่ทำให้งานที่เครื่อง **ไม่ถูกตัดตาม AI run** และให้แชทเดิมหรือแชทใหม่กู้สถานะโปรเจกต์ได้
 > นโยบายปัจจุบัน: กลุ่ม `codex_*` ปิดเป็นค่าเริ่มต้นและไม่ advertise ให้ agent เห็น เว้นแต่ผู้ใช้เปิดเอง
 
 ---
@@ -37,7 +37,7 @@ lnwjud เริ่มนับ budget ตั้งแต่ **tool call แร�
 4. ถ้ายังมีเวลาให้ทำ targeted verification เท่านั้น
 5. ก่อนจบใช้ `session_handoff`
 
-Budget Guard ไม่ได้พยายามยืด hard cap ของ ChatGPT แต่ทำหน้าที่ checkpoint ก่อนชน cap
+Budget Guard ไม่ได้พยายามยืด hard cap ของ ChatGPT และอาจเตือนไม่ทันเมื่อแชทเต็ม จึงต้องใช้ Rolling Checkpoint ระหว่างงานด้วย
 
 ## 3. Tracker-First + Durable-Task-First
 
@@ -84,9 +84,9 @@ Tracker หลักคือ `docs/PHASE_PROGRESS.md`
 
 ใช้ตัวนี้หลัง edit unit เล็ก ๆ แทน full lint+test+build ทุกครั้ง แล้วค่อยรัน gate เต็มเมื่อจบ phase
 
-## 5. การต่อ run
+## 5. การต่อ run หรือย้ายแชท
 
-**ค่าเริ่มต้นคือทำ run ถัดไปในแชทเดิม** ไม่ต้องเปิดแชทใหม่ทุก 30 นาที
+ถ้าแชทเดิมยังใช้ได้ให้ทำ run ถัดไปในแชทเดิม แต่ถ้าแชทเต็มให้เปิดแชทใหม่และกู้จาก Rolling Checkpoint โดยไม่ต้องคัดลอกข้อความทั้งหมด
 
 เหตุผล:
 
@@ -95,6 +95,27 @@ Tracker หลักคือ `docs/PHASE_PROGRESS.md`
 - durable task ID ทำให้งานที่เครื่องต่อข้าม run ได้
 - เปิดแชทใหม่โดยไม่จำเป็นทำให้เสียเวลาสร้าง context ใหม่
 
+### 5A. Rolling Checkpoint — ป้องกันแชทเต็มแบบไม่ทันตั้งตัว
+
+NAVA ส่งคำแนะนำ continuity ให้ client ตั้งแต่เริ่มเชื่อม และเก็บ checkpoint แยกตามโปรเจกต์ใน runtime state นอก repository
+
+ให้เรียก `session_checkpoint` ระหว่างทำงาน ไม่ใช่รอท้ายแชท:
+
+- ก่อนงานยาวหรือ background task
+- หลังแก้ไฟล์และตรวจผลสำคัญ
+- หลัง commit/decision
+- เมื่อ blocker หรือขั้นถัดไปเปลี่ยน
+- ก่อนเปลี่ยน phase หรือจบ run
+
+แชทใหม่เรียก `session_resume` ด้วย `projectKey` เดิม แล้วตรวจ Git, durable task และ Obsidian/tracker ก่อนแก้ไฟล์ต่อ ตัวอย่าง:
+
+```text
+ใช้ NAVA ทำงานต่อโปรเจกต์ BEELZEBUB จาก checkpoint ล่าสุด
+ตรวจ Git และ Obsidian ก่อน แล้วทำขั้นถัดไป
+```
+
+Checkpoint เก็บเฉพาะสรุปสั้น path/commit/test/blocker/boundary/ขั้นถัดไป ห้ามเก็บ prompt, transcript, API key, secret หรือ log ขนาดใหญ่
+
 ### ถ้า tool schema ดูเก่า
 
 1. Restart MCP/tunnel เฉพาะเมื่อ setting/tool registry เปลี่ยนจริง
@@ -102,7 +123,7 @@ Tracker หลักคือ `docs/PHASE_PROGRESS.md`
 3. ทดสอบ tools/list ใหม่
 4. **เปิด chat ใหม่เฉพาะเมื่อ Refresh connector ยังแก้ schema ค้างไม่ได้**
 
-### 5A. `session_handoff` — ปุ่มต่อ run
+### 5B. `session_handoff` — ปุ่มต่อ run ในแชทเดิม
 
 ก่อน run จบให้เรียก `session_handoff` โดยระบุ workspace
 
@@ -213,7 +234,8 @@ run ถัดไปใช้ task_id เดิมดึง status/logs/result �
 
 | อาการ | ทางแก้ |
 | --- | --- |
-| ใกล้หมด run budget | อัปเดต tracker → ย้ายงานยาวเป็น background → เก็บ task ID → `session_handoff` |
+| ใกล้หมด run budget | `session_checkpoint` → อัปเดต tracker → ย้ายงานยาวเป็น background → เก็บ task ID → `session_handoff` |
+| แชทเต็มก่อนสั่งสรุป | เปิดแชทใหม่ → `session_resume` ด้วย projectKey → ตรวจ Git/task/Obsidian → ทำ `nextAction` |
 | AI run จบแต่งาน package/test ยังต้องรัน | ไม่ต้องเริ่มใหม่; run ถัดไปดึง `shell status/logs/result` ด้วย task ID เดิม |
 | tool schema เก่า | Restart runtime ถ้าจำเป็น → Refresh connector; chat ใหม่เป็นทางเลือกสุดท้าย |
 | typecheck ซ้ำโดยไฟล์ไม่เปลี่ยน | ใช้ `verify_incremental`; ต้องเห็น `cache: hit` |

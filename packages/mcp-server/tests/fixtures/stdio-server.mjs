@@ -4,6 +4,7 @@ import { startMcpStdio } from '../../dist/stdio.js';
 process.stderr.write('lnwjud-stdio-test-diagnostic\n');
 startMcpStdio({
   services: {
+    runtimeStatePath: process.env.NAVA_TEST_RUNTIME_STATE_PATH,
     file: {
       async readFile(_actor, _workspaceId, input) {
         if (input.path !== 'large-response.txt') return { ok: false, error: { code: 'FILE_NOT_FOUND', message: 'File was not found', recoverable: false } };

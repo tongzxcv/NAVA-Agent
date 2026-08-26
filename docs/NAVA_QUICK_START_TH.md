@@ -1,16 +1,18 @@
 ---
 title: คู่มือเริ่มใช้ NAVA Agent
-version: 4.10.1
-updated: 2026-08-25
+version: 4.10.2
+updated: 2026-08-26
 ---
 
-# คู่มือเริ่มใช้ NAVA Agent v4.10.1
+# คู่มือเริ่มใช้ NAVA Agent v4.10.2
 
 NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับไฟล์ Git คำสั่ง และโปรแกรมบนเครื่อง Windows ของคุณผ่าน MCP โดยงานยังรันอยู่บนเครื่องนี้
 
 รุ่น v4.10.0 เพิ่ม **WSE (Workspace State Engine)** สำหรับเก็บผลลัพธ์การทำงานแบบไม่เก็บเนื้อหา ประเมินความสำเร็จ/ความเร็ว และจัดอันดับกลยุทธ์แบบออฟไลน์ โดยต้องให้ผู้ใช้ยืนยันก่อนเปลี่ยนกลยุทธ์เสมอ
 
 รุ่น v4.10.1 เพิ่ม **Secure SSH สำหรับ VPS** ใช้ key หรือ SSH agent เท่านั้น ตรวจ host key เสมอ และไม่รับรหัสผ่านหรือเนื้อหา private key ผ่าน Chat/MCP
+
+รุ่น v4.10.2 เพิ่ม **Rolling Checkpoint แยกตามโปรเจกต์** ช่วยให้เปิดแชทใหม่แล้วทำงานต่อได้ แม้แชทเก่าจะเต็มก่อนสั่งสรุป
 
 > สำคัญ: NAVA ไม่ได้ทำให้โควต้า AI ไม่จำกัด การใช้จาก Chat ปกติจะนับตามแผนและข้อจำกัดของ ChatGPT ส่วน Codex/Work ใช้สิทธิ์ของผลิตภัณฑ์นั้น
 
@@ -63,6 +65,21 @@ NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับ�
 ```
 
 เครื่องมือที่เกี่ยวข้องคือ `workspace_lease_acquire`, `workspace_lease_status`, `workspace_lease_renew`, `workspace_lease_release` และ `workspace_lease_call` โดยปกติให้สั่งเป็นภาษาไทยได้ ไม่จำเป็นต้องพิมพ์พารามิเตอร์ MCP เอง
+
+## ทำงานต่อเมื่อแชทเก่าเต็ม
+
+NAVA เก็บ Rolling Checkpoint นอกโฟลเดอร์โปรเจกต์ จึงไม่ทำให้ Git มีไฟล์เกินมา ระบบแยก checkpoint ด้วยชื่อโปรเจกต์และ Workspace ID
+
+เปิดแชทใหม่แล้วสั่งสั้น ๆ:
+
+```text
+ใช้ NAVA ทำงานต่อโปรเจกต์ BEELZEBUB จาก checkpoint ล่าสุด
+ตรวจ Git และ Obsidian ก่อน แล้วทำขั้นถัดไป
+```
+
+ระหว่างงาน NAVA ควรเรียก `session_checkpoint` ก่อนงานยาว และหลังแก้ไฟล์ ตรวจผล commit ติด blocker หรือเปลี่ยนขั้นตอน จากนั้นแชทใหม่ใช้ `session_resume` เพื่ออ่าน checkpoint ล่าสุดของโปรเจกต์นั้น
+
+Checkpoint ไม่ใช่หลักฐานสุดท้าย จึงต้องตรวจ Git, durable task และ Obsidian/tracker ก่อนแก้ไฟล์ต่อ และจะไม่เก็บ prompt, ข้อความแชท, API key, private key หรือ log ขนาดใหญ่
 
 ## เก็บหลักฐานเมื่อ NAVA มีปัญหา
 

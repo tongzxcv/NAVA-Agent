@@ -10,12 +10,14 @@ Keep different projects independent and prevent two chats from mutating the same
 ## Workflow
 
 1. Call `workspace_list` and use the exact registered workspace ID.
-2. For read-only work, proceed normally; no lease is needed.
-3. Before the first mutation, call `workspace_lease_status`.
-4. Acquire with `workspace_lease_acquire`, using a short owner label that identifies the chat and task. Default to 15 minutes unless a longer foreground operation is already known.
-5. Run each non-read tool through `workspace_lease_call`. Keep the child tool's normal arguments, permission checks, and `userConfirmed` requirement.
-6. Renew before expiry during long work. Prefer durable background tasks rather than holding one long MCP request.
-7. Release in a finalization step even after partial failure. If the chat crashes, let the lease expire; never delete lease state manually.
+2. If this chat continues earlier work, use `nava-continuity` and call `session_resume` for the project before broad reads.
+3. For read-only work, proceed normally; no lease is needed.
+4. Before the first mutation, call `workspace_lease_status`.
+5. Acquire with `workspace_lease_acquire`, using a short owner label that identifies the chat and task. Default to 15 minutes unless a longer foreground operation is already known.
+6. Run each non-read tool through `workspace_lease_call`. Keep the child tool's normal arguments, permission checks, and `userConfirmed` requirement.
+7. Renew before expiry during long work. Prefer durable background tasks rather than holding one long MCP request.
+8. Save a rolling `session_checkpoint` after milestones and before long operations.
+9. Release in a finalization step even after partial failure. If the chat crashes, let the lease expire; never delete lease state manually.
 
 ## Collision handling
 

@@ -242,3 +242,15 @@
 - Do not weaken ownership checks or reclaim an unverifiable live owner.
 - The fresh ChatGPT Web tool call and matching forwarded-command log entry satisfy the final end-to-end gate.
 - The separate Chat/web-quota fallback is runtime-proven by the checked Chat surface, attached NAVA pill, valid four-workspace response, and matching fresh forwarded log event.
+# 2026-08-26 Rolling continuity checkpoint findings
+
+- NAVA already has two distinct checkpoint concepts: encrypted file rollback checkpoints and lightweight development-session checkpoints. The requested feature belongs to the latter and must not overload file rollback.
+- `session_checkpoint` currently persists only `id`, `createdAt`, a shortened summary, and an input digest in the shared runtime JSON. `session_resume` returns the same global list without project selection.
+- `session_handoff` is evidence-backed but depends on a repository file (`docs/PHASE_PROGRESS.md`) and is described as a near-end action, so it cannot solve a chat that fills unexpectedly.
+- MCP SDK 2.0 exposes server `instructions`; ChatGPT-compatible clients can receive a concise rolling-checkpoint policy at connection initialization.
+- Existing writer leases already solve same-workspace mutation collisions. Continuity should reference that skill instead of introducing another lock.
+- The minimum viable design is backward-compatible structured project checkpoints plus server instructions and one skill. No new MCP tool or package is needed.
+- The installed v4.10.2 runtime proves the state is durable rather than process memory: checkpoint ID `0e223440-66e0-4352-bace-bdbe32d11c5d` survived replacement of both `tunnel-client.exe` and `lnwjud-node.exe`.
+- A replacement chat needs only a stable project key. The runtime returns `recovered=true` and `verificationRequired=true`; the skill then requires Git/workspace/Obsidian verification before mutation.
+
+---

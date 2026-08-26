@@ -213,6 +213,86 @@ describe('upgrade runtime', () => {
     });
   });
 
+  it('resumes the latest bounded checkpoint for one project without retaining secrets', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-continuity-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const activity = new ActivityTracker();
+    const first = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor, undefined, activity);
+
+    await first.execute('session_checkpoint', {
+      projectKey: 'beelzebub-ea',
+      workspaceId: 'workspace-beelzebub',
+      objective: 'Repair the EA entry gate',
+      phase: 'diagnosis',
+      completed: ['Reproduced BLOCK_TIME'],
+      files: ['Experts/BEELZEBUB.mq5'],
+      verification: ['compile pending'],
+      blockers: [],
+      boundaries: ['Keep Live unchanged'],
+      nextAction: 'Inspect the time filter',
+      token: 'must-not-be-retained',
+    });
+    await first.execute('session_checkpoint', {
+      projectKey: 'beelzebub-ea',
+      workspaceId: 'workspace-beelzebub',
+      objective: 'Repair the EA entry gate',
+      phase: 'verification',
+      completed: ['Reproduced BLOCK_TIME', 'Patched the time filter'],
+      files: ['Experts/BEELZEBUB.mq5'],
+      verification: ['MetaEditor compile passed'],
+      blockers: ['Native backtest pending'],
+      boundaries: ['Keep Live unchanged'],
+      nextAction: 'Run the isolated native backtest',
+    });
+    await first.execute('session_checkpoint', {
+      projectKey: 'autobots',
+      workspaceId: 'workspace-autobots',
+      summary: 'Unrelated project checkpoint',
+    });
+
+    const callId = await activity.begin('project_test', { workspaceId: 'workspace-beelzebub', path: 'Experts/BEELZEBUB.mq5' });
+    await activity.end(callId, 'SUCCESS', 1234);
+
+    const resumed = await new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor, undefined, activity)
+      .execute('session_resume', { projectKey: 'beelzebub-ea' });
+
+    expect(resumed).toMatchObject({
+      ok: true,
+      value: {
+        projectKey: 'beelzebub-ea',
+        checkpoint: {
+          workspaceId: 'workspace-beelzebub',
+          phase: 'verification',
+          nextAction: 'Run the isolated native backtest',
+          verification: ['MetaEditor compile passed'],
+          blockers: ['Native backtest pending'],
+        },
+        checkpointCount: 2,
+        recentActivity: [expect.objectContaining({ toolName: 'project_test', resultCode: 'SUCCESS' })],
+      },
+    });
+    expect(JSON.stringify(resumed)).not.toContain('must-not-be-retained');
+    expect(JSON.stringify(resumed)).not.toContain('Unrelated project checkpoint');
+  });
+
+  it('preserves checkpoints written concurrently by separate chat runtimes', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-continuity-concurrent-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const chatA = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+    const chatB = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+
+    await Promise.all([
+      chatA.execute('session_checkpoint', { projectKey: 'beelzebub-ea', summary: 'BEELZEBUB milestone' }),
+      chatB.execute('session_checkpoint', { projectKey: 'autobots', summary: 'Autobots milestone' }),
+    ]);
+
+    const recovered = new UpgradeRuntimeService({ runtimeStatePath: statePath }, actor);
+    await expect(recovered.execute('session_resume', { projectKey: 'beelzebub-ea' }))
+      .resolves.toMatchObject({ ok: true, value: { recovered: true, checkpoint: { summary: 'BEELZEBUB milestone' } } });
+    await expect(recovered.execute('session_resume', { projectKey: 'autobots' }))
+      .resolves.toMatchObject({ ok: true, value: { recovered: true, checkpoint: { summary: 'Autobots milestone' } } });
+  });
+
   it('keeps Git worktree spawning path-scoped and dry-run first', async () => {
     const calls: unknown[] = [];
     const runtime = new UpgradeRuntimeService({

@@ -10,6 +10,14 @@ import { registerTasksProtocol } from './tasks-protocol.js';
 import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
 export const MCP_RESPONSE_BUDGET_BYTES = 8 * 1024 * 1024;
+export const NAVA_SERVER_INSTRUCTIONS = [
+  'Use NAVA session continuity for multi-step project work.',
+  'Call session_resume with a stable projectKey before continuing work from another or a new chat.',
+  'Call session_checkpoint before a long operation and after meaningful milestones such as file changes, verification, commits, blockers, or a changed next action.',
+  'Store only bounded summaries, evidence references, boundaries, and the next action; never store prompts, credentials, secrets, or raw large logs.',
+  'Verify a resumed checkpoint against current Git, workspace, durable task, and Obsidian evidence before mutating files.',
+  'For concurrent writers, follow nava-multi-chat-coordinator and use workspace leases.',
+].join(' ');
 
 export interface McpServerOptions {
   readonly services: McpApplicationServices;
@@ -43,6 +51,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
   // intentionally not declared, so clients will not send task-augmented
   // tool calls.
   const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, {
+    instructions: NAVA_SERVER_INSTRUCTIONS,
     capabilities: {
       tools: {},
       tasks: { list: {}, cancel: {} },
