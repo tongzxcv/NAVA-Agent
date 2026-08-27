@@ -617,3 +617,28 @@ attribute to the correct workspace. Do not update the installed runtime yet.
 - Do not invent a ChatGPT conversation identifier that the MCP transport does not expose.
 
 ---
+
+# 2026-08-27 Apply multi-project handoff resilience
+
+## Goal
+
+Deploy the already verified source update to the installed NAVA runtime and
+prove the installed local MCP path and owned Tunnel remain healthy, while
+preserving user data and keeping the external Tunnel-client failure separate
+from source-level fixes.
+
+## Plan
+
+- [completed] Build and package the current source with the verified Node 24 toolchain.
+- [completed] Back up the installed runtime and preserve app data, workspaces, and Tunnel state.
+- [completed] Install only the task-owned runtime artifacts and restart only NAVA-owned processes.
+- [completed] Verify installed MCP tools, workspace-labelled activity, health endpoints, and Tunnel state.
+- [completed] Record evidence, run the final scoped guard, commit planning/deployment notes, and leave push for an explicit request.
+
+## Boundaries
+
+- Do not touch BEELZEBUB, RATCHET, AUTOBOTS, VPS, MT5, Live, or unrelated processes.
+- Do not reset/clean the parent `D:\EA` repository or stage unrelated changes.
+- Preserve Runtime API key, Tunnel profile, SQLite data, workspace registrations, permissions, and rollback material.
+- Do not claim the external `tunnel-client` control-plane `502/client_internal`
+  issue is fixed unless a real Chat/Tunnel request proves it after deployment.

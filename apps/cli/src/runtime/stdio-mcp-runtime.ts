@@ -165,6 +165,10 @@ export function createStdioMcpRuntime(
       },
     },
   ]);
+  const resolveWorkspaceLabel = async (workspaceId: string): Promise<string | undefined> => {
+    const registered = await workspaceRepository.get(workspaceId);
+    return registered?.displayName;
+  };
   const activityTracker = new ActivityTracker({
     async record(event: ActivitySinkEvent): Promise<void> {
       // Publish starts before slower durable evidence so updater quiet-time
@@ -173,7 +177,7 @@ export function createStdioMcpRuntime(
         ? [sharedActivitySink, durableActivitySink]
         : [durableActivitySink, sharedActivitySink]).record(event);
     },
-  });
+  }, undefined, 512, resolveWorkspaceLabel);
   const services: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     activityLogPath: mcpActivityLogPath(dataPath),

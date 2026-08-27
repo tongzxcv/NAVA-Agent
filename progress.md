@@ -379,3 +379,15 @@
 - GREEN: desktop activity and dashboard log synchronization resolve workspace IDs to cached display names, including in-flight calls; TypeScript build and changed-file lint pass.
 - PRE-COMMIT: scoped diff check and secret/artifact guard completed; only the 12 task-owned files are staged. No install, restart, or push was performed.
 - COMMITTED: `ea93204 fix: make multi-project handoffs resilient`; working tree is expected to remain clean after amending these planning notes.
+
+---
+
+## 2026-08-27 Final installed handoff/log fix
+
+- Fixed the remaining large-response failure: `session_handoff` now bounds changed-file and Git-status arrays to 200 entries and includes totals plus an explicit truncation warning.
+- Added the missing direct-STDIO workspace-label resolver so Tunnel activity logs retain the registered project name for concurrent chats.
+- Focused verification passed 34/34 tests, TypeScript build, and changed-file ESLint.
+- Built and installed the final v4.10.3 runtime with hash verification. Created rollback backup `E:\AI_CACHE\nava-agent-setup\20260827-2159-v4.10.3-before-stdio-labels` and preserved prior full app/data/Tunnel backups.
+- Live verification passed after restart: Tunnel health/ready 200/200, NAVA connector health, 12 workspaces, healthy Live Logs, and BEELZEBUB `session_handoff` with 18,767 Git entries safely truncated.
+- Confirmed live NDJSON records include `workspaceLabel=BEELZEBUB EA Lab` on both `started` and `completed` events.
+- No EA/MT5/VPS files or unrelated `D:\EA` changes were touched. No push performed.

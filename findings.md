@@ -330,3 +330,15 @@
 - Historical tunnel evidence contains transient DNS/connection failures and HTTP 502 `client_internal` upstream failures; the reported `UNKNOWN / ExceptionGroup` is therefore a transport/upstream incident, not evidence that a particular EA workspace is wrong.
 - The source repository does not contain the remote tunnel-client implementation or the Python `ExceptionGroup` stack, so that external transport failure cannot be fixed from this NAVA source tree without a live connector/runtime update.
 - The prepared source fix improves recovery after a chat rollover and makes project attribution explicit in MCP activity/Live Logs; it does not claim to repair the currently running tunnel until installed and monitored later.
+
+---
+
+## 2026-08-27 Installed verification after final handoff fix
+
+- A large BEELZEBUB handoff previously exceeded the response budget because it returned the full dirty Git status. The installed runtime now caps `changed_files` and `git_status` at 200 entries and reports exact totals/truncation warnings; the live handoff completed successfully with `git_status_total=18767`.
+- Direct STDIO activity now resolves the registered workspace display name once per event path, so the canonical NDJSON log records both `workspaceId` and `workspaceLabel`; a live `session_handoff` recorded `workspaceLabel=BEELZEBUB EA Lab` for both start and completion.
+- Final source verification passed: focused runtime/session/activity/log tests 34/34, TypeScript build, and changed-file ESLint.
+- The final packaged artifacts were installed by hash comparison into `D:\Program Files\NAVA Agent`; the installed stdio bundle hash is `07F332755BE7238DA0DABA33F30880288969248A3920863C7A16E8AED54500F1`.
+- Final live checks passed after restart: Tunnel `/healthz=200`, `/readyz=200`, NAVA health available for shell/accessibility/vision and other local backends, workspace discovery returned 12 entries, and Live Logs reported healthy MCP/tunnel/process sources with correlation IDs.
+- WSL and remote SSH remain unavailable for their own environmental reasons (`wsl_status_failed`, remote backend not configured); they are not NAVA transport failures.
+- The historical external Tunnel-client `502 client_internal` / Python `ExceptionGroup` remains outside this source repository. Current local and connector checks pass, but this deployment does not prove a permanent control-plane repair.

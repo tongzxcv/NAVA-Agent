@@ -194,6 +194,47 @@ describe('session tools', () => {
     });
   });
 
+  it('bounds handoff status and changed-file output for a very dirty workspace', async () => {
+    const entries = Array.from({ length: 1_000 }, (_, index) => ({
+      path: `generated/result-${String(index).padStart(4, '0')}.json`,
+      index: ' ',
+      worktree: 'M',
+    }));
+    const context = {
+      actor,
+      contextEconomy: new ContextEconomyRuntime(),
+      services: {
+        file: {
+          async readFile() {
+            return err({ code: 'FILE_NOT_FOUND' as const, message: 'File was not found', recoverable: false });
+          },
+        },
+        git: {
+          async status() { return ok({ entries }); },
+          async diff() { return ok({ patch: '', truncated: false }); },
+        },
+      },
+    } as unknown as McpToolContext;
+
+    const response = await findTool(context, new IncrementalVerifier(), 'session_handoff').execute(
+      { workspaceId: 'workspace-very-dirty' },
+      new AbortController().signal,
+    );
+
+    expect(response.ok).toBe(true);
+    if (!response.ok) return;
+    const value = response.value as Record<string, unknown>;
+    expect(value.changed_files).toHaveLength(200);
+    expect(value.changed_files_total).toBe(1_000);
+    expect(value.changed_files_truncated).toBe(true);
+    expect(value.git_status).toHaveLength(200);
+    expect(value.git_status_total).toBe(1_000);
+    expect(value.git_status_truncated).toBe(true);
+    expect(value.warnings).toEqual(expect.arrayContaining([expect.stringContaining('Git status was truncated')]));
+    expect(value.prompt).toEqual(expect.stringContaining('800 more omitted'));
+    expect(JSON.stringify(response).length).toBeLessThan(250_000);
+  });
+
   it('returns verify_incremental cache hit for unchanged diff and miss after the diff changes', async () => {
     let patch = '+first-diff';
     let starts = 0;

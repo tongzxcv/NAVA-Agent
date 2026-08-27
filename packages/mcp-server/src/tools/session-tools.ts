@@ -9,6 +9,7 @@ const ROOT_TRACKER_PATH = 'PHASE_PROGRESS.md';
 const DEFAULT_MAX_DIFF_BYTES = 16_000;
 const MAX_TRACKER_EXCERPT_CHARS = 4_000;
 const MAX_BACKGROUND_TASKS = 20;
+const MAX_HANDOFF_STATUS_ENTRIES = 200;
 
 const sessionHandoffSchema = z.object({
   workspaceId: z.string().trim().min(1).max(128),
@@ -86,13 +87,19 @@ async function createSessionHandoff(
   if (!staged.ok) return err(staged.error);
 
   const backgroundTasks = await readBackgroundTasks(context, signal);
-  const changedFiles = [...new Set(status.value.entries.map((entry) => entry.path))].sort();
+  const allChangedFiles = [...new Set(status.value.entries.map((entry) => entry.path))].sort();
+  const changedFiles = allChangedFiles.slice(0, MAX_HANDOFF_STATUS_ENTRIES);
+  const statusEntries = status.value.entries.slice(0, MAX_HANDOFF_STATUS_ENTRIES);
+  if (status.value.entries.length > MAX_HANDOFF_STATUS_ENTRIES) {
+    warnings.push(`Git status was truncated to ${MAX_HANDOFF_STATUS_ENTRIES} entries; ${status.value.entries.length - MAX_HANDOFF_STATUS_ENTRIES} more entries remain in the workspace.`);
+  }
   const diffSummary = compactDiff(unstaged.value.patch, staged.value.patch, maxDiffBytes);
   const prompt = buildHandoffPrompt({
     trackerPath,
     trackerSource,
     trackerExcerpt,
     changedFiles,
+    changedFilesTotal: allChangedFiles.length,
     diffSummary,
     backgroundTasks,
   });
@@ -104,7 +111,11 @@ async function createSessionHandoff(
     tracker_excerpt: trackerExcerpt,
     warnings,
     changed_files: changedFiles,
-    git_status: status.value.entries,
+    changed_files_total: allChangedFiles.length,
+    changed_files_truncated: allChangedFiles.length > changedFiles.length,
+    git_status: statusEntries,
+    git_status_total: status.value.entries.length,
+    git_status_truncated: status.value.entries.length > statusEntries.length,
     git_diff: {
       unstaged: unstaged.value.patch,
       staged: staged.value.patch,
@@ -138,13 +149,16 @@ function buildHandoffPrompt(input: {
   readonly trackerSource: 'tracker' | 'checkpoint' | 'none';
   readonly trackerExcerpt: string;
   readonly changedFiles: readonly string[];
+  readonly changedFilesTotal: number;
   readonly diffSummary: string;
   readonly backgroundTasks: readonly Record<string, unknown>[];
 }): string {
   const tasks = input.backgroundTasks.length === 0
     ? '- none recorded by the durable shell task store'
     : input.backgroundTasks.map((task) => `- ${String(task.task_id)} (${String(task.state ?? 'unknown')})`).join('\n');
-  const changed = input.changedFiles.length === 0 ? '(clean)' : input.changedFiles.join(', ');
+  const changed = input.changedFiles.length === 0
+    ? '(clean)'
+    : `showing ${input.changedFiles.length} of ${input.changedFilesTotal}: ${input.changedFiles.join(', ')}${input.changedFilesTotal > input.changedFiles.length ? `, ... ${input.changedFilesTotal - input.changedFiles.length} more omitted` : ''}`;
   const opening = input.trackerSource === 'tracker'
     ? `Continue this run in the same chat from ${input.trackerPath}.`
     : input.trackerSource === 'checkpoint'

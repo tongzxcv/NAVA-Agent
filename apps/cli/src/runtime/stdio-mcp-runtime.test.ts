@@ -45,6 +45,22 @@ describe('stdio MCP runtime', () => {
     expect(profile).toBe('balanced');
   });
 
+  it('labels direct STDIO activity with the registered workspace name', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-label-'));
+    temporaryRoots.push(dataPath);
+    const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
+    await new SqliteWorkspaceRepository(database).insert(workspace);
+    database.close();
+
+    const runtime = createStdioMcpRuntime(dataPath, workspace);
+    const callId = await runtime.activityTracker.begin('read_file', { workspaceId: workspace.id, path: 'E:\\fixture.txt' });
+    expect(runtime.activityTracker.listInFlight()).toEqual([
+      expect.objectContaining({ callId, workspaceId: workspace.id, workspaceLabel: 'fixture' }),
+    ]);
+    await runtime.activityTracker.end(callId, 'SUCCESS', 1);
+    await runtime.close();
+  });
+
   it('owns and cleans the tunnel-profile activity snapshot for the direct STDIO runtime', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-activity-'));
     const profileDirectory = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-profile-'));
