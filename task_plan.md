@@ -592,3 +592,28 @@ workspace writer-lease safety.
 | Electron accessibility exposed the Start Tunnel button without clickable geometry | 1 | Refreshed a screenshot-backed observation and clicked the verified NAVA window coordinate once. |
 
 ---
+
+# 2026-08-27 Multi-project handoff resilience preparation
+
+## Goal
+
+Prepare a source-only NAVA update so `session_handoff` works across concurrent
+BEELZEBUB, RATCHET, and AUTOBOTS chats without requiring every project to keep
+its tracker at one hard-coded path, and make global activity logs easier to
+attribute to the correct workspace. Do not update the installed runtime yet.
+
+## Plan
+
+- [completed] Add public-behavior regression tests for tracker fallback, checkpoint fallback, and no-evidence warning behavior.
+- [completed] Implement the minimum handoff fallback and workspace-labelled activity records.
+- [completed] Run focused tests, typecheck/build gates, and inspect the scoped diff.
+- [completed] Run staged secret/artifact checks and commit only task-owned source/planning files; do not install or push.
+
+## Boundaries
+
+- Do not restart, stop, or replace the installed NAVA v4.10.3 runtime or Secure Tunnel.
+- Do not interrupt active BEELZEBUB, RATCHET, AUTOBOTS, VPS, or MT5 work.
+- Preserve strict workspace IDs, writer leases, permission checks, and path boundaries.
+- Do not invent a ChatGPT conversation identifier that the MCP transport does not expose.
+
+---

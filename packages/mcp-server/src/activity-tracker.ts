@@ -7,6 +7,7 @@ export interface ActivitySinkEvent {
   readonly resultCode: string;
   readonly durationMs: number;
   readonly workspaceId?: string;
+  readonly workspaceLabel?: string;
   readonly targetSummary?: string;
   readonly resultMessage?: string;
   readonly timestamp: string;
@@ -30,6 +31,7 @@ export interface InFlightToolCall {
   readonly toolName: string;
   readonly startedAt: string;
   readonly workspaceId?: string;
+  readonly workspaceLabel?: string;
   readonly targetSummary?: string;
   readonly traceId?: string;
   readonly traceParent?: string;
@@ -44,6 +46,7 @@ export class ActivityTracker {
     private readonly sink?: ActivitySink,
     private readonly onRecordError?: ActivityRecordErrorHandler,
     private readonly maxRecentEvents = 512,
+    private readonly workspaceLabelResolver?: (workspaceId: string) => Promise<string | undefined> | string | undefined,
   ) {}
 
   public listInFlight(): readonly InFlightToolCall[] {
@@ -63,6 +66,7 @@ export class ActivityTracker {
     const callId = randomUUID();
     const timestamp = new Date().toISOString();
     const workspaceId = readWorkspaceId(input);
+    const workspaceLabel = await this.resolveWorkspaceLabel(workspaceId);
     const targetSummary = summarizeToolTarget(toolName, input);
     const trace = traceContext ?? readTraceContext(input);
     const entry: InFlightToolCall = {
@@ -70,6 +74,7 @@ export class ActivityTracker {
       toolName,
       startedAt: timestamp,
       ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
       ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
@@ -84,6 +89,7 @@ export class ActivityTracker {
       durationMs: 0,
       timestamp,
       ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
       ...(targetSummary === undefined ? {} : { targetSummary }),
       ...(trace.traceId === undefined ? {} : { traceId: trace.traceId }),
       ...(trace.traceParent === undefined ? {} : { traceParent: trace.traceParent }),
@@ -104,6 +110,7 @@ export class ActivityTracker {
       durationMs,
       timestamp,
       ...(existing?.workspaceId === undefined ? {} : { workspaceId: existing.workspaceId }),
+      ...(existing?.workspaceLabel === undefined ? {} : { workspaceLabel: existing.workspaceLabel }),
       ...(existing?.targetSummary === undefined ? {} : { targetSummary: existing.targetSummary }),
       ...(existing?.traceId === undefined ? {} : { traceId: existing.traceId }),
       ...(existing?.traceParent === undefined ? {} : { traceParent: existing.traceParent }),
@@ -124,6 +131,15 @@ export class ActivityTracker {
       } catch {
         // Diagnostics must not fail tool execution either.
       }
+    }
+  }
+
+  private async resolveWorkspaceLabel(workspaceId: string | undefined): Promise<string | undefined> {
+    if (workspaceId === undefined || this.workspaceLabelResolver === undefined) return undefined;
+    try {
+      return boundedWorkspaceLabel(await this.workspaceLabelResolver(workspaceId));
+    } catch {
+      return undefined;
     }
   }
 }
@@ -195,6 +211,11 @@ function truncate(value: string, max: number): string {
 function boundedTraceValue(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.trim().length === 0) return undefined;
   return truncate(value.trim(), 256);
+}
+
+function boundedWorkspaceLabel(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
+  return truncate(value.trim(), 128);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

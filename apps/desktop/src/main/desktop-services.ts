@@ -276,6 +276,15 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     codex: codexService,
   };
   let activityLogDiagnostic: ((key: string, message: string) => void) | null = null;
+  const workspaceLabelCache = new Map<string, string>();
+  const resolveWorkspaceLabel = async (workspaceId: string): Promise<string | undefined> => {
+    const cached = workspaceLabelCache.get(workspaceId);
+    if (cached !== undefined) return cached;
+    const workspace = await workspaceRepository.get(workspaceId);
+    if (workspace === null) return undefined;
+    workspaceLabelCache.set(workspaceId, workspace.displayName);
+    return workspace.displayName;
+  };
   const activityTracker = new ActivityTracker(composeActivitySinks([
     createFileActivitySink(activityLogPath),
     {
@@ -303,7 +312,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       'activity-sink:' + event.callId + ':' + event.phase + ':' + message,
       '[ERROR] MCP activity logging failed — ' + message,
     );
-  });
+  }, 512, resolveWorkspaceLabel);
   const mcpPort = readMcpPort(process.env.LNWJUD_MCP_PORT ?? settingsRepository.get(USER_SETTING_KEYS.mcpHttpPort) ?? undefined);
   const mcpLifecycle = new DesktopMcpLifecycle({
     workspaceExists: async (workspaceId: string): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
@@ -424,10 +433,31 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const capabilities = await buildCapabilitySummary(capabilityRuntime.health);
       const mcp = mcpLifecycle.status();
       const workLog = await buildWorkLog(auditRepository, settingsRepository);
-      const inFlight = activityTracker.listInFlight().map(toInFlightItem);
+      const activityInFlight = activityTracker.listInFlight();
+      const inFlight = activityInFlight.map(toInFlightItem);
+      const labelledWorkLog = await Promise.all(workLog.map(async (entry) => {
+        const workspaceLabel = entry.workspaceId === null ? undefined : await resolveWorkspaceLabel(entry.workspaceId);
+        return workspaceLabel === undefined ? entry : { ...entry, workspaceLabel };
+      }));
+      const labelledInFlight = await Promise.all(activityInFlight.map(async (entry) => {
+        const workspaceLabel = entry.workspaceLabel ?? (entry.workspaceId === undefined ? undefined : await resolveWorkspaceLabel(entry.workspaceId));
+        return {
+          callId: entry.callId,
+          toolName: entry.toolName,
+          targetSummary: entry.targetSummary ?? null,
+          startedAt: entry.startedAt,
+          ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
+        };
+      }));
       const tunnel = await tunnelController.status();
       const backups = await backupService.list();
-      logHub.syncWorkLog(workLog, inFlight.map((item) => ({ callId: item.callId, toolName: item.toolName, targetSummary: item.targetSummary, startedAt: item.startedAt })));
+      logHub.syncWorkLog(labelledWorkLog, labelledInFlight.map((item) => ({
+        callId: item.callId,
+        toolName: item.toolName,
+        targetSummary: item.targetSummary,
+        startedAt: item.startedAt,
+        ...(item.workspaceLabel === undefined ? {} : { workspaceLabel: item.workspaceLabel }),
+      })));
       logHub.syncProcesses(processSummaries.map((summary) => ({
         id: summary.id,
         executable: summary.executable,

@@ -20,16 +20,21 @@ describe('mcp activity log file', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-activity-'));
     temporaryRoots.push(root);
     const filePath = mcpActivityLogPath(root);
-    const tracker = new ActivityTracker(createFileActivitySink(filePath));
+    const tracker = new ActivityTracker(
+      createFileActivitySink(filePath),
+      undefined,
+      512,
+      async () => 'BEELZEBUB EA Lab',
+    );
 
-    const callId = await tracker.begin('read_file', { path: 'src\\app.ts' });
+    const callId = await tracker.begin('read_file', { workspaceId: 'ws-beel', path: 'src\\app.ts' });
     await tracker.end(callId, 'SUCCESS', 4);
 
     const raw = await readFile(filePath, 'utf8');
-    const lines = raw.trim().split('\n').map((line) => JSON.parse(line) as { callId: string; phase: string; toolName: string });
+    const lines = raw.trim().split('\n').map((line) => JSON.parse(line) as { callId: string; phase: string; toolName: string; workspaceLabel?: string });
     expect(lines).toEqual([
-      expect.objectContaining({ callId, phase: 'started', toolName: 'read_file' }),
-      expect.objectContaining({ callId, phase: 'completed', toolName: 'read_file' }),
+      expect.objectContaining({ callId, phase: 'started', toolName: 'read_file', workspaceLabel: 'BEELZEBUB EA Lab' }),
+      expect.objectContaining({ callId, phase: 'completed', toolName: 'read_file', workspaceLabel: 'BEELZEBUB EA Lab' }),
     ]);
     expect(formatActivityLogLine({
       callId: 'c1',

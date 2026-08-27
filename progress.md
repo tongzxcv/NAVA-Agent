@@ -352,3 +352,30 @@
 - Staged exactly 38 task-owned text files. The staged gate found no secret patterns, binary/report artifacts, or blobs over 1 MiB; `git diff --check` passed.
 
 ---
+
+# 2026-08-27 Multi-project handoff resilience preparation
+
+- Confirmed from SQLite that BEELZEBUB, RATCHET, and AUTOBOTS are separate registered workspaces and RATCHET is currently selected.
+- Confirmed the pasted log is a global interleaving of concurrent chats; the failing handoff calls themselves targeted BEELZEBUB.
+- Verified the three tracker layouts and traced `session_handoff` to its hard-coded default read.
+- Started a source-only update. The installed NAVA/Tunnel remains untouched and active work continues.
+- Read the public session-tool test seam and confirmed a vertical TDD path: root tracker fallback first, then missing-tracker checkpoint fallback.
+- RED: targeted session-tool run failed only the new root-tracker fallback test (1 failed, 2 passed), reproducing the hard-coded-path defect.
+- Implemented the minimum omitted-path fallback from `docs/PHASE_PROGRESS.md` to root `PHASE_PROGRESS.md`; explicit paths remain unchanged.
+- GREEN: root-tracker regression and existing session-tool tests passed 3/3.
+- RED: the new same-workspace rolling-checkpoint fallback test failed while the unrelated-project exclusion assertion remained pending behind the expected `FILE_NOT_FOUND`.
+- Implemented read-only checkpoint fallback through the existing `UpgradeRuntimeService`, selecting only the latest checkpoint with the exact requested `workspaceId`.
+- GREEN: all four session-tool tests passed, including root tracker discovery, same-workspace checkpoint recovery, and exclusion of the unrelated AUTOBOTS checkpoint.
+
+---
+## 2026-08-27 Multi-project handoff resilience
+
+- RED: `session_handoff` failed when neither `docs/PHASE_PROGRESS.md`, root `PHASE_PROGRESS.md`, nor a matching workspace checkpoint existed.
+- GREEN: handoff now continues from current Git and durable-task evidence with an explicit warning; focused session-tool tests pass (5/5).
+- RED: activity lifecycle omitted the project display name even when a workspace resolver was available.
+- GREEN: started, in-flight, and completed activity now carry a bounded workspace label; tracker tests pass (7/7).
+- RED: the persisted MCP activity line and Live Logs formatter omitted the workspace label.
+- GREEN: NDJSON persistence and Live Logs now preserve/render the project name; focused file/log-hub tests pass (3/3 and 13/13).
+- GREEN: desktop activity and dashboard log synchronization resolve workspace IDs to cached display names, including in-flight calls; TypeScript build and changed-file lint pass.
+- PRE-COMMIT: scoped diff check and secret/artifact guard completed; only the 12 task-owned files are staged. No install, restart, or push was performed.
+- COMMITTED: `ea93204 fix: make multi-project handoffs resilient`; working tree is expected to remain clean after amending these planning notes.

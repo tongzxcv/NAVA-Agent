@@ -127,6 +127,7 @@ describe('LogHub', () => {
       toolName: 'read_file',
       phase: 'started',
       resultCode: 'STARTED',
+      workspaceLabel: 'BEELZEBUB EA Lab',
       targetSummary: 'src\\\\app.ts',
     })}\n`, 'utf8');
     const hub = new LogHub({
@@ -135,19 +136,20 @@ describe('LogHub', () => {
     });
     hub.start();
     await vi.advanceTimersByTimeAsync(700);
-    expect(hub.snapshot().lines.some((line) => line.source === 'mcp' && line.text.includes('read_file'))).toBe(true);
+    expect(hub.snapshot().lines.some((line) => line.source === 'mcp' && line.text.includes('[BEELZEBUB EA Lab] read_file'))).toBe(true);
 
     await appendFile(activityPath, `${JSON.stringify({
       callId: 'c1',
       toolName: 'read_file',
       phase: 'completed',
       resultCode: 'SUCCESS',
+      workspaceLabel: 'BEELZEBUB EA Lab',
       targetSummary: 'src\\\\app.ts',
     })}\n`, 'utf8');
     await vi.advanceTimersByTimeAsync(700);
     hub.stop();
     const mcpTexts = hub.snapshot().lines.filter((line) => line.source === 'mcp').map((line) => line.text);
-    expect(mcpTexts.some((text) => text.includes('[RESULT] read_file SUCCESS'))).toBe(true);
+    expect(mcpTexts.some((text) => text.includes('[RESULT] [BEELZEBUB EA Lab] read_file SUCCESS'))).toBe(true);
   });
 
   it('surfaces and dedupes tailing errors instead of silently dropping them', async () => {
@@ -206,12 +208,13 @@ describe('LogHub', () => {
     const hub = new LogHub({ tunnelLogPath: 'Z:\\missing\\lnwjud-tunnel.log' });
     const startedAt = '2026-08-20T00:00:01.000Z';
     hub.syncWorkLog(
-      [{ id: 'audit-start', timestamp: startedAt, callId: 'same', kind: 'task', toolName: 'read_file', resultCode: 'STARTED', targetSummary: null }],
-      [{ callId: 'same', toolName: 'read_file', targetSummary: null, startedAt }],
+      [{ id: 'audit-start', timestamp: startedAt, callId: 'same', kind: 'task', toolName: 'read_file', resultCode: 'STARTED', targetSummary: null, workspaceLabel: 'BEELZEBUB EA Lab' }],
+      [{ callId: 'same', toolName: 'read_file', targetSummary: null, startedAt, workspaceLabel: 'BEELZEBUB EA Lab' }],
     );
     hub.syncWorkLog([], [{ callId: 'same', toolName: 'read_file', targetSummary: null, startedAt }]);
 
     expect(hub.snapshot().lines.filter((line) => line.source === 'mcp')).toHaveLength(1);
+    expect(hub.snapshot().lines[0]?.text).toContain('[BEELZEBUB EA Lab]');
   });
 
   it('keeps different in-flight call IDs that start in the same millisecond', () => {

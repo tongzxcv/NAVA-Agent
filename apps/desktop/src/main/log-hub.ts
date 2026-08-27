@@ -278,6 +278,7 @@ export interface WorkLogFeedEntry {
   readonly errorMessage?: string | null;
   readonly targetSummary: string | null;
   readonly callId?: string;
+  readonly workspaceLabel?: string;
 }
 
 export interface InFlightFeedEntry {
@@ -285,6 +286,7 @@ export interface InFlightFeedEntry {
   readonly toolName: string;
   readonly targetSummary: string | null;
   readonly startedAt: string;
+  readonly workspaceLabel?: string;
 }
 
 export interface ProcessFeedEntry {
@@ -314,11 +316,13 @@ export function mcpActivityKey(callId: string, phase: 'started' | 'completed', e
 }
 
 function formatInFlightLine(entry: InFlightFeedEntry): string {
-  return `[TASK] ${entry.toolName} callId=${entry.callId}${entry.targetSummary === null || entry.targetSummary === undefined ? '' : ` ${entry.targetSummary}`} — in flight`;
+  const workspace = entry.workspaceLabel === undefined ? '' : ` [${entry.workspaceLabel}]`;
+  return `[TASK]${workspace} ${entry.toolName} callId=${entry.callId}${entry.targetSummary === null || entry.targetSummary === undefined ? '' : ` ${entry.targetSummary}`} — in flight`;
 }
 
 function formatWorkLogLine(entry: WorkLogFeedEntry): string {
-  return `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'} ${entry.toolName} ${entry.resultCode}${entry.callId === undefined || entry.callId.length === 0 ? '' : ` callId=${entry.callId}`}${entry.errorMessage === null || entry.errorMessage === undefined || entry.errorMessage.length === 0 ? '' : ` — ${entry.errorMessage}`}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`;
+  const workspace = entry.workspaceLabel === undefined ? '' : ` [${entry.workspaceLabel}]`;
+  return `${entry.kind === 'task' ? '[TASK]' : entry.kind === 'error' ? '[ERROR]' : '[RESULT]'}${workspace} ${entry.toolName} ${entry.resultCode}${entry.callId === undefined || entry.callId.length === 0 ? '' : ` callId=${entry.callId}`}${entry.errorMessage === null || entry.errorMessage === undefined || entry.errorMessage.length === 0 ? '' : ` — ${entry.errorMessage}`}${entry.targetSummary === null ? '' : ` — ${entry.targetSummary}`}`;
 }
 
 function parseTunnelLine(raw: string): { readonly level: LogLevel; readonly text: string; readonly timestamp?: string; readonly correlation: LogCorrelation } {
@@ -359,6 +363,7 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
   const resultCode = typeof record.resultCode === 'string' ? record.resultCode : phase === 'started' ? 'STARTED' : 'UNKNOWN';
   const targetSummary = typeof record.targetSummary === 'string' ? record.targetSummary : null;
   const resultMessage = typeof record.resultMessage === 'string' ? record.resultMessage : null;
+  const workspaceLabel = boundedWorkspaceLabel(record.workspaceLabel);
   const timestamp = boundedTimestamp(record.timestamp);
   const kind = phase === 'started' ? 'task' : resultCode === 'SUCCESS' || resultCode === 'STARTED' ? 'result' : 'error';
   return {
@@ -372,10 +377,16 @@ function parseMcpActivityLine(raw: string): { readonly key: string; readonly lev
       errorMessage: resultMessage,
       targetSummary,
       callId,
+      ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
     }),
     correlation: { kind: 'mcp', phase, callId, toolName, resultCode: phase === 'started' ? null : normalizeMcpResultCode(resultCode) },
     ...(timestamp === undefined ? {} : { timestamp }),
   };
+}
+
+function boundedWorkspaceLabel(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
+  return value.trim().replace(/[\r\n\]]/g, ' ').slice(0, 128);
 }
 
 export function normalizeTunnelLifecycle(value: string): TunnelLifecycleCategory {

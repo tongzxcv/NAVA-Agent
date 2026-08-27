@@ -70,6 +70,24 @@ describe('ActivityTracker', () => {
     ]));
   });
 
+  it('attaches the resolved workspace label to the full tool lifecycle', async () => {
+    const events: ActivitySinkEvent[] = [];
+    const tracker = new ActivityTracker(
+      { async record(event): Promise<void> { events.push(event); } },
+      undefined,
+      512,
+      async (workspaceId) => workspaceId === 'ws-beel' ? 'BEELZEBUB EA Lab' : undefined,
+    );
+
+    const callId = await tracker.begin('session_handoff', { workspaceId: 'ws-beel' });
+    expect(tracker.listInFlight()[0]).toMatchObject({ callId, workspaceId: 'ws-beel', workspaceLabel: 'BEELZEBUB EA Lab' });
+    await tracker.end(callId, 'SUCCESS', 5);
+    expect(events).toEqual([
+      expect.objectContaining({ phase: 'started', workspaceLabel: 'BEELZEBUB EA Lab' }),
+      expect.objectContaining({ phase: 'completed', workspaceLabel: 'BEELZEBUB EA Lab' }),
+    ]);
+  });
+
   it('keeps a bounded recent activity window for evidence-based runtime reports', async () => {
     const tracker = new ActivityTracker(undefined, undefined, 3);
     const first = await tracker.begin('read_file', { workspaceId: 'ws-1', path: 'one.ts' });

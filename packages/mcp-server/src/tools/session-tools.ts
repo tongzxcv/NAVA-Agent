@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import { IncrementalVerifier } from '../incremental-verifier.js';
+import { UpgradeRuntimeService } from '../upgrade-runtime.js';
 import { defineTool, missingService, type McpToolContext, type McpToolDefinition } from './tool-types.js';
 
 const DEFAULT_TRACKER_PATH = 'docs/PHASE_PROGRESS.md';
+const ROOT_TRACKER_PATH = 'PHASE_PROGRESS.md';
 const DEFAULT_MAX_DIFF_BYTES = 16_000;
 const MAX_TRACKER_EXCERPT_CHARS = 4_000;
 const MAX_BACKGROUND_TASKS = 20;
@@ -22,7 +24,7 @@ export function sessionTools(context: McpToolContext, verifier: IncrementalVerif
   return [
     defineTool({
       name: 'session_handoff',
-      description: 'Create a concise same-chat continuation message from the real phase tracker, current git status/diff, and durable background task IDs. Use near the end of a run so the next run can resume without re-reading the whole project. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it.',
+      description: 'Create a concise same-chat continuation message from the phase tracker, current git status/diff, and durable background task IDs. When trackerPath is omitted, discover docs/PHASE_PROGRESS.md then PHASE_PROGRESS.md and fall back to the latest rolling checkpoint for the same workspace. Use near the end of a run so the next run can resume without re-reading the whole project. If a tool schema looks stale, Refresh connector first; open a new chat only if refresh does not fix it.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: sessionHandoffSchema,
@@ -45,11 +47,33 @@ async function createSessionHandoff(
   signal: AbortSignal,
 ): Promise<Result<Record<string, unknown>>> {
   if (context.services.file === undefined || context.services.git === undefined) return missingService();
-  const trackerPath = input.trackerPath ?? DEFAULT_TRACKER_PATH;
+  let trackerPath: string | null = input.trackerPath ?? DEFAULT_TRACKER_PATH;
+  let trackerSource: 'tracker' | 'checkpoint' | 'none' = 'tracker';
+  const warnings: string[] = [];
   const maxDiffBytes = input.maxDiffBytes ?? DEFAULT_MAX_DIFF_BYTES;
 
-  const tracker = await context.services.file.readFile(context.actor, input.workspaceId, { path: trackerPath });
-  if (!tracker.ok) return err(tracker.error);
+  let tracker = await context.services.file.readFile(context.actor, input.workspaceId, { path: trackerPath });
+  if (input.trackerPath === undefined && !tracker.ok && tracker.error.code === 'FILE_NOT_FOUND') {
+    trackerPath = ROOT_TRACKER_PATH;
+    tracker = await context.services.file.readFile(context.actor, input.workspaceId, { path: trackerPath });
+  }
+  let trackerExcerpt: string;
+  if (!tracker.ok) {
+    if (input.trackerPath !== undefined || tracker.error.code !== 'FILE_NOT_FOUND') return err(tracker.error);
+    const checkpoint = await latestCheckpointForWorkspace(context, input.workspaceId);
+    trackerPath = null;
+    if (checkpoint === undefined) {
+      trackerSource = 'none';
+      trackerExcerpt = '';
+      warnings.push('No phase tracker or rolling checkpoint was found; handoff used current Git and durable task evidence only.');
+    } else {
+      trackerSource = 'checkpoint';
+      trackerExcerpt = compactCheckpoint(checkpoint);
+      warnings.push('The phase tracker was not found; handoff used the latest rolling checkpoint for this workspace.');
+    }
+  } else {
+    trackerExcerpt = compactTracker(tracker.value.content);
+  }
   if (signal.aborted) return cancelledHandoff();
 
   const status = await context.services.git.status(context.actor, input.workspaceId, signal);
@@ -62,11 +86,11 @@ async function createSessionHandoff(
   if (!staged.ok) return err(staged.error);
 
   const backgroundTasks = await readBackgroundTasks(context, signal);
-  const trackerExcerpt = compactTracker(tracker.value.content);
   const changedFiles = [...new Set(status.value.entries.map((entry) => entry.path))].sort();
   const diffSummary = compactDiff(unstaged.value.patch, staged.value.patch, maxDiffBytes);
   const prompt = buildHandoffPrompt({
     trackerPath,
+    trackerSource,
     trackerExcerpt,
     changedFiles,
     diffSummary,
@@ -76,7 +100,9 @@ async function createSessionHandoff(
   return ok({
     prompt,
     tracker_path: trackerPath,
+    tracker_source: trackerSource,
     tracker_excerpt: trackerExcerpt,
+    warnings,
     changed_files: changedFiles,
     git_status: status.value.entries,
     git_diff: {
@@ -108,7 +134,8 @@ async function readBackgroundTasks(context: McpToolContext, signal: AbortSignal)
 }
 
 function buildHandoffPrompt(input: {
-  readonly trackerPath: string;
+  readonly trackerPath: string | null;
+  readonly trackerSource: 'tracker' | 'checkpoint' | 'none';
   readonly trackerExcerpt: string;
   readonly changedFiles: readonly string[];
   readonly diffSummary: string;
@@ -118,11 +145,26 @@ function buildHandoffPrompt(input: {
     ? '- none recorded by the durable shell task store'
     : input.backgroundTasks.map((task) => `- ${String(task.task_id)} (${String(task.state ?? 'unknown')})`).join('\n');
   const changed = input.changedFiles.length === 0 ? '(clean)' : input.changedFiles.join(', ');
+  const opening = input.trackerSource === 'tracker'
+    ? `Continue this run in the same chat from ${input.trackerPath}.`
+    : input.trackerSource === 'checkpoint'
+      ? 'Continue this run in the same chat from the latest NAVA rolling checkpoint for this workspace.'
+      : 'Continue this run in the same chat from current workspace evidence.';
+  const firstStep = input.trackerSource === 'tracker'
+    ? '1. Run the "Next chat startup probe" from the tracker.'
+    : input.trackerSource === 'checkpoint'
+      ? '1. Verify the rolling checkpoint against current Git, workspace, durable task, and Obsidian evidence.'
+      : '1. Inspect current Git, workspace, durable task, and Obsidian evidence before mutation.';
+  const evidenceLabel = input.trackerSource === 'tracker'
+    ? 'Tracker excerpt:'
+    : input.trackerSource === 'checkpoint'
+      ? 'Rolling checkpoint:'
+      : 'Continuation evidence:';
   return [
-    `Continue this run in the same chat from ${input.trackerPath}.`,
+    opening,
     '',
-    'Tracker excerpt:',
-    input.trackerExcerpt || '(tracker is empty)',
+    evidenceLabel,
+    input.trackerExcerpt || '(no tracker or rolling checkpoint)',
     '',
     `Current Git changes: ${changed}`,
     input.diffSummary.length === 0 ? 'Git diff summary: (no diff)' : `Git diff summary:\n${input.diffSummary}`,
@@ -131,7 +173,7 @@ function buildHandoffPrompt(input: {
     tasks,
     '',
     'Start by:',
-    '1. Run the "Next chat startup probe" from the tracker.',
+    firstStep,
     '2. Recover durable jobs by task_id with shell status/logs/result; do not tight-poll.',
     '3. Inspect git status/diff only as needed for the current phase.',
     '4. Work one phase only and use search_text/read_file_page instead of re-reading large files.',
@@ -140,6 +182,32 @@ function buildHandoffPrompt(input: {
     '',
     'Do not redo completed phases unless verification proves a regression. If tool schema looks stale, Refresh connector first; open a new chat only if Refresh connector does not fix it.',
   ].join('\n');
+}
+
+async function latestCheckpointForWorkspace(
+  context: McpToolContext,
+  workspaceId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const runtime = new UpgradeRuntimeService(context.services, context.actor, context.contextEconomy, context.activity);
+  const state = await runtime.execute('session_context', {});
+  if (!state.ok || !isRecord(state.value) || !Array.isArray(state.value.checkpoints)) return undefined;
+  return [...state.value.checkpoints].reverse().find((checkpoint): checkpoint is Record<string, unknown> => (
+    isRecord(checkpoint) && checkpoint.workspaceId === workspaceId
+  ));
+}
+
+function compactCheckpoint(checkpoint: Readonly<Record<string, unknown>>): string {
+  const lines = [
+    ['Summary', checkpoint.summary],
+    ['Objective', checkpoint.objective],
+    ['Phase', checkpoint.phase],
+    ['Next action', checkpoint.nextAction],
+  ].flatMap(([label, value]) => typeof value === 'string' && value.length > 0 ? [`${label}: ${value}`] : []);
+  for (const [label, key] of [['Completed', 'completed'], ['Verification', 'verification'], ['Blockers', 'blockers'], ['Boundaries', 'boundaries']] as const) {
+    const values = checkpoint[key];
+    if (Array.isArray(values) && values.length > 0) lines.push(`${label}: ${values.map(String).join('; ')}`);
+  }
+  return compactTracker(lines.join('\n'));
 }
 
 function compactTracker(content: string): string {
@@ -160,4 +228,8 @@ function compactDiff(unstaged: string, staged: string, maxBytes: number): string
 
 function cancelledHandoff(): Result<never> {
   return err(appError('PROCESS_TIMEOUT', 'Session handoff was cancelled', true));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

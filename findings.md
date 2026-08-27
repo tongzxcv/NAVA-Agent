@@ -298,3 +298,35 @@
 - Rollback snapshot is `E:\AI_CACHE\nava-agent-setup\20260827-094750-v4.10.2-before-v4.10.3-schema-recovery`; installed `app.asar` SHA-256 is `DC65D130AFA7FAF86C796D2993B4894D778553E8BCAF2DE939D58D028D1F3801`.
 
 ---
+
+# 2026-08-27 Multi-project handoff resilience findings
+
+- RATCHET is registered as workspace `4e3179bb-748d-45eb-9764-f777919edf96` and is the selected Desktop workspace; the earlier diagnosis that it was unregistered was incorrect.
+- The activity log is global and interleaves concurrent chats. The two observed `session_handoff` failures explicitly targeted BEELZEBUB workspace `c7fda5af-6e3e-4045-a7c0-51bc98bbc9cb`; neighboring RATCHET and AUTOBOTS shell calls do not prove cross-workspace routing.
+- Tracker layouts differ: AUTOBOTS uses `docs/PHASE_PROGRESS.md`, RATCHET uses root `PHASE_PROGRESS.md`, and BEELZEBUB currently has neither.
+- `session_handoff` currently reads only `docs/PHASE_PROGRESS.md` unless a caller supplies `trackerPath`, and returns `FILE_NOT_FOUND` before it can use Git, durable tasks, or persisted rolling checkpoints.
+- NAVA can safely label activity by registered workspace because calls already carry `workspaceId`; a true ChatGPT conversation label is unavailable unless the client supplies one.
+- Existing session-tool tests exercise the public tool definition and can cover fallback behavior without exposing private helpers.
+- The minimum tracker behavior is explicit-path strictness, then automatic `docs/PHASE_PROGRESS.md` -> root `PHASE_PROGRESS.md` fallback only when `trackerPath` is omitted. Explicit caller paths must not silently redirect.
+- Desktop MCP activity already receives `workspaceId`; the remaining question is where to resolve a bounded display label once without adding lookup work to every renderer refresh.
+- Rolling checkpoints live in `UpgradeRuntimeService`, while `session_handoff` is a separate core tool. Reusing checkpoint data requires exposing a narrow read port or passing the existing upgrade service into the session-tool context; duplicating persistence reads is rejected.
+- Activity events are emitted by the MCP `ActivityTracker` before Desktop audit/log sinks. Workspace labels should therefore be attached centrally at begin-time through an optional resolver, preserving the existing raw `workspaceId` and avoiding renderer-only inference.
+- `UpgradeRuntimeService` is already the single continuity persistence boundary and can be reused read-only by `session_handoff`; no second checkpoint parser or state store is needed.
+- A safe fallback must select only checkpoints whose persisted `workspaceId` equals the handoff workspace. It must not surface another project's checkpoint when global logs/checkpoint history are interleaved.
+- ActivityTracker's `begin` path is already asynchronous, so an optional bounded workspace-label resolver can enrich both started and completed records without changing tool execution semantics. The implementation should cache registered names to avoid a SQLite lookup per event.
+- `session_context` returns the persisted checkpoint array after `UpgradeRuntimeService.loadState()`, so handoff can select the latest matching `workspaceId` without adding a new public tool or reading JSON directly.
+- Live Logs currently derive their visible MCP text from parsed log records. Persisting `workspaceLabel` alone is insufficient; the parser/IPC correlation must carry it and the renderer should prefix a compact `[workspace]` label.
+- The smallest durable Live Logs change is to persist `workspaceLabel` in each activity event and have the existing `formatWorkLogLine` prepend it. This avoids new renderer components or filters and leaves the raw `workspaceId` available for exact diagnostics.
+- Explicit tracker paths should remain strict; only omitted `trackerPath` enables automatic layout discovery. This preserves caller intent and path-boundary errors.
+- Desktop runtime construction is synchronous, so workspace-name lookup cannot be preloaded with an await. An optional async resolver on `ActivityTracker.begin` is the clean existing seam; a small in-memory cache in Desktop avoids repeated repository reads and can populate lazily for newly registered workspaces.
+- The activity file is the canonical source tailed by Live Logs. Adding `workspaceLabel` to the NDJSON event and prefixing it in `parseMcpActivityLine` keeps historical logs attributable after restart without changing renderer contracts.
+- Existing `LogHub` tests already tail real MCP NDJSON under fake timers, providing a public observable seam for `[workspace]` label rendering.
+- No new IPC field is required for the first release: the label can remain part of the MCP log text while exact `workspaceId` remains in the underlying NDJSON/audit record.
+
+---
+## 2026-08-27 Connector evidence while preparing source update
+
+- The installed NAVA process and tunnel-client are currently present. Recent local activity includes successful MCP calls, so the source changes below are not being hot-installed into the active runtime.
+- Historical tunnel evidence contains transient DNS/connection failures and HTTP 502 `client_internal` upstream failures; the reported `UNKNOWN / ExceptionGroup` is therefore a transport/upstream incident, not evidence that a particular EA workspace is wrong.
+- The source repository does not contain the remote tunnel-client implementation or the Python `ExceptionGroup` stack, so that external transport failure cannot be fixed from this NAVA source tree without a live connector/runtime update.
+- The prepared source fix improves recovery after a chat rollover and makes project attribution explicit in MCP activity/Live Logs; it does not claim to repair the currently running tunnel until installed and monitored later.
