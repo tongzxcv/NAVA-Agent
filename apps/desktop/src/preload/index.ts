@@ -33,6 +33,7 @@ import {
   type StartMcpRequest,
   type StartProcessRequest,
   type StopProcessRequest,
+  type TunnelGatewayHealth,
   type TunnelStatus,
   type UiLocale,
   type UpdateStatus,
@@ -152,6 +153,7 @@ function tunnelStatus(value: unknown): TunnelStatus {
     throw new Error('Invalid IPC response');
   }
   if (source !== 'desktop' && source !== 'external') throw new Error('Invalid IPC response');
+  const health = tunnelGatewayHealth(value.health);
   return {
     state,
     source,
@@ -160,6 +162,29 @@ function tunnelStatus(value: unknown): TunnelStatus {
     profileExists: booleanField(value, 'profileExists'),
     message: nullableString(value.message),
     logPath: nullableString(value.logPath),
+    ...(health === undefined ? {} : { health }),
+  };
+}
+
+function tunnelGatewayHealth(value: unknown): TunnelGatewayHealth | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const layer = (candidate: unknown): TunnelGatewayHealth['process'] => {
+    if (!isRecord(candidate)) throw new Error('Invalid IPC response');
+    const state = candidate.state;
+    if (state !== 'live' && state !== 'unhealthy' && state !== 'unavailable' && state !== 'unknown') throw new Error('Invalid IPC response');
+    return { state, message: stringField(candidate, 'message') };
+  };
+  const overall = value.overall;
+  if (overall !== 'live' && overall !== 'unhealthy' && overall !== 'unavailable' && overall !== 'unknown') throw new Error('Invalid IPC response');
+  return {
+    overall,
+    observedAt: stringField(value, 'observedAt'),
+    process: layer(value.process),
+    localMcp: layer(value.localMcp),
+    controlPlane: layer(value.controlPlane),
+    connectorSchema: layer(value.connectorSchema),
+    message: stringField(value, 'message'),
   };
 }
 

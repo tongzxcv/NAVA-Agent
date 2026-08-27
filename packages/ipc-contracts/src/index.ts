@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.10.3';
+export const APP_VERSION = '4.11.0';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -156,6 +156,23 @@ export interface ConnectionModes {
   readonly stdioCommand: string;
 }
 
+export type TunnelHealthState = 'live' | 'unhealthy' | 'unavailable' | 'unknown';
+
+export interface TunnelHealthLayer {
+  readonly state: TunnelHealthState;
+  readonly message: string;
+}
+
+export interface TunnelGatewayHealth {
+  readonly overall: TunnelHealthState;
+  readonly observedAt: string;
+  readonly process: TunnelHealthLayer;
+  readonly localMcp: TunnelHealthLayer;
+  readonly controlPlane: TunnelHealthLayer;
+  readonly connectorSchema: TunnelHealthLayer;
+  readonly message: string;
+}
+
 export interface TunnelStatus {
   readonly state: TunnelRunState;
   /** desktop = started by this app; external = started by a script or another process. */
@@ -165,6 +182,7 @@ export interface TunnelStatus {
   readonly profileExists: boolean;
   readonly message: string | null;
   readonly logPath: string | null;
+  readonly health?: TunnelGatewayHealth;
 }
 
 export type LogSource = 'tunnel' | 'mcp' | 'process';

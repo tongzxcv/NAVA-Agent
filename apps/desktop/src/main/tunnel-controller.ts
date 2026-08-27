@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { request as httpRequest } from 'node:http';
-import type { TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
+import type { TunnelGatewayHealth, TunnelHealthLayer, TunnelHealthState, TunnelRunState, TunnelStatus } from '@lnwjud/ipc-contracts';
 import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { protectWithWindowsDpapi, unprotectLegacyWindowsSecureString, unprotectWithWindowsDpapi } from '@lnwjud/shared';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
@@ -400,6 +400,50 @@ export class TunnelController {
       return live ? { state: 'live', message: 'configured tunnel health endpoint is live' } : { state: 'unhealthy', message: 'configured tunnel health endpoint did not return live' };
     } catch {
       return { state: 'unhealthy', message: 'configured tunnel health endpoint probe failed' };
+    }
+  }
+
+  public async gatewayHealth(): Promise<TunnelGatewayHealth> {
+    const process = await this.processHealth();
+    const localMcp = toHealthLayer(await this.incidentHealth());
+    const controlPlane = await this.controlPlaneHealth();
+    const connectorSchema: TunnelHealthLayer = {
+      state: 'unknown',
+      message: 'Chat connector schema freshness is not observable from the local NAVA process',
+    };
+    const overall = deriveGatewayHealthState(process, localMcp, controlPlane);
+    const message = overall === 'live'
+      ? 'Local tunnel path is live; remote connector schema freshness still requires a connector refresh check'
+      : overall === 'unhealthy'
+        ? 'One or more observable tunnel layers are unhealthy; inspect the layer messages before retrying'
+        : overall === 'unavailable'
+          ? 'Tunnel health is unavailable because the local tunnel path is not running'
+          : 'Tunnel health is inconclusive because one or more layers cannot be observed';
+    return {
+      overall,
+      observedAt: new Date().toISOString(),
+      process,
+      localMcp,
+      controlPlane,
+      connectorSchema,
+      message,
+    };
+  }
+
+  private async processHealth(): Promise<TunnelHealthLayer> {
+    if (this.child !== null && this.child.exitCode === null) return { state: 'live', message: 'Desktop-owned tunnel process is running' };
+    const externalProbe = await this.probeExternalRunning();
+    if (externalProbe === 'live') return { state: 'live', message: 'An external NAVA tunnel process is running' };
+    if (externalProbe === 'unverifiable') return { state: 'unknown', message: 'Tunnel process liveness could not be verified' };
+    if (this.state === 'starting') return { state: 'unknown', message: 'Tunnel startup is in progress but no live process was observed' };
+    return { state: 'unavailable', message: 'No NAVA tunnel process is running' };
+  }
+
+  private async controlPlaneHealth(): Promise<TunnelHealthLayer> {
+    try {
+      return classifyTunnelControlPlaneLog(await readBoundedTail(this.logPath(), MAX_HEALTH_METADATA_BYTES));
+    } catch {
+      return { state: 'unknown', message: 'Tunnel log is unavailable; remote control-plane health cannot be inferred' };
     }
   }
 
@@ -880,6 +924,32 @@ function isLiveHealthBody(body: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function classifyTunnelControlPlaneLog(log: string): TunnelHealthLayer {
+  const tail = log.slice(-MAX_HEALTH_METADATA_BYTES).toLowerCase();
+  const failureSignals = [...tail.matchAll(/exceptiongroup|transport error|error in message stream|client_internal|bad gateway|\b502\b|connection refused|connection reset|unauthorized|forbidden|probe_timeout/gi)];
+  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|health[^\r\n]{0,80}\blive\b/gi)];
+  const latestFailure = failureSignals.at(-1)?.index ?? -1;
+  const latestLive = liveSignals.at(-1)?.index ?? -1;
+  if (latestFailure >= 0 && latestFailure >= latestLive) {
+    return { state: 'unhealthy', message: 'Tunnel log contains a recent transport or control-plane failure signal' };
+  }
+  if (latestLive >= 0) {
+    return { state: 'live', message: 'Tunnel log contains a recent connected/ready signal' };
+  }
+  return { state: 'unknown', message: 'No bounded tunnel log signal proves control-plane health' };
+}
+
+function toHealthLayer(value: { readonly state: TunnelHealthState; readonly message: string | null }): TunnelHealthLayer {
+  return { state: value.state, message: value.message ?? 'No health detail was reported' };
+}
+
+function deriveGatewayHealthState(...layers: readonly TunnelHealthLayer[]): TunnelHealthState {
+  if (layers.some((layer) => layer.state === 'unhealthy')) return 'unhealthy';
+  if (layers.every((layer) => layer.state === 'live')) return 'live';
+  if (layers.every((layer) => layer.state === 'unavailable')) return 'unavailable';
+  return 'unknown';
 }
 
 async function inspectWindowsFileVersion(filePath: string): Promise<string | null> {

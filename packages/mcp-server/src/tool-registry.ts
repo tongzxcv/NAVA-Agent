@@ -192,6 +192,7 @@ export class ToolRegistry {
       } else {
         await this.activity.end(callId, resultCode, Date.now() - started, resultMessage);
       }
+      if (response.isError !== true) await this.maybeSaveAutomaticCheckpoint(tool, input);
       return response;
     } catch (error: unknown) {
       const response = mapError(sanitizeException(error, this.diagnostic));
@@ -207,6 +208,40 @@ export class ToolRegistry {
     const workspaceId = await mutationWorkspaceId(this.services, this.actor, input);
     if (workspaceId === undefined) return { ok: true, value: undefined };
     return this.services.workspaceLeases.assertMutationAllowed(workspaceId, leaseId);
+  }
+
+  private async maybeSaveAutomaticCheckpoint(tool: McpToolDefinition, input: unknown): Promise<void> {
+    if (tool.permission === 'READ' || tool.name.startsWith('workspace_lease_') || tool.name.startsWith('session_') || tool.name === 'tool_batch') return;
+    const workspaceId = explicitWorkspaceId(input);
+    if (workspaceId === undefined) return;
+    const record = isRecord(input) ? input : {};
+    const projectKey = typeof record.projectKey === 'string' && record.projectKey.trim().length > 0 ? record.projectKey : workspaceId;
+    const fileHints = ['path', 'file_path', 'target_path', 'sourcePath', 'destinationPath']
+      .map((key) => record[key])
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .slice(0, 5);
+    const checkpointInput: Record<string, unknown> = {
+      projectKey,
+      workspaceId,
+      summary: `Automatic checkpoint after ${tool.name}`,
+      phase: 'automatic-milestone',
+      completed: [`${tool.name} completed successfully`],
+      ...(fileHints.length === 0 ? {} : { files: fileHints }),
+      verification: ['Tool returned success'],
+      boundaries: ['Automatic checkpoint; verify current workspace evidence before the next mutation'],
+      nextAction: `Review ${tool.name} result and continue from this checkpoint`,
+      ...(typeof record._workspaceLeaseId === 'string' ? { _workspaceLeaseId: record._workspaceLeaseId } : {}),
+      _workspaceLeaseWorkspaceId: workspaceId,
+    };
+    try {
+      await this.invoke('session_checkpoint', checkpointInput);
+    } catch (error: unknown) {
+      try {
+        this.diagnostic?.({ name: 'AutomaticCheckpointError', message: error instanceof Error ? error.message : 'Automatic checkpoint failed' });
+      } catch {
+        // A checkpoint diagnostic must never change the already successful tool result.
+      }
+    }
   }
 
   private async executeWithinResponseBudget(tool: McpToolDefinition, input: unknown, parentSignal?: AbortSignal): Promise<BudgetedToolExecution> {
@@ -273,6 +308,15 @@ function readPrivateLeaseId(input: unknown): string | undefined {
   return typeof input._workspaceLeaseId === 'string' && input._workspaceLeaseId.length > 0
     ? input._workspaceLeaseId
     : undefined;
+}
+
+function explicitWorkspaceId(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined;
+  for (const key of ['_workspaceLeaseWorkspaceId', 'workspaceId']) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
 }
 
 function stripPrivateLeaseMetadata(input: unknown): unknown {

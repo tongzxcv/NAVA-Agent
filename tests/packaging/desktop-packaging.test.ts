@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.10.3', async () => {
+  it('pins the product release to v4.11.0', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.10.3');
-    expect(desktopPackage.version).toBe('4.10.3');
+    expect(rootPackage.version).toBe('4.11.0');
+    expect(desktopPackage.version).toBe('4.11.0');
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -23,7 +23,7 @@ describe('Windows desktop packaging', () => {
       repository?: { type?: unknown; url?: unknown };
     };
 
-    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 226 configurable tools.');
+    expect(desktopPackage.description).toBe('Windows-first local AI-agent runtime and MCP gateway with 227 configurable tools.');
     expect(desktopPackage.author).toBe('Adisorn');
     expect(desktopPackage.homepage).toBe('https://github.com/tongzxcv/NAVA-Agent#readme');
     expect(desktopPackage.repository).toEqual({ type: 'git', url: 'https://github.com/tongzxcv/NAVA-Agent.git' });

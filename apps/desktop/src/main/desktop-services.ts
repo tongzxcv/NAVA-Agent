@@ -345,6 +345,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     autoReconnect: (): boolean => readSettings().tunnelAutoReconnect,
     maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
   });
+  const readTunnelStatus = async (): Promise<TunnelStatus> => {
+    const status = await tunnelController.status();
+    return { ...status, health: await tunnelController.gatewayHealth() };
+  };
   const logHub = new LogHub({
     tunnelLogPath: tunnelController.logPath(),
     mcpActivityLogPath: activityLogPath,
@@ -375,7 +379,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         'diagnostic_bundle_create',
       ];
       const missing = required.filter((name) => !names.has(name));
-      const minimum = codexToolsEnabled ? 226 : 220;
+      const minimum = codexToolsEnabled ? 227 : 221;
       if (missing.length > 0 || tools.length < minimum) {
         return { status: 'fail', message: `${tools.length} MCP tools advertised; missing: ${missing.join(', ') || `expected at least ${minimum}`}` };
       }
@@ -449,7 +453,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           ...(workspaceLabel === undefined ? {} : { workspaceLabel }),
         };
       }));
-      const tunnel = await tunnelController.status();
+      const tunnel = await readTunnelStatus();
       const backups = await backupService.list();
       logHub.syncWorkLog(labelledWorkLog, labelledInFlight.map((item) => ({
         callId: item.callId,
@@ -565,9 +569,15 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await tunnelController.saveApiKey(request.apiKey);
       return { saved: true };
     },
-    startTunnel: (): Promise<TunnelStatus> => tunnelController.start(),
-    stopTunnel: (): Promise<TunnelStatus> => tunnelController.stop(),
-    getTunnelStatus: (): Promise<TunnelStatus> => tunnelController.status(),
+    startTunnel: async (): Promise<TunnelStatus> => {
+      await tunnelController.start();
+      return readTunnelStatus();
+    },
+    stopTunnel: async (): Promise<TunnelStatus> => {
+      await tunnelController.stop();
+      return readTunnelStatus();
+    },
+    getTunnelStatus: (): Promise<TunnelStatus> => readTunnelStatus(),
     setTunnelClientPath: async (request: SetTunnelClientPathRequest): Promise<{ readonly clientPath: string }> => ({
       clientPath: tunnelController.setClientPath(request.clientPath),
     }),

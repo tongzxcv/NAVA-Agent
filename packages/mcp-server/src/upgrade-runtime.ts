@@ -55,6 +55,7 @@ interface RankedToolCandidate {
   readonly name: string;
   readonly score: number;
   readonly reasonCodes: readonly string[];
+  readonly essential: boolean;
   readonly permission: UpgradeToolCatalogEntry['permission'];
   readonly permissionMetadata: {
     readonly permission: UpgradeToolCatalogEntry['permission'];
@@ -120,8 +121,30 @@ const MIN_WSE_PROMOTION_SAMPLES = 10;
 const MAX_SESSION_CHECKPOINTS = 128;
 const MAX_CHECKPOINT_LIST_ITEMS = 20;
 const MAX_CHECKPOINT_TEXT_CHARS = 1_000;
+const MAX_AUTHORITY_WORKSPACES = 64;
+const MAX_AUTHORITY_LEASES = 64;
 const continuityWriteLocks = new Map<string, Promise<void>>();
 type WseStrategy = 'baseline' | 'reliability-first' | 'latency-first';
+
+const ESSENTIAL_TOOL_NAMES = [
+  'workspace_list',
+  'workspace_tree',
+  'read_file',
+  'search_text',
+  'session_resume',
+  'session_checkpoint',
+  'workspace_lease_status',
+  'workspace_lease_acquire',
+  'workspace_lease_renew',
+  'workspace_lease_release',
+  'workspace_lease_call',
+  'health',
+  'mcp_health',
+  'capabilities',
+  'tool_categories',
+  'live_logs_query',
+  'live_logs_status',
+] as const;
 
 interface WsePromotion {
   readonly id: string;
@@ -167,6 +190,11 @@ const PRIMITIVE_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = [
   primitiveEntry('vision_annotated_capture', 'Capture an expiring Set-of-Marks observation.', 'READ', ['vision', 'ui', 'read']),
   primitiveEntry('ui_target_action', 'Act on a revalidated visual mark.', 'DANGEROUS', ['vision', 'ui', 'execute']),
   primitiveEntry('tool_batch', 'Invoke registered tools with bounded dependency groups.', 'DANGEROUS', ['workflow', 'execute']),
+  primitiveEntry('workspace_lease_acquire', 'Acquire one expiring writer lease for a workspace.', 'WRITE', ['workspace', 'lease', 'coordination']),
+  primitiveEntry('workspace_lease_status', 'List active workspace writer leases and their owners.', 'READ', ['workspace', 'lease', 'coordination']),
+  primitiveEntry('workspace_lease_renew', 'Renew an owned workspace writer lease.', 'WRITE', ['workspace', 'lease', 'coordination']),
+  primitiveEntry('workspace_lease_release', 'Release an owned workspace writer lease.', 'WRITE', ['workspace', 'lease', 'coordination']),
+  primitiveEntry('workspace_lease_call', 'Run one non-read tool under a matching workspace writer lease.', 'DANGEROUS', ['workspace', 'lease', 'coordination']),
 ];
 
 const CAPABILITY_SEARCH_ENTRIES: readonly SearchCatalogEntry[] = capabilityDescriptors.map((descriptor) => capabilitySearchEntry(descriptor));
@@ -175,6 +203,10 @@ const SEARCH_CATALOG: readonly SearchCatalogEntry[] = dedupeSearchEntries([
   ...CAPABILITY_SEARCH_ENTRIES,
   ...UPGRADE_TOOL_CATALOG,
 ]);
+const TOOL_MANIFEST_VERSION = digest({
+  primitive: PRIMITIVE_SEARCH_ENTRIES.map((entry) => `${entry.name}:${entry.permission}`).sort(),
+  upgrade: UPGRADE_TOOL_CATALOG.map((entry) => `${entry.name}:${entry.permission}:${entry.phase}`).sort(),
+});
 
 export class UpgradeRuntimeService {
   private readonly contextEngine: ContextEngine;
@@ -284,9 +316,10 @@ export class UpgradeRuntimeService {
       case 'session_context':
         return ok({ session: Object.fromEntries(this.session), checkpoints: this.checkpoints });
       case 'session_resume':
-        return ok(this.resumeSession(input));
+        return ok(await this.resumeSession(input));
       case 'session_checkpoint': {
-        const checkpoint = createSessionCheckpoint(input);
+        const identity = await this.resolveProjectIdentity(input);
+        const checkpoint = createSessionCheckpoint(input, identity.projectKey);
         await this.persistSessionCheckpoint(checkpoint);
         return ok(checkpoint);
       }
@@ -329,9 +362,12 @@ export class UpgradeRuntimeService {
       case 'workspace_index':
         return ok({});
       case 'live_logs_status':
-        return ok({ healthy: true, sources: ['mcp', 'tunnel', 'process'], correlationIds: true, redaction: 'secrets-not-retained' });
-      case 'live_logs_query':
-        return ok({ entries: activityEntries(this.activity, input), source: 'mcp', continuation: null, queryApplied: true });
+        return ok({ healthy: true, sources: ['mcp', 'tunnel', 'process'], correlationIds: true, redaction: 'secrets-not-retained', bounded: true, persistence: 'rotating-file-sink' });
+      case 'live_logs_query': {
+        const entries = activityEntries(this.activity, input);
+        const limit = boundedInteger(input.limit, 100, 1, 200);
+        return ok({ entries, source: 'mcp', continuation: null, queryApplied: true, bounded: true, truncated: entries.length >= limit });
+      }
       case 'telemetry_dashboard':
         return ok({ ...activityMetrics(this.activity?.listRecent() ?? []), internalOperations: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
       case 'context_economy_stats':
@@ -353,13 +389,16 @@ export class UpgradeRuntimeService {
       case 'recovery_status':
         return ok({ reconnect: 'enabled-at-transport-boundary', safeReadRetry: true, destructiveRetry: false, staleContinuation: 'detected', indexRecovery: 'rebuildable', workerIsolation: true });
       case 'tool_schema_list':
-        return ok({ schemas: UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true })) });
+        return ok({ manifestVersion: TOOL_MANIFEST_VERSION, essentialTools: ESSENTIAL_TOOL_NAMES, schemas: UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true })) });
       case 'tool_schema_register':
         return ok({ registered: true, backwardCompatible: true, id: readString(input, 'name') ?? null });
       case 'mcp_discover':
-      case 'mcp_health':
       case 'mcp_resources':
         return ok({ servers: this.services.extensions === undefined ? [] : 'available', nativeToolsRemainVisible: true, connectionPooling: true, timeoutIsolation: true });
+      case 'mcp_health':
+        return ok(this.mcpHealth());
+      case 'workspace_authority':
+        return this.workspaceAuthority(input);
       case 'mcp_hub':
         return ok({ tool: name, status: 'optional', available: this.services.extensions !== undefined, flattenChildTools: false, credentialsStoredInRepository: false, statelessTransport: true, tasksExtension: true, cacheMetadata: true, tracePropagation: true, authorizationUnchanged: true });
       case 'self_heal_plan':
@@ -471,6 +510,7 @@ export class UpgradeRuntimeService {
       name: candidate.entry.name,
       score: Number(candidate.score.toFixed(4)),
       reasonCodes: candidate.reasonCodes,
+      essential: isEssentialTool(candidate.entry.name),
       permission: candidate.entry.permission,
       permissionMetadata: {
         permission: candidate.entry.permission,
@@ -494,6 +534,8 @@ export class UpgradeRuntimeService {
       authorizationUnchanged: true,
       route: route.route,
       activeStrategy: this.activeStrategy,
+      essentialTools: ESSENTIAL_TOOL_NAMES,
+      manifestVersion: TOOL_MANIFEST_VERSION,
     };
   }
 
@@ -502,10 +544,65 @@ export class UpgradeRuntimeService {
     return entry === undefined ? { found: false, name: name ?? null } : { found: true, ...entry, schema: { type: 'object', additionalProperties: true }, authorizationUnchanged: true };
   }
 
-  private categories(): { readonly categories: readonly { readonly category: string; readonly tools: number }[] } {
+  private categories(): { readonly categories: readonly { readonly category: string; readonly tools: number }[]; readonly essentialTools: readonly string[]; readonly manifestVersion: string } {
     const counts = new Map<string, number>();
     for (const entry of UPGRADE_TOOL_CATALOG) for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-    return { categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })) };
+    return {
+      categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })),
+      essentialTools: ESSENTIAL_TOOL_NAMES,
+      manifestVersion: TOOL_MANIFEST_VERSION,
+    };
+  }
+
+  private mcpHealth(): Record<string, unknown> {
+    return {
+      status: 'local-mcp-only',
+      servers: this.services.extensions === undefined ? [] : 'available',
+      localMcp: { state: 'available', message: 'NAVA MCP application boundary is available' },
+      controlPlane: { state: 'unknown', message: 'Remote tunnel control-plane health is not observable from the MCP child' },
+      connectorSchema: { state: 'unknown', message: 'Connector schema freshness is not observable here; refresh the connector when tools are missing' },
+      connectionPooling: true,
+      timeoutIsolation: true,
+      nativeToolsRemainVisible: true,
+      verificationRequired: true,
+      essentialTools: ESSENTIAL_TOOL_NAMES,
+      manifestVersion: TOOL_MANIFEST_VERSION,
+    };
+  }
+
+  private async workspaceAuthority(input: Record<string, unknown>): Promise<Result<unknown>> {
+    if (this.services.workspaceInfo?.list === undefined) {
+      return ok({ available: false, reason: 'workspace_registry_unavailable', workspaces: [], activeWriters: [], verificationRequired: true });
+    }
+    const listed = await this.services.workspaceInfo.list(this.actor);
+    if (!listed.ok) return err(listed.error);
+    const workspaces = workspaceAuthorityEntries(listed.value).slice(0, MAX_AUTHORITY_WORKSPACES);
+    const requestedWorkspaceId = readString(input, 'workspaceId');
+    const leaseResult = this.services.workspaceLeases === undefined
+      ? undefined
+      : await this.services.workspaceLeases.status(requestedWorkspaceId);
+    const activeWriters = leaseResult === undefined || !leaseResult.ok
+      ? []
+      : leaseResult.value.slice(0, MAX_AUTHORITY_LEASES).map((lease) => ({
+        workspaceId: lease.workspaceId,
+        leaseId: lease.leaseId,
+        owner: lease.owner,
+        heartbeatAt: lease.heartbeatAt,
+        expiresAt: lease.expiresAt,
+      }));
+    return ok({
+      available: true,
+      requestedWorkspaceId: requestedWorkspaceId ?? null,
+      workspaceCount: workspaces.length,
+      workspaces,
+      activeWriters,
+      activeWriterCount: activeWriters.length,
+      leaseTracking: leaseResult === undefined ? 'unavailable' : leaseResult.ok ? 'available' : 'error',
+      ...(leaseResult !== undefined && !leaseResult.ok ? { leaseError: leaseResult.error.message } : {}),
+      writePolicy: 'Reads may run concurrently; mutations require the matching expiring writer lease for their workspace.',
+      truncated: workspaces.length >= MAX_AUTHORITY_WORKSPACES,
+      verificationRequired: true,
+    });
   }
 
   private async changePlugin(operation: string, name: string | undefined): Promise<unknown> {
@@ -787,11 +884,41 @@ export class UpgradeRuntimeService {
     return this.actor;
   }
 
-  private resumeSession(input: Record<string, unknown>): Record<string, unknown> {
+  private async resolveProjectIdentity(input: Record<string, unknown>): Promise<{ readonly requestedProjectKey: string; readonly projectKey: string; readonly workspaceId?: string; readonly aliases: ReadonlySet<string> }> {
     const requestedProjectKey = checkpointProjectKey(input);
-    const selected = this.checkpoints.filter((checkpoint) => checkpointProjectKeyFromStored(checkpoint) === requestedProjectKey);
+    const inputWorkspaceId = checkpointString(input.workspaceId, 128);
+    const aliases = new Set<string>(identityAliases(requestedProjectKey));
+    if (inputWorkspaceId !== undefined) for (const alias of identityAliases(inputWorkspaceId)) aliases.add(alias);
+    let workspaceId = inputWorkspaceId;
+    let projectKey = requestedProjectKey;
+    const listed = this.services.workspaceInfo?.list === undefined ? undefined : await this.services.workspaceInfo.list(this.actor);
+    if (listed?.ok === true) {
+      const entries = workspaceAuthorityEntries(listed.value);
+      const match = entries.find((entry) => (
+        (workspaceId !== undefined && entry.id === workspaceId)
+        || identityAliases(entry.id).some((alias) => aliases.has(alias))
+        || (entry.displayName !== null && identityAliases(entry.displayName).some((alias) => aliases.has(alias)))
+        || (entry.rootPath !== null && identityAliases(entry.rootPath).some((alias) => aliases.has(alias)))
+      ));
+      if (match !== undefined) {
+        workspaceId = match.id;
+        projectKey = canonicalProjectKey(match.displayName ?? match.id);
+        for (const value of [match.id, match.displayName, match.rootPath]) {
+          if (value !== null && value !== undefined) for (const alias of identityAliases(value)) aliases.add(alias);
+        }
+      }
+    }
+    return { requestedProjectKey, projectKey, ...(workspaceId === undefined ? {} : { workspaceId }), aliases };
+  }
+
+  private async resumeSession(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const identity = await this.resolveProjectIdentity(input);
+    const selected = this.checkpoints.filter((checkpoint) => {
+      if (identity.workspaceId !== undefined && checkpoint.workspaceId === identity.workspaceId) return true;
+      return [...checkpointAliases(checkpoint)].some((alias) => identity.aliases.has(alias));
+    });
     const checkpoint = selected.at(-1) ?? null;
-    const requestedWorkspaceId = checkpoint?.workspaceId ?? checkpointString(input.workspaceId);
+    const requestedWorkspaceId = checkpoint?.workspaceId ?? identity.workspaceId;
     const recentActivity = (this.activity?.listRecent(64) ?? [])
       .filter((event) => event.phase === 'completed')
       .filter((event) => requestedWorkspaceId === undefined || event.workspaceId === requestedWorkspaceId)
@@ -804,7 +931,10 @@ export class UpgradeRuntimeService {
         ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }),
       }));
     return {
-      projectKey: requestedProjectKey,
+      projectKey: identity.requestedProjectKey,
+      matchedProjectKey: checkpoint === null ? identity.projectKey : checkpointProjectKeyFromStored(checkpoint),
+      matchedProjectKeys: [...new Set(selected.flatMap((entry) => [...checkpointAliases(entry)]))].slice(0, 16),
+      ...(identity.workspaceId === undefined ? {} : { workspaceId: identity.workspaceId }),
       checkpoint,
       checkpointCount: selected.length,
       recentActivity,
@@ -977,8 +1107,8 @@ function summarize(value: string): string {
   return value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 240);
 }
 
-function createSessionCheckpoint(input: Record<string, unknown>): SessionCheckpoint {
-  const projectKey = checkpointProjectKey(input);
+function createSessionCheckpoint(input: Record<string, unknown>, resolvedProjectKey = checkpointProjectKey(input)): SessionCheckpoint {
+  const projectKey = resolvedProjectKey;
   const workspaceId = checkpointString(input.workspaceId, 128);
   const objective = checkpointString(input.objective);
   const phase = checkpointString(input.phase, 240);
@@ -1012,11 +1142,58 @@ function createSessionCheckpoint(input: Record<string, unknown>): SessionCheckpo
 }
 
 function checkpointProjectKey(input: Record<string, unknown>): string {
-  return (checkpointString(input.projectKey, 128) ?? checkpointString(input.workspaceId, 128) ?? 'global').toLowerCase();
+  return canonicalProjectKey(checkpointString(input.projectKey, 128) ?? checkpointString(input.workspaceId, 128) ?? 'global');
 }
 
 function checkpointProjectKeyFromStored(checkpoint: SessionCheckpoint): string {
-  return (checkpoint.projectKey ?? checkpoint.workspaceId ?? 'global').toLowerCase();
+  return canonicalProjectKey(checkpoint.projectKey ?? checkpoint.workspaceId ?? 'global');
+}
+
+function checkpointAliases(checkpoint: SessionCheckpoint): readonly string[] {
+  return [checkpoint.projectKey, checkpoint.workspaceId]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .flatMap((value) => identityAliases(value));
+}
+
+function canonicalProjectKey(value: string): string {
+  const normalized = value.normalize('NFKC').trim().toLowerCase().replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '');
+  return normalized.length === 0 ? 'global' : normalized;
+}
+
+function identityAliases(value: string): readonly string[] {
+  const aliases = new Set<string>([canonicalProjectKey(value)]);
+  if (path.win32.isAbsolute(value)) aliases.add(path.win32.normalize(value).toLowerCase());
+  return [...aliases];
+}
+
+function isEssentialTool(name: string): boolean {
+  return (ESSENTIAL_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+interface WorkspaceAuthorityEntry {
+  readonly id: string;
+  readonly displayName: string | null;
+  readonly rootPath: string | null;
+}
+
+function workspaceAuthorityEntries(value: unknown): readonly WorkspaceAuthorityEntry[] {
+  const entries = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.workspaces)
+      ? value.workspaces
+      : [];
+  return entries
+    .filter(isRecord)
+    .map((entry) => ({
+      id: typeof entry.id === 'string' ? entry.id : '',
+      displayName: typeof entry.displayName === 'string' ? entry.displayName : typeof entry.name === 'string' ? entry.name : null,
+      rootPath: typeof entry.realRootPath === 'string' ? entry.realRootPath : typeof entry.rootPath === 'string' ? entry.rootPath : null,
+    }))
+    .filter((entry): entry is WorkspaceAuthorityEntry => entry.id.length > 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function checkpointList(value: unknown): readonly string[] {

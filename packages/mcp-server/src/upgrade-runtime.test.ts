@@ -8,6 +8,7 @@ import { ActivityTracker } from './activity-tracker.js';
 import { UpgradeRuntimeService } from './upgrade-runtime.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 import { ToolRegistry } from './tool-registry.js';
+import type { McpApplicationServices } from './tools/tool-types.js';
 
 const actor: FileActor = { clientId: 'test', clientName: 'test' };
 
@@ -20,6 +21,7 @@ describe('upgrade runtime', () => {
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'context_economy_stats')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'wse_experience_capture')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'wse_strategy_promote')).toBe(true);
+    expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'workspace_authority')).toBe(true);
   });
 
   it('smoke-invokes every phase tool through the normal registry boundary', async () => {
@@ -90,6 +92,48 @@ describe('upgrade runtime', () => {
     const remove = await runtime.execute('permission_check', { action: 'filesystem.delete' });
     expect(read).toMatchObject({ ok: true, value: { decision: 'allow', contextAccess: 'unrestricted' } });
     expect(remove).toMatchObject({ ok: true, value: { decision: 'ask', contextAccess: 'unrestricted' } });
+  });
+
+  it('reports local MCP health without claiming remote tunnel or connector health', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    await expect(runtime.execute('mcp_health', {})).resolves.toMatchObject({
+      ok: true,
+      value: {
+        status: 'local-mcp-only',
+        localMcp: { state: 'available' },
+        controlPlane: { state: 'unknown' },
+        connectorSchema: { state: 'unknown' },
+        essentialTools: expect.arrayContaining(['session_resume', 'workspace_lease_call']),
+        manifestVersion: expect.any(String),
+      },
+    });
+  });
+
+  it('matches checkpoints across stable project-key aliases and reports workspace authority', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-authority-'));
+    const statePath = path.join(directory, 'runtime.json');
+    const services = {
+      runtimeStatePath: statePath,
+      workspaceInfo: {
+        async list(): Promise<ReturnType<typeof ok>> {
+          return ok([{ id: 'ws-beel', displayName: 'BEELZEBUB EA', realRootPath: 'D:\\EA\\BEELZEBUB EA_Lab' }]);
+        },
+      },
+      workspaceLeases: {
+        async status(): Promise<ReturnType<typeof ok>> {
+          return ok([{ workspaceId: 'ws-beel', leaseId: 'lease-1', owner: 'chat-a', acquiredAt: '2026-08-28T00:00:00.000Z', heartbeatAt: '2026-08-28T00:01:00.000Z', expiresAt: '2026-08-28T00:15:00.000Z' }]);
+        },
+      },
+    } as McpApplicationServices;
+    const first = new UpgradeRuntimeService(services, actor);
+    await first.execute('session_checkpoint', { projectKey: 'BEELZEBUB EA', workspaceId: 'ws-beel', summary: 'milestone' });
+
+    const resumed = await new UpgradeRuntimeService(services, actor).execute('session_resume', { projectKey: 'beelzebub_ea', workspaceId: 'ws-beel' });
+    expect(resumed).toMatchObject({ ok: true, value: { recovered: true, matchedProjectKey: 'beelzebub-ea', checkpoint: { summary: 'milestone' } } });
+    await expect(new UpgradeRuntimeService(services, actor).execute('workspace_authority', { workspaceId: 'ws-beel' })).resolves.toMatchObject({
+      ok: true,
+      value: { activeWriterCount: 1, activeWriters: [{ workspaceId: 'ws-beel', owner: 'chat-a' }], workspaces: [{ id: 'ws-beel', displayName: 'BEELZEBUB EA' }] },
+    });
   });
 
   it('shares context economy telemetry between workspace context and the stats tool', async () => {

@@ -342,3 +342,33 @@
 - Final live checks passed after restart: Tunnel `/healthz=200`, `/readyz=200`, NAVA health available for shell/accessibility/vision and other local backends, workspace discovery returned 12 entries, and Live Logs reported healthy MCP/tunnel/process sources with correlation IDs.
 - WSL and remote SSH remain unavailable for their own environmental reasons (`wsl_status_failed`, remote backend not configured); they are not NAVA transport failures.
 - The historical external Tunnel-client `502 client_internal` / Python `ExceptionGroup` remains outside this source repository. Current local and connector checks pass, but this deployment does not prove a permanent control-plane repair.
+# 2026-08-28 NAVA v4.11 reliability five-part update
+
+## Source verification
+
+- Continuity currently matches project keys by lowercase only; workspace display names and IDs are not aliases, so a new chat can miss a checkpoint when the caller changes spacing or uses a workspace ID.
+- The tool router exposes a broad catalog but its primitive search surface omits session and lease controls; a connector can therefore report an incomplete tool surface without a stable recovery path.
+- `mcp_health` currently reports generic local availability and does not distinguish the local MCP child from the tunnel control plane or connector schema freshness.
+- The persistent activity sink appends indefinitely; the in-memory tracker is bounded but the file used by Live Logs is not rotated.
+- Tunnel status has only one lifecycle message and the existing incident health probe is local-only; the dashboard needs a bounded layered diagnosis that cannot claim remote control-plane proof.
+- The current writer lease API is present and must remain the mutation seam for all source edits. No EA/MT5 path is in scope.
+
+- Verified current repo `C:\Users\Endlessly\NAVA-Tunnel-Fix` is clean at `0fef288` (`fix: bound handoffs and label stdio activity`).
+- NAVA checkpoint `nava-agent` recovered successfully from `d4be4473-3420-4234-aa48-78a27746ffaa`; verification is required before mutation. Workspace root is registered as `C:` with ID `2ed35b8c-bacb-4b38-af53-0a24c7acb360`.
+- No active lease existed; acquired task lease `8f2377fe-8668-4675-bb85-880a362e0cd2` for the five-part update.
+- `checkpointProjectKey()` and stored-key matching currently lowercase only; `BEELZEBUB EA` and `beelzebub-ea` can fail to match.
+- `ToolRegistry` registers the full catalog in one `tools/list`; current integration/E2E tests assert 220 advertised tools, while generated contract text has drifted to 226 and must be reconciled by the actual build.
+- `server.ts` already has an 8 MiB transport guard and continuation hints for some tools, but it rejects oversized results after execution; activity file sink is append-only with no rotation/retention.
+- `tunnel-controller.ts` probes local `/healthz` and restarts on child exit; this does not distinguish a live local process from a stale remote control plane or connector schema.
+- Exact lease tools are present and direct acquire/release succeeds in the current connector; the historical missing-capability symptom is discovery/manifest state, not absence of the lease implementation.
+- Planned implementation must reuse existing Zod/tool registry, permission, lease, activity, and tunnel seams; no new dependency is justified yet.
+
+## 2026-08-28 v4.11 verification and deployment
+
+- Implemented all five reliability improvements through existing runtime seams: automatic project-key-aware checkpoints, essential-tool/manifest discovery, layered tunnel health, bounded rotating activity logs, and read-only workspace authority visibility.
+- Source checks passed: `typecheck`, `lint`, production `build`, generated tool-catalog synchronization, 49 focused tests, 18 integration/acceptance tests, and 17 packaging/release tests.
+- The runtime contract is now v4.11.0 with 227 configurable tools and 221 advertised by default; `workspace_authority` is available in the advertised set.
+- Standard signed NSIS packaging could not extract electron-builder's winCodeSign archive because this Windows account lacks symbolic-link privilege. A temporary unsigned-config package completed successfully and was used for local installation; no source config for unsigned packaging was retained.
+- Installed v4.11.0 hashes match the package for the executable, `resources/app.asar`, MCP stdio bundle, and bundled Node runtime. Existing NAVA data and Tunnel profile were backed up and preserved.
+- A real local HTTP MCP client connected to the installed app, listed 221 tools, called `mcp_health`, and called `workspace_authority` (12 registered workspaces). Tunnel `/healthz` and `/readyz` both returned HTTP 200 after restart.
+- The local child cannot prove the external ChatGPT connector/control-plane state; v4.11 reports those layers as `unknown` with `verificationRequired=true` rather than falsely claiming end-to-end health. The final check in ChatGPT still requires connector refresh and one real `workspace_list` call.

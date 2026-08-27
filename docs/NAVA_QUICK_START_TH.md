@@ -1,10 +1,10 @@
 ---
 title: คู่มือเริ่มใช้ NAVA Agent
-version: 4.10.2
-updated: 2026-08-26
+version: 4.11.0
+updated: 2026-08-28
 ---
 
-# คู่มือเริ่มใช้ NAVA Agent v4.10.2
+# คู่มือเริ่มใช้ NAVA Agent v4.11.0
 
 NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับไฟล์ Git คำสั่ง และโปรแกรมบนเครื่อง Windows ของคุณผ่าน MCP โดยงานยังรันอยู่บนเครื่องนี้
 
@@ -13,6 +13,14 @@ NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับ�
 รุ่น v4.10.1 เพิ่ม **Secure SSH สำหรับ VPS** ใช้ key หรือ SSH agent เท่านั้น ตรวจ host key เสมอ และไม่รับรหัสผ่านหรือเนื้อหา private key ผ่าน Chat/MCP
 
 รุ่น v4.10.2 เพิ่ม **Rolling Checkpoint แยกตามโปรเจกต์** ช่วยให้เปิดแชทใหม่แล้วทำงานต่อได้ แม้แชทเก่าจะเต็มก่อนสั่งสรุป
+
+รุ่น v4.11.0 ปรับปรุงความต่อเนื่องและความเสถียร 5 ด้าน:
+
+1. **Continuity Control** — บันทึก checkpoint อัตโนมัติหลังงานเขียน/งานสำคัญ เพื่อเปิดแชทใหม่แล้วต่อจากจุดล่าสุดได้
+2. **Essential Tool Discovery** — ระบุเครื่องมือหลักและ `manifestVersion` ให้แชทตรวจ schema เก่า/ใหม่ได้ชัดเจน
+3. **End-to-End Tunnel Health** — แยกสถานะ process, Local MCP, control plane และ connector schema ไม่รายงานว่าเชื่อมต่อสมบูรณ์จากการตรวจเพียงชั้นเดียว
+4. **Bounded Evidence Stream** — จำกัดผลลัพธ์และหมุนเก็บ log ตามขนาด เพื่อป้องกัน log ใหญ่ทำให้แชทหรือตัว tunnel หลุด
+5. **Workspace Authority** — แสดง Workspace และ writer lease ที่กำลังถืออยู่ ช่วยประสานหลายแชท/หลายโปรเจกต์โดยไม่เขียนชนกัน
 
 > สำคัญ: NAVA ไม่ได้ทำให้โควต้า AI ไม่จำกัด การใช้จาก Chat ปกติจะนับตามแผนและข้อจำกัดของ ChatGPT ส่วน Codex/Work ใช้สิทธิ์ของผลิตภัณฑ์นั้น
 
@@ -41,11 +49,14 @@ NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับ�
 | โปรเจกต์ | ชื่อและ path ของโปรเจกต์ที่ต้องการ |
 | Doctor | รายการหลักขึ้น Available/Ready |
 
+หน้า Home รุ่นใหม่อาจแสดงสุขภาพแยกเป็นหลายชั้น หาก `Control plane` หรือ `Connector schema` เป็น `unknown` หมายถึง NAVA ตรวจชั้นนั้นจากเครื่องนี้ไม่ได้ ไม่ใช่หลักฐานว่า ChatGPT เชื่อมสำเร็จแล้ว ให้ทดสอบ `workspace_list` จากแชทจริงอีกครั้ง
+
 ถ้าใช้เฉพาะ Codex บนเครื่อง ไม่จำเป็นต้องเปิด Secure Tunnel ตลอดเวลา แต่ Local MCP ต้องทำงาน
 
 ## ใช้หลายแชทพร้อมกันอย่างปลอดภัย
 
 - หลายแชทอ่านไฟล์พร้อมกันได้ตามปกติ โดยเฉพาะเมื่อทำคนละโปรเจกต์
+- ก่อนเริ่มงานหลายแชท ให้สั่ง `workspace_authority` แบบอ่านอย่างเดียวเพื่อดู Workspace และ writer ที่กำลังใช้งาน
 - ถ้าจะแก้ไฟล์ ให้แต่ละแชทขอ **Workspace Lease** ของโปรเจกต์นั้นก่อนเริ่มเขียน
 - ถ้ามีแชทอื่นถือ Lease อยู่ ให้หยุดรอหรือไปทำโปรเจกต์อื่น ห้ามฝืนแก้ไฟล์เดียวกัน
 - เมื่อทำงานเสร็จ ให้ปล่อย Lease ระบบมีวันหมดอายุเพื่อกู้คืนกรณีแชทหยุดกลางทาง
@@ -64,11 +75,13 @@ NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับ�
 ห้ามสร้าง แก้ไข หรือลบไฟล์
 ```
 
-เครื่องมือที่เกี่ยวข้องคือ `workspace_lease_acquire`, `workspace_lease_status`, `workspace_lease_renew`, `workspace_lease_release` และ `workspace_lease_call` โดยปกติให้สั่งเป็นภาษาไทยได้ ไม่จำเป็นต้องพิมพ์พารามิเตอร์ MCP เอง
+เครื่องมือที่เกี่ยวข้องคือ `workspace_authority`, `workspace_lease_acquire`, `workspace_lease_status`, `workspace_lease_renew`, `workspace_lease_release` และ `workspace_lease_call` โดยปกติให้สั่งเป็นภาษาไทยได้ ไม่จำเป็นต้องพิมพ์พารามิเตอร์ MCP เอง
 
 ## ทำงานต่อเมื่อแชทเก่าเต็ม
 
 NAVA เก็บ Rolling Checkpoint นอกโฟลเดอร์โปรเจกต์ จึงไม่ทำให้ Git มีไฟล์เกินมา ระบบแยก checkpoint ด้วยชื่อโปรเจกต์และ Workspace ID
+
+งานเขียนหรือคำสั่งสำคัญจะสร้าง **automatic milestone checkpoint** ให้เองเมื่อระบุ Workspace ได้ จึงไม่ต้องรอให้แชทเก่าสั่งสรุปก่อนเต็ม แต่ checkpoint เป็นเพียงจุดเริ่มตรวจสอบ ไม่ใช่หลักฐานว่าไฟล์/งานล่าสุดสำเร็จแล้ว
 
 เปิดแชทใหม่แล้วสั่งสั้น ๆ:
 
@@ -78,6 +91,14 @@ NAVA เก็บ Rolling Checkpoint นอกโฟลเดอร์โปร�
 ```
 
 ระหว่างงาน NAVA ควรเรียก `session_checkpoint` ก่อนงานยาว และหลังแก้ไฟล์ ตรวจผล commit ติด blocker หรือเปลี่ยนขั้นตอน จากนั้นแชทใหม่ใช้ `session_resume` เพื่ออ่าน checkpoint ล่าสุดของโปรเจกต์นั้น
+
+ถ้าแชทเต็มก่อนมีข้อความสรุป ให้เปิดแชทใหม่แล้วใช้คำสั่งนี้ได้ทันที:
+
+```text
+ใช้ NAVA เรียก session_resume สำหรับโปรเจกต์ BEELZEBUB EA
+ตรวจ checkpoint ล่าสุดกับ Git, durable task และ Obsidian ก่อน
+รายงานจุดที่ทำเสร็จ จุดที่ค้าง และ nextAction แล้วทำต่อจากจุดนั้น
+```
 
 Checkpoint ไม่ใช่หลักฐานสุดท้าย จึงต้องตรวจ Git, durable task และ Obsidian/tracker ก่อนแก้ไฟล์ต่อ และจะไม่เก็บ prompt, ข้อความแชท, API key, private key หรือ log ขนาดใหญ่
 
@@ -118,6 +139,8 @@ WSE เก็บเฉพาะชื่อเครื่องมือ ผล
 ```powershell
 codex mcp list
 ```
+
+ถ้า Codex แจ้งว่าเครื่องมือไม่ครบหรือ schema เก่า ให้สั่ง refresh/reconnect NAVA ก่อน แล้วตรวจ `capabilities` หรือ `tool_categories` ที่มี `manifestVersion` ใหม่ ไม่ควรเดาชื่อเครื่องมือหรือพิมพ์ input ของ lease เอง
 
 ควรเห็น MCP ชื่อ `nava` ชี้ไปที่:
 
@@ -269,7 +292,7 @@ codex mcp list
 ### `shell`, `read_file` หรือ `accessibility` ขึ้น `ExceptionGroup` / `INTERNAL_ERROR`
 
 1. สั่ง `diagnostic_bundle_create` แบบอ่านอย่างเดียวก่อน
-2. ตรวจว่าเลือกโปรเจกต์ถูก และไม่มีแชทอื่นถือ Workspace Lease สำหรับงานเขียน
+2. สั่ง `workspace_authority` แบบอ่านอย่างเดียว ตรวจว่าเลือกโปรเจกต์ถูก และไม่มีแชทอื่นถือ Workspace Lease สำหรับงานเขียน
 3. ถ้าทุกเครื่องมือผ่าน Secure Tunnel ล้มพร้อมกัน ให้กด **หยุด Tunnel** แล้ว **เริ่ม Tunnel** ใหม่หนึ่งครั้ง
 4. เปิด **Doctor** แล้วส่งเฉพาะข้อความ error และเวลาที่เกิด ห้ามส่ง Runtime API key
 5. อย่าสั่งงานเขียนซ้ำจนกว่าจะยืนยันว่า Lease และ Tunnel กลับมาปกติ
@@ -282,6 +305,8 @@ NAVA ป้องกันไม่ให้ผลลัพธ์เกินข
 - ใช้ `search_text` หาเฉพาะส่วนที่ต้องการ แล้วอ่านเฉพาะช่วงบรรทัด
 - สำหรับ `shell` ให้ลด `max_output_bytes` หรือรัน background แล้วอ่าน log แบบจำกัดจำนวนบรรทัด
 - สำหรับหน้าจอ ให้ใช้ `observe_summary` หรือดูเฉพาะ element ที่ต้องการโดยไม่แนบ screenshot ขนาดใหญ่
+
+Live Logs ของ v4.11.0 เก็บแบบ bounded และหมุนไฟล์อัตโนมัติ หากผลลัพธ์มี `truncated=true` ให้ลดช่วงเวลา/จำนวนรายการแล้ว query ใหม่ แทนการขอ log ทั้งหมด
 
 เมื่อเจอ error นี้ Tunnel และแชทอื่นควรทำงานต่อได้ ไม่ต้อง restart NAVA
 

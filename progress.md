@@ -391,3 +391,26 @@
 - Live verification passed after restart: Tunnel health/ready 200/200, NAVA connector health, 12 workspaces, healthy Live Logs, and BEELZEBUB `session_handoff` with 18,767 Git entries safely truncated.
 - Confirmed live NDJSON records include `workspaceLabel=BEELZEBUB EA Lab` on both `started` and `completed` events.
 - No EA/MT5/VPS files or unrelated `D:\EA` changes were touched. No push performed.
+# 2026-08-28 Active NAVA v4.11 reliability update
+
+- [x] Read current NAVA source seams and verify the existing lease/checkpoint state.
+- [x] Persist a source-implementation checkpoint under the NAVA writer lease.
+- [x] Implement continuity aliases and automatic mutation checkpoints.
+- [x] Implement essential tool discovery and workspace authority reporting.
+- [x] Implement layered tunnel health and bounded rotating activity logs.
+- [x] Run targeted/integration tests, update generated tool docs, and build the desktop package.
+- [x] Install and live-verify v4.11.0, run the final secret/artifact gate, commit task-owned changes, and release the lease.
+
+- Started a scoped SCQA plan for the user-approved five-part NAVA update.
+- Read the required architecture, continuity, coordinator, planning, SCQA, and ponytail instructions.
+- Confirmed the NAVA repo is clean and recovered the prior `nava-agent` checkpoint.
+- Acquired workspace writer lease `8f2377fe-8668-4675-bb85-880a362e0cd2`; lease must be renewed before expiry and released during finalization.
+- Current phase: inspect exact contracts and choose the smallest implementation seams before source mutation.
+- Source and documentation implementation is complete. `typecheck`, `lint`, `build`, 49 focused tests, 18 integration/acceptance tests, 17 packaging/release tests, and generated catalog check pass.
+- Standard NSIS packaging hit the known Windows symbolic-link privilege error while extracting winCodeSign; a temporary unsigned-config build produced `apps/desktop/dist/installers-unsigned/nava-agent-Setup-4.11.0.exe` successfully.
+- Backup completed before install: `E:\AI_CACHE\nava-agent-setup\20260828-0210-v4.10.3-before-v4.11.0` (6,617 files, 1,051,385,475 bytes). Existing installed app was v4.10.3 with active NAVA/Tunnel processes; no EA/MT5 files were touched.
+- Installed runtime verification passed: registry reports NAVA Agent 4.11.0, installed EXE/app.asar/MCP bundle/Node hashes match the unsigned package, local MCP lists 221 tools including `workspace_authority`, `mcp_health` returns truthful layered states, and `workspace_authority` sees 12 workspaces.
+- Tunnel was restarted from the preserved profile and passed `127.0.0.1:8080/healthz=200 live` and `/readyz=200 ready`. Remote ChatGPT control-plane proof remains intentionally `unknown` from the local MCP child.
+- The first lease expired during the full repository scan; status showed no active writer, so a new lease `31289bdb-8866-4239-9182-d5032d6e7622` was acquired before final state/commit work. An empty accidental `D:\Program` directory remains as a cleanup candidate; no files are inside it.
+- Final reliability commit was created with message `feat: harden NAVA continuity and tunnel health`. Working-tree status was clean immediately before this final documentation update; lease release is the last runtime action.
+- Final commit was amended to include the completed plan status; the writer lease was released and verified with `active leases = 0` before this final status update.

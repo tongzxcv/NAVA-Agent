@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Windows-first local AI-agent runtime and MCP gateway</strong><br />
-  <em>226 configurable tools for local files, Git, processes, Windows automation, WSL, secure SSH, browser control, indexing, observability, and extensibility; 220 are advertised by default because codex_* delegation is opt-in.</em>
+  <em>227 configurable tools for local files, Git, processes, Windows automation, WSL, secure SSH, browser control, indexing, observability, and extensibility; 221 are advertised by default because codex_* delegation is opt-in.</em>
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" />
   <img alt="Node" src="https://img.shields.io/badge/Node.js-24.x-339933" />
-  <img alt="MCP" src="https://img.shields.io/badge/MCP-220%20tools-6f42c1" />
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-221%20tools-6f42c1" />
 </p>
 
 ---
@@ -40,14 +40,25 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.10.3
+## Current release: v4.11.0
 
-The current published installer and runtime contract are `v4.10.3`. The runtime
-advertises **220 MCP tools**. The earlier 184-tool snapshot remains only as the
+The current published installer and runtime contract are `v4.11.0`. The runtime
+advertises **221 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.11.0
+
+- Adds automatic bounded checkpoints after successful workspace mutations and
+  tolerant project-key aliases for continuing work in a new chat.
+- Adds essential tool discovery metadata, `manifestVersion`, and the read-only
+  `workspace_authority` view for multi-project/multi-chat coordination.
+- Adds layered tunnel health reporting for process, local MCP, control plane,
+  and connector-schema observability without claiming remote proof.
+- Adds serialized rotating MCP activity logs so Live Logs remain bounded on disk.
+- Raises the advertised contract to 221 tools and keeps Doctor/docs checks in sync.
 
 ### What's new in v4.10.3
 
@@ -55,7 +66,7 @@ are additive.
   values, so chats can correct malformed calls instead of blind retry loops.
 - Documents the exact non-flattened `workspace_lease_call` wrapper in MCP
   initialization and shared continuity/coordinator skills.
-- Adds a required Doctor catalog check that confirms the expected 220 default
+- Adds a required Doctor catalog check that confirms the expected 221 default
   tools and tells users to refresh the connector when ChatGPT shows fewer.
 
 ### What's new in v4.10.2
@@ -321,7 +332,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current release is `nava-agent-Setup-4.10.3.exe`.
+   The current release is `nava-agent-Setup-4.11.0.exe`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -568,7 +579,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.10.3.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.11.0.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -915,9 +926,9 @@ For workspace <workspace-id>, show the project snapshot, Git status, and the top
 
 After changing tool metadata or restarting the tunnel, refresh the connector and continue in the same chat. Start a new chat only if Refresh connector does not clear a stale schema.
 
-## Complete MCP tool catalog (226 configurable tools; 220 advertised by default)
+## Complete MCP tool catalog (227 configurable tools; 221 advertised by default)
 
-This index is generated from the current v4.10.3 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.11.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |
@@ -1147,6 +1158,7 @@ This index is generated from the current v4.10.3 `ToolRegistry`, not copied from
 | 224 | `workspace_lease_call` | DANGEROUS | Run one non-read MCP tool under a matching workspace writer lease while preserving child permission checks. |
 | 225 | `diagnostic_bundle_create` | READ | Return bounded read-only NAVA health, recovery, task, crash, and redacted activity evidence. |
 | 226 | `git_worktree_remove` | DANGEROUS | Remove only a ledger-owned Git worktree after dry-run and explicit confirmation. |
+| 227 | `workspace_authority` | READ | Show registered workspaces and active writer ownership for safe multi-chat coordination. |
 
 ## Detailed capability guide
 

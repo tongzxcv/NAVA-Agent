@@ -165,6 +165,7 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   read('wse_strategy_score', 47, 'Score fixed WSE routing strategies offline with reason codes.', ['wse', 'strategy', 'evaluation']),
   read('wse_strategy_status', 47, 'Return the active human-approved WSE strategy and promotion history.', ['wse', 'strategy', 'audit']),
   dangerous('wse_strategy_promote', 47, 'Promote or roll back a WSE ranking strategy after explicit human confirmation.', ['wse', 'strategy', 'promotion'], { requirements: ['at least 10 experience records for non-baseline strategies', 'explicit human confirmation'], supportsDryRun: false, auditTarget: 'wse-promotion' }),
+  read('workspace_authority', 48, 'Show registered workspaces and active writer ownership for safe multi-chat coordination.', ['workspace', 'authority', 'lease', 'multi-chat']),
 ];
 
 export function upgradeCatalogEntry(name: string): UpgradeToolCatalogEntry | undefined {

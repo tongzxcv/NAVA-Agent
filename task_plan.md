@@ -642,3 +642,47 @@ from source-level fixes.
 - Preserve Runtime API key, Tunnel profile, SQLite data, workspace registrations, permissions, and rollback material.
 - Do not claim the external `tunnel-client` control-plane `502/client_internal`
   issue is fixed unless a real Chat/Tunnel request proves it after deployment.
+# Active Task: NAVA v4.11 Reliability — five-part update
+
+## Current execution note
+
+The repository seams are verified. The implementation will preserve the existing permission engine and workspace writer lease, add only bounded metadata, and keep remote tunnel health explicitly `unknown` when it cannot be observed locally.
+
+## SCQA
+
+- **Situation:** NAVA v4.10.3 has the required primitives, leases, continuity, tool discovery, bounded transport, and tunnel reconnect, but the current seams still fail in real multi-chat use.
+- **Complication:** Project keys are only lowercased, the server advertises a very wide catalog, local `/healthz` does not prove Chat connectivity, activity logs append indefinitely, and multi-project authority is difficult to see.
+- **Question:** What is the smallest additive implementation that makes all five reliability improvements observable, testable, and backward-compatible without touching EA/MT5 behavior?
+- **Answer:** Add canonical continuity identity and milestone recovery, a stable essential-tool discovery surface, layered tunnel health, bounded log/output retention, and explicit workspace authority summaries. Preserve primitive tools, permissions, leases, and existing paths.
+
+## Acceptance criteria
+
+- [x] All five requested reliability improvements are implemented through existing seams where possible.
+- [x] Existing primitive tools, permission gates, workspace roots, leases, and continuity data remain backward-compatible.
+- [x] Checkpoint aliases recover the same project and expose a concrete next action after chat rollover.
+- [x] Tool discovery and health diagnostics expose missing/stale capability states without hiding callable primitives.
+- [x] Logs and high-volume outputs are bounded without losing continuation metadata or latest error evidence.
+- [x] Multi-project writer ownership is inspectable and mutations remain lease/permission controlled.
+- [x] Focused tests, lint, typecheck, build, package/release checks, and installed-runtime verification pass where available; standard signed NSIS packaging remains blocked only by the Windows symbolic-link privilege required by electron-builder's winCodeSign cache.
+- [ ] Only task-owned files are staged and committed; no EA/MT5 or unrelated workspace changes are included.
+
+## Phases
+
+- [completed] Inspect current repo, checkpoint, lease, architecture, and test contracts.
+- [completed] Implement continuity identity/recovery and essential tool discovery.
+- [completed] Implement layered tunnel health and bounded logs/outputs.
+- [completed] Implement workspace authority visibility and update contracts/docs/tests.
+- [completed] Run final verification, commit task-owned changes, and release the writer lease.
+
+## Safety boundaries
+
+- Do not modify EA/MT5 source, live orders, tester data, or any `D:\EA` project.
+- Preserve DPAPI/API keys, tunnel profile, SQLite/workspaces, permissions, and rollback material.
+- Do not remove primitive tools or silently weaken path, permission, destructive-action, or writer-lease checks.
+- Do not add external dependencies unless an existing platform/runtime solution cannot satisfy the requirement.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| None in this active phase | 0 | Continue with focused inspection before mutation. |

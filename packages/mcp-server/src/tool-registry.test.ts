@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { appError, err, ok } from '@lnwjud/domain';
 import { permissionProfiles } from '@lnwjud/permissions';
 import type { ActivitySinkEvent } from './activity-tracker.js';
@@ -143,6 +146,17 @@ describe('MCP tool registry', () => {
 
     expect(response).toMatchObject({ isError: true, structuredContent: { error: { code: 'INTERNAL_ERROR', recoverable: true } } });
     expect(response.content[0]?.text).not.toContain('stack');
+  });
+
+  it('saves a bounded automatic checkpoint after a successful workspace mutation', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-auto-checkpoint-'));
+    const registry = new ToolRegistry({ runtimeStatePath: path.join(directory, 'runtime.json') }, actor);
+
+    await expect(registry.invoke('task_create', { workspaceId: 'workspace-auto', instruction: 'continue the current phase' })).resolves.toMatchObject({ structuredContent: { id: expect.any(String) } });
+    await expect(registry.invoke('session_resume', { workspaceId: 'workspace-auto' })).resolves.toMatchObject({
+      structuredContent: { checkpoint: { phase: 'automatic-milestone', workspaceId: 'workspace-auto' }, recovered: true },
+    });
+    await rm(directory, { recursive: true, force: true });
   });
 
   it('does not impose a default 90-second response cutoff on long-running tools', async () => {

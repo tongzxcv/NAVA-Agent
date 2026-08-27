@@ -137,6 +137,7 @@ export function ControlCenterPage(props: ControlCenterPageProps): ReactElement {
           <h2>{t('tunnel.title')}</h2>
           <p data-testid="tunnel-status">{tunnelLabel}</p>
           {dashboard.tunnel.message ? <p className="hint error-text">{dashboard.tunnel.message}</p> : null}
+          {dashboard.tunnel.health ? <p data-testid="tunnel-health" className={dashboard.tunnel.health.overall === 'unhealthy' ? 'hint error-text' : 'hint'}>Health: {dashboard.tunnel.health.overall} — {dashboard.tunnel.health.message}</p> : null}
           {!dashboard.tunnel.hasApiKey ? <p className="hint">{t('tunnel.needKey')}</p> : null}
           {!dashboard.tunnel.profileExists ? <p className="hint">{t('tunnel.needProfile')}</p> : null}
           <div className="inline-actions">

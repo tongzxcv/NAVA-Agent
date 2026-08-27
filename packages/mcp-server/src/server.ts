@@ -14,10 +14,14 @@ export const NAVA_SERVER_INSTRUCTIONS = [
   'Use NAVA session continuity for multi-step project work.',
   'Call session_resume with a stable projectKey before continuing work from another or a new chat.',
   'Call session_checkpoint before a long operation and after meaningful milestones such as file changes, verification, commits, blockers, or a changed next action.',
+  'NAVA also saves a bounded automatic checkpoint after successful workspace mutations when workspaceId is present; verify it before the next mutation.',
   'Store only bounded summaries, evidence references, boundaries, and the next action; never store prompts, credentials, secrets, or raw large logs.',
   'Verify a resumed checkpoint against current Git, workspace, durable task, and Obsidian evidence before mutating files.',
-  'For concurrent writers, follow nava-multi-chat-coordinator and use workspace leases.',
+  'For concurrent writers, call workspace_authority or workspace_lease_status first, then follow nava-multi-chat-coordinator and use one expiring writer lease per workspace.',
   'Call workspace_lease_call only with outer fields workspaceId, leaseId, tool, and arguments; put all child-tool fields inside arguments and never flatten them.',
+  'Call capabilities or tool_categories after a connector refresh to verify the essential tool surface and manifestVersion; primitive tools remain available.',
+  'mcp_health distinguishes local MCP availability from remote control-plane health; unknown means the layer is not observable, not that it is healthy.',
+  'Live Logs are bounded in memory and persisted through a rotating file sink; use limit and treat truncated=true as an instruction to narrow the query.',
   'If a chat reports missing tools or a stale schema, Refresh connector first and open a new chat only if refresh does not fix it.',
 ].join(' ');
 
