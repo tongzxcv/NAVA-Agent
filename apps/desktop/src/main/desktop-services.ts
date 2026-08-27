@@ -31,6 +31,7 @@ import {
 } from '@lnwjud/extensions';
 import {
   ActivityTracker,
+  ToolRegistry,
   composeActivitySinks,
   createFileActivitySink,
   mcpActivityLogPath,
@@ -350,6 +351,27 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     ripgrep: async (): Promise<DoctorProbeResult> => checkExecutable(executableResolver, 'rg'),
     workspaces: async (): Promise<DoctorProbeResult> => ({ status: 'pass', message: `${(await workspaceService.list()).length} workspace(s) registered` }),
     mcpPort: checkLocalPort,
+    mcpTools: async (): Promise<DoctorProbeResult> => {
+      const codexToolsEnabled = readSettings().codexToolsEnabled;
+      const tools = new ToolRegistry(mcpServices, mcpActor, {
+        profileProvider: activePermissionProfile,
+        allowAiDeleteProvider,
+        codexToolsEnabled,
+      }).list();
+      const names = new Set(tools.map((tool) => tool.name));
+      const required = [
+        'workspace_lease_acquire', 'workspace_lease_status', 'workspace_lease_renew',
+        'workspace_lease_release', 'workspace_lease_call', 'skills_list', 'skills_read',
+        'session_checkpoint', 'session_resume', 'session_handoff', 'live_logs_query',
+        'diagnostic_bundle_create',
+      ];
+      const missing = required.filter((name) => !names.has(name));
+      const minimum = codexToolsEnabled ? 226 : 220;
+      if (missing.length > 0 || tools.length < minimum) {
+        return { status: 'fail', message: `${tools.length} MCP tools advertised; missing: ${missing.join(', ') || `expected at least ${minimum}`}` };
+      }
+      return { status: 'pass', message: `${tools.length} MCP tools advertised; lease/session/skill tools ready. If ChatGPT shows fewer, Refresh connector.` };
+    },
     codex: async (): Promise<DoctorProbeResult> => checkCodex(codexDiscovery),
   });
 

@@ -40,14 +40,23 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current release: v4.10.2
+## Current release: v4.10.3
 
-The current published installer and runtime contract are `v4.10.2`. The runtime
+The current published installer and runtime contract are `v4.10.3`. The runtime
 advertises **220 MCP tools**. The earlier 184-tool snapshot remains only as the
 compatibility baseline used by the v4 architecture; new v4 gateway capabilities
 are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.10.3
+
+- Makes invalid MCP input errors identify field names without echoing argument
+  values, so chats can correct malformed calls instead of blind retry loops.
+- Documents the exact non-flattened `workspace_lease_call` wrapper in MCP
+  initialization and shared continuity/coordinator skills.
+- Adds a required Doctor catalog check that confirms the expected 220 default
+  tools and tells users to refresh the connector when ChatGPT shows fewer.
 
 ### What's new in v4.10.2
 
@@ -312,7 +321,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current release is `nava-agent-Setup-4.10.2.exe`.
+   The current release is `nava-agent-Setup-4.10.3.exe`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -559,7 +568,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.10.2.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.10.3.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -908,7 +917,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (226 configurable tools; 220 advertised by default)
 
-This index is generated from the current v4.10.2 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.10.3 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

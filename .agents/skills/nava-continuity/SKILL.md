@@ -37,7 +37,10 @@ directly:
 1. Call `workspace_lease_status` for the exact workspace ID.
 2. Call `workspace_lease_acquire` with a short owner label and a 15-minute TTL.
 3. Run every non-read workspace tool through `workspace_lease_call` using the
-   returned lease ID. Keep the child tool's normal confirmation requirements.
+   returned lease ID. The outer object must contain only `workspaceId`,
+   `leaseId`, `tool`, and `arguments`; put every child-tool field inside
+   `arguments`. Never use `operation` or `name` instead of `tool`. Keep the
+   child tool's normal confirmation requirements.
 4. Call `workspace_lease_renew` before expiry during long foreground work.
 5. Call `workspace_lease_release` during finalization, including after partial
    failure. If the chat ends unexpectedly, let the lease expire.

@@ -271,3 +271,30 @@
   roots and reads the updated continuity fallback through `skills_read`.
 
 ---
+
+# 2026-08-27 Lease-call schema recovery findings
+
+- The screenshot event is reproducible in the activity log: eight
+  `workspace_lease_call` requests at `2026-08-27T02:16:10Z` failed schema
+  validation in 0-1 ms, while later calls at 02:19-02:20Z succeeded.
+- Redacted target summaries prove callers tried malformed outer fields such as
+  `operation: "shell"` or `name: "shell"`; one corrected wrapper then failed
+  because the child arguments omitted `workspaceId` before later calls passed.
+- Live NAVA v4.10.2 advertises exactly 220 tools, which matches the source and
+  integration-test default. The lease, skill, session, log, and diagnostic tools
+  are present; reports of missing tools are chat/connector discovery state, not a
+  missing installed runtime capability.
+- The current generic Zod boundary discards issue paths and returns only
+  `Tool input is invalid`, preventing a model from correcting the malformed call
+  without trial-and-error retries.
+- An external chat currently owns the `BEELZEBUB EA Lab` writer lease as
+  `BEELZEBUB-R82`; source work is safe, but the installed runtime must not be
+  restarted until that lease is released or expires.
+- The external lease cleared before installation. The controlled restart preserved the unrelated durable Vite worker (`lnwjud-node.exe` PID 45676).
+- Installed runtime/UI now reports v4.10.3. MCP initialize advertises 220 default tools and includes exact lease-wrapper plus connector-refresh guidance.
+- A malformed live `workspace_lease_call` now names `leaseId`, missing `tool`, and unknown `operation`, does not echo the supplied value, and does not poison the session; `workspace_list` succeeds immediately afterward.
+- NAVA Doctor passes the new required `mcp-tools` check with `220 MCP tools advertised; lease/session/skill tools ready`.
+- The real Secure Tunnel is live and ready after a Desktop-owned start. Runtime state, registered workspaces, DPAPI secret, YAML profile, and the active durable worker were preserved.
+- Rollback snapshot is `E:\AI_CACHE\nava-agent-setup\20260827-094750-v4.10.2-before-v4.10.3-schema-recovery`; installed `app.asar` SHA-256 is `DC65D130AFA7FAF86C796D2993B4894D778553E8BCAF2DE939D58D028D1F3801`.
+
+---

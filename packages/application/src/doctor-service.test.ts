@@ -10,6 +10,7 @@ function probes(overrides: Partial<DoctorProbes> = {}): DoctorProbes {
     ripgrep: () => pass('ripgrep ready'),
     workspaces: () => pass('1 workspace configured'),
     mcpPort: () => pass('MCP port available'),
+    mcpTools: () => pass('220 MCP tools advertised'),
     codex: () => Promise.resolve({ status: 'warn', message: 'Codex is not installed' }),
     ...overrides,
   };
@@ -21,7 +22,7 @@ describe('DoctorService', () => {
 
     expect(report.exitCode).toBe(0);
     expect(report.checks.map((check) => check.id)).toEqual([
-      'os', 'database', 'git', 'ripgrep', 'workspaces', 'mcp-port', 'codex',
+      'os', 'database', 'git', 'ripgrep', 'workspaces', 'mcp-port', 'mcp-tools', 'codex',
     ]);
     expect(report.checks.find((check) => check.id === 'codex')).toMatchObject({ status: 'warn', required: false });
   });
@@ -33,6 +34,15 @@ describe('DoctorService', () => {
 
     expect(report.exitCode).toBe(1);
     expect(report.checks.find((check) => check.id === 'database')).toMatchObject({ status: 'fail', required: true });
+  });
+
+  it('treats an incomplete MCP tool catalog as a fatal core check', async () => {
+    const report = await new DoctorService(probes({
+      mcpTools: () => Promise.resolve({ status: 'fail', message: 'Missing workspace_lease_call' }),
+    })).run();
+
+    expect(report.exitCode).toBe(1);
+    expect(report.checks.find((check) => check.id === 'mcp-tools')).toMatchObject({ status: 'fail', required: true });
   });
 
   it('redacts credential-shaped diagnostic text', async () => {

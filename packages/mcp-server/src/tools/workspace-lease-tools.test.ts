@@ -34,6 +34,17 @@ class MemoryWorkspaceLeases implements WorkspaceLeasePort {
 }
 
 describe('workspace lease tools', () => {
+  it('advertises the exact non-flattened wrapper fields', () => {
+    const registry = new ToolRegistry({}, actor);
+    const tool = registry.list().find((entry) => entry.name === 'workspace_lease_call');
+
+    expect(tool?.description).toContain('workspaceId');
+    expect(tool?.description).toContain('leaseId');
+    expect(tool?.description).toContain('tool');
+    expect(tool?.description).toContain('arguments');
+    expect(tool?.description).toContain('Do not flatten');
+  });
+
   it('allows reads, blocks conflicting writes, and runs the matching leased mutation', async () => {
     const writes: string[] = [];
     const leases = new MemoryWorkspaceLeases();

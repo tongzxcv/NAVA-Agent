@@ -15,6 +15,25 @@ Keep different projects independent and prevent two chats from mutating the same
 4. Before the first mutation, call `workspace_lease_status`.
 5. Acquire with `workspace_lease_acquire`, using a short owner label that identifies the chat and task. Default to 15 minutes unless a longer foreground operation is already known.
 6. Run each non-read tool through `workspace_lease_call`. Keep the child tool's normal arguments, permission checks, and `userConfirmed` requirement.
+   Use exactly this non-flattened wrapper:
+
+   ```json
+   {
+     "workspaceId": "registered-workspace-id",
+     "leaseId": "uuid-from-workspace_lease_acquire",
+     "tool": "shell",
+     "arguments": {
+       "workspaceId": "registered-workspace-id",
+       "operation": "run",
+       "executable": "git",
+       "arguments": ["status", "--short"]
+     }
+   }
+   ```
+
+   Only `workspaceId`, `leaseId`, `tool`, and `arguments` belong at the outer
+   level. Never use `operation` or `name` instead of `tool`, and never flatten
+   child-tool fields into the outer object.
 7. Renew before expiry during long work. Prefer durable background tasks rather than holding one long MCP request.
 8. Save a rolling `session_checkpoint` after milestones and before long operations.
 9. Release in a finalization step even after partial failure. If the chat crashes, let the lease expire; never delete lease state manually.
@@ -25,5 +44,7 @@ Keep different projects independent and prevent two chats from mutating the same
 - Same workspace, reads only: continue concurrently.
 - Same workspace, another active writer: report its owner and expiry, then wait or ask that owner to release.
 - Never bypass a lease through unscoped shell commands, a child MCP, or direct file/Git tools.
+- If a chat reports missing tools or stale input fields, refresh the NAVA
+  connector first. Open a new chat only if refresh does not fix discovery.
 
 The lease is coordination, not authorization. It does not grant permissions or replace destructive-operation confirmation.

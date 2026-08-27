@@ -29,6 +29,8 @@ describe('MCP stdio transport', () => {
       expect(client.getInstructions()).toContain('session_checkpoint');
       expect(client.getInstructions()).toContain('session_resume');
       expect(client.getInstructions()).toContain('before a long operation');
+      expect(client.getInstructions()).toContain('workspace_lease_call');
+      expect(client.getInstructions()).toContain('Refresh connector');
       const first = await client.listTools();
       const second = await client.listTools();
 

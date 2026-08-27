@@ -318,3 +318,37 @@
   secret or heavy artifact is being staged.
 
 ---
+
+# 2026-08-27 Lease-call schema recovery progress
+
+- Correlated the UI screenshot with the persisted activity log and confirmed a
+  caller-payload validation failure rather than an MCP/Tunnel outage.
+- Queried the live MCP endpoint: server `lnwjud` v4.10.2 advertises the expected
+  220 default tools and the exact strict `workspace_lease_call` JSON schema.
+- Checked coordination state before mutation: no durable background task is
+  running, but `BEELZEBUB-R82` holds an active lease on its separate workspace.
+- Started the source/test update without restarting or modifying the installed
+  NAVA runtime.
+- Added four failing regression checks before implementation. They reproduced
+  the generic schema error, vague lease description, and missing Doctor catalog
+  check while all existing neighboring tests remained green.
+- Implemented bounded field-only schema diagnostics, an exact non-flattened
+  lease wrapper description, server discovery guidance, and a required Doctor
+  MCP-catalog probe without accepting aliases or adding dependencies.
+- Focused unit tests now pass; after rebuilding the MCP package, the real STDIO
+  initialization transport also passed 3/3 with the new instructions.
+- Application tests passed 63/63, MCP Server tests passed 167/167, root
+  typecheck/lint passed, the complete Desktop build passed, docs catalog check
+  reports 226 configurable tools, and packaging/release tests passed 9/9.
+- Synchronized both NAVA skills across all five configured roots with one SHA-256
+  per skill and rebuilt the local skill-router index (245 skills).
+- Electron Builder produced the v4.10.3 `win-unpacked` candidate before the known
+  unprivileged macOS-symlink extraction failure blocked NSIS signing assets.
+- Waited until the active external workspace lease cleared, backed up the full installed app/user-data/Tunnel profile, and updated only the hash-verified runtime artifacts while preserving the branded executable and unrelated durable worker.
+- Relaunched installed NAVA v4.10.3. Live MCP verification passed: 220 tools, exact discovery instructions, actionable non-leaking malformed-call diagnostics, and successful `workspace_list` reuse in the same session.
+- Started the existing Secure Tunnel from the NAVA UI; `/healthz` returned `live`, `/readyz` returned `ready`, and the UI reported `Tunnel เชื่อมต่อแล้ว (จากแอพนี้)`.
+- Ran the installed v4.10.3 Doctor. OS, database, Git, ripgrep, 12 workspaces, MCP port, the new 220-tool catalog check, and Codex 0.149.0 all passed.
+- Updated the NAVA Obsidian status and troubleshooting runbook. The linter now reports no NAVA page-link warning; unrelated pre-existing project index warnings remain untouched.
+- Staged exactly 38 task-owned text files. The staged gate found no secret patterns, binary/report artifacts, or blobs over 1 MiB; `git diff --check` passed.
+
+---

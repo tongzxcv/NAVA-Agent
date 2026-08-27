@@ -114,12 +114,36 @@ export function defineTool<T extends z.ZodType>(config: ToolConfig<T>): McpToolD
     inputSchema: config.inputSchema,
     parse(input: unknown): Result<unknown> {
       const parsed = config.inputSchema.safeParse(input);
-      return parsed.success ? ok(parsed.data) : err({ code: 'INVALID_INPUT', message: 'Tool input is invalid', recoverable: false });
+      return parsed.success ? ok(parsed.data) : err({ code: 'INVALID_INPUT', message: invalidInputMessage(parsed.error.issues), recoverable: false });
     },
     execute(input: unknown, signal: AbortSignal): Promise<Result<unknown>> {
       return config.handler(input as z.infer<T>, signal);
     },
   };
+}
+
+function invalidInputMessage(issues: readonly unknown[]): string {
+  const details = issues.slice(0, 5).map(schemaIssueDetail).filter((detail): detail is string => detail !== undefined);
+  return details.length === 0 ? 'Tool input is invalid' : `Tool input is invalid: ${details.join('; ')}`;
+}
+
+function schemaIssueDetail(issue: unknown): string | undefined {
+  if (!isRecord(issue)) return undefined;
+  const path = Array.isArray(issue.path)
+    ? issue.path.filter((part): part is string | number => typeof part === 'string' || typeof part === 'number').join('.')
+    : '';
+  const field = path.length > 0 ? path : 'input';
+  if (issue.code === 'unrecognized_keys' && Array.isArray(issue.keys)) {
+    const keys = issue.keys.filter((key): key is string => typeof key === 'string').slice(0, 5);
+    return keys.length > 0 ? `unknown field(s): ${keys.join(', ')}` : `${field}: unknown field`;
+  }
+  if (issue.code === 'invalid_type' && typeof issue.expected === 'string') return `${field}: expected ${issue.expected}`;
+  if (issue.code === 'invalid_format' && typeof issue.format === 'string') return `${field}: expected ${issue.format}`;
+  return `${field}: invalid value`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function missingService<T>(): Result<T> {

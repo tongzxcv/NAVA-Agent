@@ -1,4 +1,4 @@
-export type DoctorCheckId = 'os' | 'database' | 'git' | 'ripgrep' | 'workspaces' | 'mcp-port' | 'codex';
+export type DoctorCheckId = 'os' | 'database' | 'git' | 'ripgrep' | 'workspaces' | 'mcp-port' | 'mcp-tools' | 'codex';
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 
 export interface DoctorProbeResult {
@@ -13,6 +13,7 @@ export interface DoctorProbes {
   ripgrep(): Promise<DoctorProbeResult>;
   workspaces(): Promise<DoctorProbeResult>;
   mcpPort(): Promise<DoctorProbeResult>;
+  mcpTools(): Promise<DoctorProbeResult>;
   codex(): Promise<DoctorProbeResult>;
 }
 
@@ -45,6 +46,7 @@ export class DoctorService {
       { id: 'ripgrep', required: true, probe: () => this.probes.ripgrep() },
       { id: 'workspaces', required: true, probe: () => this.probes.workspaces() },
       { id: 'mcp-port', required: true, probe: () => this.probes.mcpPort() },
+      { id: 'mcp-tools', required: true, probe: () => this.probes.mcpTools() },
       { id: 'codex', required: false, probe: () => this.probes.codex() },
     ];
     const checks: DoctorCheck[] = [];

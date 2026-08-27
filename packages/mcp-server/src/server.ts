@@ -17,6 +17,8 @@ export const NAVA_SERVER_INSTRUCTIONS = [
   'Store only bounded summaries, evidence references, boundaries, and the next action; never store prompts, credentials, secrets, or raw large logs.',
   'Verify a resumed checkpoint against current Git, workspace, durable task, and Obsidian evidence before mutating files.',
   'For concurrent writers, follow nava-multi-chat-coordinator and use workspace leases.',
+  'Call workspace_lease_call only with outer fields workspaceId, leaseId, tool, and arguments; put all child-tool fields inside arguments and never flatten them.',
+  'If a chat reports missing tools or a stale schema, Refresh connector first and open a new chat only if refresh does not fix it.',
 ].join(' ');
 
 export interface McpServerOptions {

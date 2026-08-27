@@ -101,6 +101,22 @@ describe('MCP tool registry', () => {
     await expect(registry.invoke('process_logs', { workspaceId: 'workspace-1', processId: 'process-1', tailLines: 10001 })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: 'INVALID_INPUT' } } });
   });
 
+  it('returns actionable field names for invalid tool input without echoing values', async () => {
+    const registry = new ToolRegistry({}, actor);
+
+    const response = await registry.invoke('workspace_lease_call', {
+      workspaceId: 'workspace-1',
+      leaseId: 'not-a-uuid',
+      operation: 'shell-secret-value',
+    });
+    const message = (response.structuredContent as { error?: { message?: string } } | undefined)?.error?.message ?? '';
+
+    expect(message).toContain('leaseId');
+    expect(message).toContain('tool');
+    expect(message).toContain('operation');
+    expect(message).not.toContain('shell-secret-value');
+  });
+
   it('marks read-only and destructive annotations accurately and excludes forbidden tools', () => {
     const registry = new ToolRegistry({}, actor);
     const byName = new Map(registry.list().map((tool) => [tool.name, tool]));

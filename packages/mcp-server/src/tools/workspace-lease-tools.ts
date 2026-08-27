@@ -60,7 +60,7 @@ export function workspaceLeaseTools(context: McpToolContext, invoker: WorkspaceL
     }),
     defineTool({
       name: 'workspace_lease_call',
-      description: 'Run one non-read MCP tool under a matching workspace writer lease. The child tool keeps its normal permission and confirmation checks.',
+      description: 'Run one non-read MCP tool under a matching writer lease. Exact wrapper fields: workspaceId, leaseId, tool, arguments. Put every child-tool field inside arguments. Do not flatten child fields or use operation/name instead of tool. Child permissions and confirmations still apply.',
       permission: 'DANGEROUS',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: z.object({

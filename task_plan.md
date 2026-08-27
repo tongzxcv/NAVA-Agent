@@ -553,3 +553,42 @@ lease tools.
 | Default and bundled Python lacked the validator's `yaml` module; the first UTF-8 read also used the Thai Windows code page | 2 | Reuse the existing validator dependency cache through `PYTHONPATH` and set `PYTHONUTF8=1`; both skills then passed. |
 
 ---
+
+# 2026-08-27 Lease-call schema recovery update
+
+## Goal
+
+Make intermittent `workspace_lease_call` mistakes self-correcting and make stale
+ChatGPT connector/tool discovery visible without weakening strict validation or
+workspace writer-lease safety.
+
+## Plan
+
+- [x] Add regression tests for actionable schema errors and the live tool-catalog Doctor check.
+- [x] Implement the minimum runtime descriptions/diagnostics and exact skill examples.
+- [x] Run focused tests, typecheck/build, skill sync, and package verification.
+- [x] Wait for active external workspace leases to clear, preserve runtime state, install, and verify the live MCP/Tunnel.
+- [x] Run the final staged secret/artifact gate and commit only task-owned files; do not push unless requested.
+
+## Boundaries
+
+- Keep `workspace_lease_call` strict; do not accept aliases or flatten child arguments.
+- Do not expose argument values, credentials, prompts, or raw payloads in errors/logs.
+- Do not interrupt the active `BEELZEBUB-R82` workspace lease or unrelated MT5 work.
+- Preserve settings, workspaces, SQLite state, Runtime API key, Tunnel profile, and rollback path.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Initial multi-file test patch used the wrong workspace-lease test suite title | 1 | Read the exact test header and reapplied the same test-only change against `describe('workspace lease tools')`. |
+| STDIO integration initially loaded stale built MCP output and missed the new server instructions | 1 | Rebuilt `@lnwjud/mcp-server`, then reran the same integration test successfully (3/3). |
+| First full build hit a transient `EBUSY` copying the bundled Node runtime | 1 | Confirmed no checkout-owned process remained and reran only the Desktop build; it passed and bundled Node 24.19.0. |
+| NSIS packaging could not create macOS compatibility symlinks inside `winCodeSign-2.6.0` without Windows link privilege | 1 | Keep the fully built `win-unpacked` candidate and use the established hash-verified in-place runtime installation; no signing requirement is weakened. |
+| First compact lease-status probe omitted spaces between PowerShell parameters | 1 | Rewrote the same read-only probe with explicit named arguments; it confirmed the external lease was still active. |
+| First cache-completeness query had an empty PowerShell pipeline element | 1 | Rewrote it with an explicit result array; confirmed the packaging failure is the known symlink privilege limitation. |
+| First live MCP probe omitted the dual Accept header, then omitted `notifications/initialized`, then attempted to parse SSE as plain JSON | 3 | Corrected the verifier to use the MCP HTTP handshake and SSE `data:` payload; the installed runtime then passed the intended checks. |
+| Tunnel health port was down after the controlled Desktop restart | 1 | Started the existing configured Tunnel from NAVA UI and verified `healthz=live`, `readyz=ready`, and a Desktop-owned tunnel process. |
+| Electron accessibility exposed the Start Tunnel button without clickable geometry | 1 | Refreshed a screenshot-backed observation and clicked the verified NAVA window coordinate once. |
+
+---
