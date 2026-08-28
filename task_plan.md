@@ -804,3 +804,45 @@ The repository seams are verified. The implementation will preserve the existing
 | Error | Attempt | Resolution |
 |---|---:|---|
 | None in this active phase | 0 | Continue with focused inspection before mutation. |
+
+# Active Task: NAVA Command Room Phase 1.5 acceptance and Phase 2
+
+## SCQA
+
+- **Situation:** NAVA Agent 4.11.0 is installed with Command Room Phase 1 enabled. Direct local MCP verification previously listed 229 tools, including all eight command-room tools, and the Tunnel reported `live` / `ready`.
+- **Complication:** This Codex connector session still has a stale schema with no `command_room_*` wrappers, and Phase 1 has not yet proved two independent clients, persistence across restart, or safe writer coordination end to end.
+- **Question:** What is the smallest evidence-backed path from the installed Phase 1 backend to the user's Main 1 + Project Lead 5 daily workflow?
+- **Answer:** First run an isolated two-session MCP acceptance harness against the installed runtime. Verify messaging, task state, presence, resource ownership, persistence, and restart recovery. Repair only reproduced defects. Start the minimum Phase 2 UI/role preset only after every Phase 1.5 gate passes.
+
+## Acceptance criteria
+
+- [x] Two independent MCP sessions list all eight command-room tools.
+- [x] Main and Lead identities can join one isolated test room and exchange bounded messages without cross-room leakage.
+- [x] Task, presence, and resource/writer coordination behave deterministically under concurrent requests.
+- [ ] Command-room state survives an owned NAVA restart and remains readable afterward.
+- [x] Existing workspace leases, permissions, continuity, MCP health, and Tunnel health remain intact.
+- [x] No production defect was reproduced; the dependency-free installed-runtime harness is the repeatable regression check.
+- [ ] Phase 2 Main 1 + Project Lead 5 preset/UI scope is implemented only after Phase 1.5 passes.
+- [ ] Relevant tests/build pass, task-owned changes are secret/artifact scanned and committed, and no push occurs unless requested.
+
+## Boundaries
+
+- Do not modify EA/MT5 projects, live trading state, VPS workloads, Runtime API keys, Tunnel credentials, or unrelated workspaces.
+- Do not restart NAVA until active durable tasks, external leases, and shared activity are checked.
+- Use the C: workspace writer lease for every source/planning mutation.
+- Keep the acceptance room isolated and remove or archive only task-owned test state when the command-room API explicitly supports it.
+- No new dependency or framework unless an existing platform/runtime seam cannot satisfy a reproduced requirement.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Planning-file inventory PowerShell used an invalid empty pipeline after `foreach` | 1 | Rewrote it with an explicit result array; all three existing planning files were found. |
+| First leased shell call repeated `workspaceId` inside child arguments and the current shell schema rejected it | 1 | Retried through the same outer writer lease without the unknown child field; the acceptance harness then passed. |
+| A second PowerShell tool-path query repeated the invalid `foreach | ConvertTo-Json` shape | 1 | Stopped using that shape and used an explicit `$rows` array; located the workspace pnpm shim and Node executable. |
+| The pnpm shim attempted an install and aborted a modules purge because the leased shell has no TTY | 1 | Do not retry pnpm installation; invoke the already-installed Vitest entrypoint directly with Node. |
+| Pre-commit `git diff --check` found one extra blank line at `task_plan.md` EOF | 1 | Normalize the planning file to exactly one trailing newline before staging. |
+| New acceptance harness failed ESLint on Node globals and one unused Lead session value | 1 | Use `globalThis.fetch`, write through `process.stdout`, and do not retain the unused session token; rerun lint and acceptance. |
+| Final direct `session_checkpoint` call was rejected while this task owned the workspace lease | 1 | Released the lease, reacquired a short finalization lease, and route the checkpoint through `workspace_lease_call`. |
+| Direct `git` status/diff calls were rejected while this task owned the workspace lease | 1 | Re-ran the same read-only Git commands through `workspace_lease_call`. |
+| Vitest attempt through `cmd.exe` treated the quoted pnpm path as a literal command name | 1 | Switched to PowerShell call-operator invocation. |

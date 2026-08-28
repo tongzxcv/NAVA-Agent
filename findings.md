@@ -533,3 +533,40 @@
 - Installed v4.11.0 hashes match the package for the executable, `resources/app.asar`, MCP stdio bundle, and bundled Node runtime. Existing NAVA data and Tunnel profile were backed up and preserved.
 - A real local HTTP MCP client connected to the installed app, listed 221 tools, called `mcp_health`, and called `workspace_authority` (12 registered workspaces). Tunnel `/healthz` and `/readyz` both returned HTTP 200 after restart.
 - The local child cannot prove the external ChatGPT connector/control-plane state; v4.11 reports those layers as `unknown` with `verificationRequired=true` rather than falsely claiming end-to-end health. The final check in ChatGPT still requires connector refresh and one real `workspace_list` call.
+
+# 2026-08-29 Command Room Phase 1.5 initial findings
+
+- The latest continuity checkpoint `0693f45b-2421-4c13-b83e-fa8bc6cf1e08` matches the current source repository and installed Phase 1 deployment record.
+- Git is clean on `fix/nava-tunnel-probe-timeout` and is 14 commits ahead of its configured remote tracking branch.
+- The installed runtime previously proved 229 local MCP tools and all eight command-room tools, but this already-open Codex connector schema exposes no `command_room_*` wrapper. Direct MCP sessions are therefore the correct local acceptance seam; ChatGPT still needs connector refresh/new-chat proof afterward.
+- The current source workspace had no competing writer lease. Lease `1c7a5ebd-d320-42c4-aaaf-9ff45773ff84` is owned by this Phase 1.5 task.
+- Phase 2 is gated on two-client messaging, deterministic coordination, persistence, and owned restart recovery; UI work before those proofs would hide backend defects.
+
+- Command Room implementation is already vertically sliced across domain, application broker, SQLite repository/migration, MCP tools, and CLI runtime integration tests. The shortest Phase 1.5 path is to exercise the installed MCP contract; no new framework or service is justified.
+- Existing integration coverage already creates a room, joins Main/Lead identities, sends a message, and reads the inbox. Phase 1.5 should extend evidence to independent transport sessions, concurrency, and restart persistence instead of duplicating unit behavior.
+
+- The MCP contract already supports exactly the requested topology: `command_room_admin.create` accepts `leadSlots` from 1 to 5, so Main 1 + Project Lead 5 needs no backend topology expansion.
+- Room creation returns one-time join codes; each joined slot receives an opaque `agentSessionId`. Acceptance must keep those values only in process memory and never write them to planning files or logs.
+- The contract blocks direct Lead-to-Lead messages, caps inbox reads at 50, uses idempotency keys, and exposes explicit task versions. These existing guards should be tested rather than relaxed.
+- Existing ToolRegistry coverage proves one-process behavior only. The missing evidence is two independent Streamable HTTP sessions plus SQLite persistence/restart recovery.
+
+- Current runtime task list is empty, so no durable background task blocks non-restart acceptance work.
+- Workspace authority shows an unrelated active BEELZEBUB writer `chatgpt-beelzebub-ready136` until 2026-08-28T20:35:37Z. NAVA restart/persistence testing is therefore deferred until that lease clears; the acceptance flow must not interrupt it.
+- Local MCP remains available. Remote control-plane and connector-schema states remain explicitly `unknown`, matching the designed observability boundary.
+
+- Phase 1 intentionally rejects `WRITE` tasks with `PERMISSION_REQUIRED`; only `READ_ONLY` task orchestration is enabled. Phase 1.5 must verify this guard and keep workspace mutation authority in the existing writer-lease tools.
+- Command Room manifest version is `1.0.0`; rooms are versioned, receipts are explicit, and agent states include ONLINE/WORKING/WAITING/SLEEPING/OFFLINE. Phase 2 can render these existing records without inventing another state model.
+
+- Installed acceptance can use the existing Streamable HTTP endpoint without building source. Room creation is idempotent; join codes are one-time; archive is MAIN-only and version checked.
+- The READ_ONLY task lifecycle is room-version checked on assign and task-version checked afterward. Resource status is deliberately `PHASE_1_MANUAL`; Phase 2 must display this truth rather than imply automatic MT5/VPS/browser scheduling.
+- Existing package scripts already provide focused Vitest, typecheck, build, acceptance, and packaging seams. A new dependency is unnecessary.
+- Installed-runtime acceptance task `25e304da-d359-4009-9fbe-ff4f0414f71d` passed against NAVA 4.11.0 with 229 tools and all eight command-room tools.
+- Two independent Streamable HTTP sessions were distinct. Main/Lead messaging round-tripped, the isolation room received no foreign message, direct Lead-to-Lead delivery returned `PERMISSION_DENIED`, and a WRITE task returned `PERMISSION_REQUIRED`.
+- The READ_ONLY lifecycle passed `QUEUED > CLAIMED > RUNNING > REVIEW > COMPLETED`; presence heartbeat and `PHASE_1_MANUAL` resource status also passed. Both task-owned rooms were archived.
+- The current workspace pnpm shim is `C:\Users\Endlessly\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback\pnpm.cmd`; Node is `D:\Program Files\nodejs\node.exe`. These existing tools are sufficient for focused verification.
+- The acceptance harness and existing command-room integration suite both pass. Current evidence supports Phase 1 transport/task correctness; only owned restart persistence and real refreshed ChatGPT connector discovery remain unproved.
+- Phase 2 renderer integration is centralized: `AppShell.tsx` owns navigation, `App.tsx` owns screen state/data loading, and `messages.ts` owns Thai/English labels. A single Command Room page plus existing IPC seams is the minimum UI shape.
+- Existing styles and page patterns can be reused. No router, state library, or new design system is justified.
+- Desktop already constructs the `CommandRoomBroker` for MCP, but there is no renderer/preload IPC surface for Command Room. Phase 2 should reuse that same broker/repository instance rather than opening another database or calling the local MCP endpoint from the renderer.
+- The minimum useful Phase 2 page is local-admin-safe: create the Main 1 + Lead 5 room, reveal one-time join codes/prompts only in the creation response, and show a credential-free room/agent/task overview. Chat agents continue to perform authenticated room mutations through MCP.
+- Navigation can add one `commandRoom` screen and bilingual message keys. No client router or shared state package is needed.

@@ -528,3 +528,31 @@
 - A user Desktop shortcut was created at `C:\Users\Endlessly\Desktop\NAVA Agent.lnk`. The Public Desktop shortcut could not be created because that location returned access denied.
 - The pre-install runtime and app-data backup is at `E:\AI_CACHE\nava-agent-setup\20260828-2145-v4.11.0-before-command-room-phase1`. The connector may still show the remote layer as unknown until the ChatGPT connector is refreshed; this is not evidence that the local MCP or tunnel client is down.
 - Source implementation commit before this deployment record: `290b795`. This deployment record must be committed separately.
+
+## 2026-08-29 Command Room Phase 1.5 started
+
+- Read the required SCQA, persistent-planning, minimal-diff, continuity, and multi-chat coordination instructions.
+- Resumed `projectKey=nava-command-room-phase-1`; current Git evidence agrees with checkpoint `0693f45b-2421-4c13-b83e-fa8bc6cf1e08`.
+- Confirmed the source tree is clean and no competing C: workspace writer lease exists.
+- Acquired writer lease `1c7a5ebd-d320-42c4-aaaf-9ff45773ff84`.
+- Current phase: inspect the exact command-room schemas and existing tests, then build the smallest two-session acceptance harness before any production-code change.
+
+- Located the existing Command Room vertical slice and integration tests. No production change has been made yet.
+- Next action: read the exact MCP schemas and test fixtures, then run an isolated two-session installed-runtime acceptance flow.
+
+- Checked shared runtime activity before acceptance: durable task list is empty, but BEELZEBUB has an active external writer lease.
+- Restart/persistence acceptance is paused by the multi-chat coordinator; non-restart two-session MCP testing can continue safely.
+- Added `scripts/verify-command-room-phase1_5.mjs`, a dependency-free installed-runtime acceptance harness that keeps join/session tokens in memory and archives task-owned rooms.
+- First leased shell attempt was rejected before execution because the child arguments repeated unsupported `workspaceId`; rerunning under the same outer lease with the exact shell schema succeeded.
+- Acceptance task `25e304da-d359-4009-9fbe-ff4f0414f71d` passed every non-restart Phase 1.5 gate.
+- Restart persistence remains pending because the unrelated BEELZEBUB writer lease is active; NAVA has not been restarted.
+- Acceptance harness syntax passed with Node `--check`.
+- Focused Vitest has not run yet: the first wrapper invocation quoted the command incorrectly; the corrected pnpm invocation then tried to reinstall modules and stopped because the non-interactive shell has no TTY. Next attempt will use the existing Vitest entrypoint directly and will not modify dependencies.
+- Focused source verification passed 5/5 in `apps/cli/src/runtime/command-room.integration.test.ts` using the already-installed Vitest entrypoint directly; no dependency install was performed.
+- Post-acceptance health remains intact: local MCP available, Tunnel `healthz=200 live`, `readyz=200 ready`, and the unrelated BEELZEBUB writer lease is unchanged.
+- Pre-commit repository status contains exactly three planning files plus `scripts/verify-command-room-phase1_5.mjs`.
+- The repository-wide guard reported only pre-existing build/install artifacts and binary pattern false positives. None is task-owned or selected for staging; the final gate will inspect only the four task files.
+- Harness ESLint passed after the minimal Node-global cleanup.
+- Installed-runtime acceptance rerun `6639b9e3-a062-4ce0-8e44-9c46d41e3aeb` passed the same 229-tool, two-session, isolation, permission, task-lifecycle, resource-mode, and archive gates.
+- Commit `6e18bf8` created the repeatable Phase 1.5 acceptance checkpoint; the branch was clean and 15 commits ahead immediately afterward.
+- The first final checkpoint call was correctly blocked because it bypassed the held lease. A short finalization lease was reacquired so the operational note, amended commit, and checkpoint can use the required wrapper.
