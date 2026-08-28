@@ -1,3 +1,51 @@
+# NAVA Command Room architecture design (Main 1 + Project Lead 5)
+
+## SCQA
+
+- **Situation:** NAVA v4.11.0 already has SQLite persistence, project continuity, durable tasks, bounded activity logs, workspace authority, and expiring writer leases.
+- **Complication:** The public multi-agent capability is still planned. NAVA does not yet have a room/message broker, fail-closed chat identity, worker wake-up bridge, shared resource queue, or a user-facing Main/Lead dashboard. The user works across EA projects in both normal chats and ChatGPT Project chats.
+- **Question:** What architecture best supports one Main coordinator and five reusable Project Leads without file collisions, duplicate work, stale context, quota waste, or MT5/VPS resource contention?
+- **Answer:** Inspect the current runtime, source contracts, persisted usage, workspace/task/lease state, and UI seams; then produce a proposed architecture and rollout ADR only. Do not update the installed runtime in this design task.
+
+## Acceptance criteria
+
+- [x] Current NAVA orchestration, continuity, storage, permission, UI, and extension gaps are evidenced from source/runtime.
+- [x] Actual multi-project usage is summarized without exposing prompts, secrets, or large raw logs.
+- [x] The design supports Main 1 + five reusable Leads across normal ChatGPT chats, Project chats, and an optional Codex participant.
+- [x] Roles, state machines, message/task contracts, SQLite schema, identity binding, workspace leases, resource scheduling, recovery, and audit behavior are specified.
+- [x] Chrome extension behavior is event-driven and fail-closed; periodic model polling is not treated as reliable wake-up.
+- [x] Default concurrency is tailored to EA/MT5/VPS work and can be changed without hard-coding project names.
+- [x] UI/dashboard, settings, migration, phased rollout, tests, observability, rollback, and non-goals are documented.
+- [x] No installed NAVA, Tunnel, EA, MT5, VPS, workspace setting, or active project writer is interrupted.
+- [ ] Documentation changes pass focused checks and are committed without unrelated files.
+
+## Phases
+
+- [completed] Inspect current NAVA runtime, source seams, persisted activity, workspaces, tasks, and coordination state.
+- [completed] Derive the user-specific operating model and failure/resource constraints.
+- [completed] Draft the full Command Room architecture and proposed ADR.
+- [completed] Review the design against current contracts, security boundaries, and implementation size.
+- [in_progress] Verify documentation, commit only task-owned files, and release the design lease.
+
+## Safety boundaries
+
+- Design only: do not implement, package, install, restart, or reconfigure NAVA in this task.
+- Do not open, stop, or modify active EA/MT5/VPS work.
+- Do not read or store raw chat prompts, credentials, API keys, private keys, or unbounded logs.
+- Preserve existing checkpoint, workspace, permission, audit, and Tunnel data contracts through additive migrations.
+- A coordination lease controls collisions; it never grants authorization or bypasses destructive-operation confirmation.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| The first 48-hour activity aggregation returned zero rows because the filter used the wrong timestamp handling and `tool` instead of `toolName` | 1 | Inspected metadata keys only, normalized UTC `DateTime`, reran successfully across both rotated JSONL files, and exposed no payload content. |
+| One broad IPC search named non-existent `packages/contracts` and `packages/shared` targets | 1 | Used the real `packages/ipc-contracts` package and existing `packages/shared`; the partial search still returned valid matches and was not repeated. |
+| First documentation check found two Markdown hard-break spaces plus one extra blank line at EOF in each planning file | 1 | Normalized trailing whitespace/final newlines; rerun passed with zero formatting failures and zero broken links. |
+| Pre-stage diff review exposed a duplicate Review phase row created by incremental plan updates | 1 | Collapsed it to one completed Review phase and one in-progress Verify/commit phase before staging. |
+
+---
+
 # NAVA EA forensics and ML analysis capability
 
 ## SCQA

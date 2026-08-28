@@ -1,3 +1,39 @@
+# 2026-08-28 NAVA Command Room architecture design
+
+- Converted the broad request into an SCQA design task; implementation and deployment are explicitly out of scope.
+- Read the required planning, architecture, multi-chat coordination, brainstorming, SCQA, and concise-communication guidance.
+- Ran planning-session catch-up and inspected the current clean branch/history plus existing planning records.
+- Read NAVA workspace authority, active writer state, managed task state, and default session history without modifying user projects.
+- Confirmed 13 registered workspaces, one unrelated BEELZEBUB writer, no managed runtime tasks, and no default session-history entries.
+- Acquired Local Disk C design lease `09309302-57ba-44e5-b61e-70a9df81f901` for repository documentation coordination; it must be renewed or released before expiry.
+- Inventoried storage, MCP runtime, tool catalog, Desktop UI, and documentation seams.
+- Confirmed there is no room/message/participant persistence or browser identity bridge, and that `agent_swarm_run` is planned only.
+- Read the SQLite migrations/database/lease repository and bounded runtime task/checkpoint implementation.
+- Chose additive SQLite room repositories while preserving the existing workspace lease and continuity contracts.
+- Current phase: inspect Desktop IPC/UI seams, runtime identity boundaries, and aggregate bounded activity evidence.
+- Confirmed the existing Desktop shell and typed IPC/preload seams can host Command Room as a native page; no separate desktop app is required.
+- Confirmed provider conversation identity and browser wake-up are absent, so extension-assisted identity must fail closed and remain optional for manual room use.
+- Logged the failed first activity aggregation as a parser/filter issue; no absence-of-usage conclusion was drawn and no raw prompt/tool payload was exposed.
+- Repaired the aggregation with UTC-normalized timestamps and the actual `toolName` field; both rotated JSONL files parse with zero malformed rows.
+- Summarized 10,725 calls/48h, 96.3% successful completions, heavy shell/tool-batch/lease traffic, frequent checkpoint/resume use, and the dominant typed-wrapper error without reading any payload content.
+- Located the exact Desktop screen/IPC/preload seams, storage migration boundary at 004, current architecture-doc layout, and confirmed only task planning files are modified.
+- Completed the evidence-gathering phase; the active phase is now the user-specific operating model and failure/resource constraints.
+- Verified `packages/ipc-contracts` as the typed Desktop boundary and confirmed durable MCP Tasks can be referenced by ID rather than copied into room messages.
+- Verified new design/ADR documents are ignored by the docs allowlist and must be force-staged intentionally.
+- Logged and corrected one harmless broad-search path error; no source or runtime behavior was changed.
+- Derived the final operating profile: one durable room, Main read-only, five reusable slots, three active Leads, two writers on different workspaces, two heavy jobs, and two sleeping reserves.
+- Drafted the complete Thai architecture, ADR-0001, and ADR index, including tools, schemas, identity, extension, leases, MT5/VPS scheduling, recovery, UI, rollout, and tests.
+- Active phase is design review against current contracts and implementation-size/security boundaries; no runtime implementation or installation has started.
+- Completed architecture review: the proposal reuses current package boundaries, writer lease, continuity, durable tasks, audit, and Desktop shell; it adds no external broker/framework/cloud dependency.
+- First structural pass found no broken links and confirmed all quota/permission/extension caveats are explicit; only whitespace normalization remains before final verification.
+- Read the mandatory secret-artifact guard and its scanner before commit; the scan will target only the six task-owned Markdown files and will never print matched secret values.
+- Focused secret/artifact scans passed for all six task-owned Markdown files with no candidate or secret pattern.
+- Structural checks passed: zero trailing whitespace, exactly one final newline, zero broken relative links, ADR status Proposed, and exactly eight documented room tools.
+- `git diff --check` passes for tracked planning files; the three ignored architecture/ADR documents are validated separately and will be force-staged exactly.
+- Pre-stage diff review caught and corrected one duplicated Review phase row in the plan; final verification/commit remains the only active phase.
+
+---
+
 # 2026-08-25 NAVA EA forensics and ML capability
 
 - Started a scoped SCQA/plan before editing runtime code.

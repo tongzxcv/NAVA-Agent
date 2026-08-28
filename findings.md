@@ -1,3 +1,102 @@
+# NAVA Command Room design findings
+
+## Initial runtime observations
+
+- Installed/source target is NAVA v4.11.0 at commit `fedb194`; the repository was clean before this design task.
+- NAVA currently reports 13 registered workspaces. The important independent EA roots include Autobots, BEELZEBUB EA Lab, GREED, RATCHET EA_Lab, THANATOS, plus separate MT5/tester-data roots.
+- One live writer lease belongs to BEELZEBUB; no design inspection touched that workspace or lease.
+- The managed runtime task list is currently empty. The session-history call returned no checkpoints in its unfiltered default response, so persisted continuity must not be assumed from that call alone.
+- The public `agent_swarm_run` entry is catalogued as planned rather than implemented.
+- The Command Room design task holds a short lease on the registered Local Disk C workspace only to coordinate repository documentation writes.
+
+## Source inventory observations
+
+- `packages/storage` already separates SQLite database access into workspace, writer-lease, encrypted checkpoint, settings, audit, and backup repositories. There is no room, participant, message, inbox cursor, orchestration task, or shared-resource repository yet.
+- Existing migrations stop at initial/settings/workspaces, audit, and checkpoints. Command Room state should therefore use additive migrations and dedicated repositories rather than extending the generic settings blob.
+- `UpgradeRuntimeService` persists bounded tasks/delegates/checkpoints and can produce collision-aware parallel plans, but it is not an Agent executor or chat broker.
+- `agent_swarm_run` is explicitly `availability: planned`; presenting it as a working swarm would be incorrect.
+- The Desktop renderer already has reusable navigation, dashboard, work-log, live-log, project, settings, and IPC patterns suitable for a Command Room page.
+- No current Chrome extension, conversation-ID bridge, caller-attribution contract, or worker wake-up path exists in this repository.
+- `codex_run` exists as an optional local Codex CLI delegate. It should remain opt-in because it uses Codex resources rather than ChatGPT chat quota.
+
+## Persistence and runtime contract observations
+
+- SQLite runs in WAL mode with a 5-second busy timeout, foreign keys enabled, transactional migrations, and a pre-migration backup. This is suitable for a local room broker with several concurrent readers and short writes.
+- Migration `004_workspace_leases` enforces one active lease row per workspace. Command Room should reuse it for file mutation ownership rather than invent another writer lock.
+- Existing `checkpoints` SQLite rows are file checkpoint metadata. Session continuity is separately bounded to 128 entries and persisted atomically in the runtime/continuity JSON state.
+- Existing runtime tasks/delegates contain ID, kind, digest, state, and optional result, but do not encode room, agent, assignment, dependency, heartbeat, delivery acknowledgement, or a provider execution handle.
+- `parallel_delegate` currently returns a deterministic plan only. It detects possible writes by payload text and does not schedule or execute agents.
+- Room, participant, message, task, inbox cursor, and resource-allocation data should be durable SQLite tables under additive migrations beginning after `004`; runtime JSON remains appropriate only for backward-compatible session continuity/WSE state.
+- The existing workspace lease repository already returns actionable owner/expiry conflicts and deletes expired leases transactionally; Command Room messages should surface those conflicts rather than bypass them.
+
+## Desktop/UI and IPC observations
+
+- The renderer uses a typed screen union and reusable AppShell/page patterns. Command Room can be added as one first-class Desktop page without creating a second application.
+- Main-process IPC already validates workspace, dashboard, settings, process, MCP, Tunnel, Doctor, log, and update calls; Command Room should follow the same typed preload and handler boundary.
+- The preload exposes a validated `window.lnwjud` API. Room operations should be added through this boundary rather than exposing SQLite or browser-control primitives directly to the renderer.
+- Existing Projects, Work Log, Live Logs, and Control Center views can provide workspace selection, audit evidence, health state, and bounded diagnostics to a new room dashboard.
+- No current provider conversation identity, extension pairing, exact-tab wake-up, or per-chat caller attribution was found. Sensitive join/wake operations therefore require a new fail-closed identity bridge.
+- The first aggregate query over rotated activity JSONL returned zero records despite known live activity. This is treated as a query defect, not evidence of no usage; the next pass will inspect only bounded field names/timestamps and aggregate counts.
+
+## Bounded 48-hour usage evidence
+
+- The two rotated activity files contain 10,725 distinct calls in the 48-hour UTC window, with 10,724 completions and one started call without a matching completion at query time.
+- 10,326 completions were `SUCCESS` (96.3%); 398 were non-success (3.7%). This is active multi-session production-like use, not an occasional single-chat workload.
+- Highest-volume completed tools were `shell` 4,785, `workspace_lease_call` 1,474, `tool_batch` 1,107, `session_checkpoint` 674, `write_file` 323, and `read_file` 258.
+- Continuity is materially used: 674 checkpoint completions and 124 resume completions. Command Room must integrate these contracts instead of replacing them.
+- The strongest correctable client-contract signal is `workspace_lease_call / INVALID_INPUT` at 60 events. Typed assignment/write envelopes and UI-generated calls should remove most hand-authored wrapper mistakes.
+- Other common non-success groups were `search_text / SEARCH_FAILED` 60, `shell / PERMISSION_REQUIRED` 55, `accessibility / INTERNAL_ERROR` 26, and `dom_cdp / PERMISSION_REQUIRED` 18.
+- `shell` p95 was about 40.3 seconds, while `tool_batch` p95 was about 17.0 seconds. Room heartbeat and stalled-agent thresholds must tolerate legitimate long calls and use durable task state rather than aggressive retries.
+- Peak observed hourly throughput was 729 completed calls. The broker therefore needs bounded inbox reads, acknowledgements, idempotency, WAL-friendly short transactions, backpressure, and dead-letter handling.
+- This aggregation used only call ID, tool name, phase, result code, duration, and timestamp. It did not read prompts, arguments, outputs, paths, credentials, or chat content.
+
+## Documentation and migration seams
+
+- Existing architecture documentation is under `docs/architecture`; there is no current ADR directory or numbering convention, so this task should add a small `docs/adr` index plus ADR 0001.
+- Storage migrations are explicit and end at `004_workspace_leases`. Command Room can start with `005_command_room_core` and keep each later capability additive.
+- The current worktree contains only the three task planning files changed by this inspection. No source/runtime/user project file is dirty from this task.
+- Desktop has one central renderer screen union, main IPC registration block, and preload bridge. The implementation plan can name these seams exactly and avoid speculative application restructuring.
+
+## Exact contract and repository constraints
+
+- The typed IPC contract lives in `packages/ipc-contracts/src/index.ts`; Command Room contracts belong there, with parsers in preload/main and application services behind IPC.
+- Existing `UserSettings` holds global operational preferences. Small global defaults such as maximum active Leads may extend it, but durable rooms, agents, tasks, messages, receipts, and resource ownership must not.
+- Existing `WorkLogEntry`, `InFlightWorkItem`, Tunnel health, and push-channel patterns provide reusable bounded status shapes. Room-specific events need their own push channel and cursor rather than reusing unbounded Live Logs.
+- New design and ADR files are ignored by the repository's allowlist-style `.gitignore`. They must be intentionally force-staged or explicitly allowlisted; no unrelated ignored docs should be added.
+- Durable shell/WSL tasks are already exposed through MCP Tasks read/result/cancel/list, but task creation still begins through tools and clients poll. Command Room should reference durable task IDs instead of cloning process output into messages.
+
+## User-specific operating decision
+
+- Use one durable room with Main plus five reusable slots, not one room per project and not five permanently named project agents.
+- Normal operation activates three Leads: two writers on different workspaces and one read-only research/review Lead. Two slots remain sleeping for a new project, independent review, or chat-full replacement.
+- Main is read-only by default and mediates assignment/result traffic; direct Lead-to-Lead delivery is disabled to prevent loops and unclear ownership.
+- File collisions remain governed only by existing workspace leases. Separate expiring resource leases govern MT5 terminal paths, project-level CPU-heavy capacity, VPS mutation, managed-browser input, and GPU-heavy work.
+- ChatGPT Project membership is display metadata, not identity or routing. A normal chat and a Project chat join the same room contract.
+- Manual join/inbox mode is the reliable first release. Optional Chrome extension pairing provides exact-chat wake-up but is not task storage or permission authority.
+- Eight fixed MCP tools balance context size with typed contracts; INVALID_INPUT responses must include expectedShape and manifestVersion.
+- Codex participation is opt-in and visibly labeled because it consumes Codex resources; NAVA never substitutes quota automatically.
+
+## Architecture review findings
+
+- The design follows the current package boundaries: domain types, application services, storage repositories, MCP transport, typed IPC, and renderer page. It does not require a second executable, framework, database, or cloud service.
+- The eight-tool surface is additive and keeps primitive tools available. Room coordination never becomes a proxy that bypasses existing tool validation or permission policy.
+- Manual mode is deliberately first because it proves the broker, continuity, and collision model without depending on fragile browser DOM automation.
+- Chrome pairing is deferred, encrypted, opt-in, visible, and fail-closed. It can fail without losing room/task/checkpoint state.
+- The plan reuses workspace lease 004 as the only writer lock and adds resource leases only for non-file shared resources, avoiding overlapping lock systems.
+- The default 3 active / 2 writers / 2 heavy tasks is a policy value, not hard-coded project behavior, and matches the observed EA/MT5/VPS workload.
+- Feature flags, phased gates, backup-before-migration, and installed-runtime verification preserve current NAVA settings, workspaces, Tunnel profile, and running project work.
+- The design is intentionally larger than an MVP document, but implementation is sliced so Phase 1 remains a small local broker/manual workflow; extension and extra providers are not prerequisites.
+
+## Resolved design questions
+
+- Storage ownership: dedicated repositories in packages/storage under additive migrations 005–007; generic settings stores only small global defaults.
+- Reuse boundary: existing session continuity, MCP Tasks, ActivityTracker/audit, Desktop Live Logs, workspace authority, and workspace lease remain sources of truth and are referenced rather than copied.
+- Chat identity: room slot identity uses one-time join, agentSessionId, and connectionEpoch; optional extension pairing strengthens exact conversation binding but never grants filesystem authority.
+- Wake boundary: manual notification/copy prompt works without extension; exact event wake and replace-chat assistance require the optional extension.
+- Concurrency: five reusable slots, three active Leads, two writers on different workspaces, two cross-project heavy jobs, and explicit capacity leases for MT5/VPS/browser/GPU.
+
+---
+
 # 2026-08-25 NAVA EA forensics and ML capability
 
 - Active source is `C:\Users\Endlessly\NAVA-Tunnel-Fix` on `fix/nava-tunnel-probe-timeout` at `a1002a5`; existing custom work includes WSE and secure SSH.
