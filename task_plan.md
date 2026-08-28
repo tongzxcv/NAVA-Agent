@@ -17,7 +17,7 @@
 - [x] Default concurrency is tailored to EA/MT5/VPS work and can be changed without hard-coding project names.
 - [x] UI/dashboard, settings, migration, phased rollout, tests, observability, rollback, and non-goals are documented.
 - [x] No installed NAVA, Tunnel, EA, MT5, VPS, workspace setting, or active project writer is interrupted.
-- [ ] Documentation changes pass focused checks and are committed without unrelated files.
+- [x] Documentation changes pass focused checks and are committed without unrelated files.
 
 ## Phases
 
@@ -25,7 +25,7 @@
 - [completed] Derive the user-specific operating model and failure/resource constraints.
 - [completed] Draft the full Command Room architecture and proposed ADR.
 - [completed] Review the design against current contracts, security boundaries, and implementation size.
-- [in_progress] Verify documentation, commit only task-owned files, and release the design lease.
+- [completed] Verify documentation, commit only task-owned files, and release the design lease.
 
 ## Safety boundaries
 
@@ -43,6 +43,7 @@
 | One broad IPC search named non-existent `packages/contracts` and `packages/shared` targets | 1 | Used the real `packages/ipc-contracts` package and existing `packages/shared`; the partial search still returned valid matches and was not repeated. |
 | First documentation check found two Markdown hard-break spaces plus one extra blank line at EOF in each planning file | 1 | Normalized trailing whitespace/final newlines; rerun passed with zero formatting failures and zero broken links. |
 | Pre-stage diff review exposed a duplicate Review phase row created by incremental plan updates | 1 | Collapsed it to one completed Review phase and one in-progress Verify/commit phase before staging. |
+| NAVA rejected `git commit --amend --no-edit` because history rewrites require explicit user confirmation | 1 | Preserved the design commit and will create a separate non-rewriting closure commit for the final planning state. |
 
 ---
 

@@ -31,6 +31,10 @@
 - Structural checks passed: zero trailing whitespace, exactly one final newline, zero broken relative links, ADR status Proposed, and exactly eight documented room tools.
 - `git diff --check` passes for tracked planning files; the three ignored architecture/ADR documents are validated separately and will be force-staged exactly.
 - Pre-stage diff review caught and corrected one duplicated Review phase row in the plan; final verification/commit remains the only active phase.
+- Staged exactly the three new design/ADR files plus the three planning files; cached diff check passed with no unrelated paths.
+- Committed the complete design set with message `docs: design NAVA command room`; this closure update is folded into the same commit before lease release.
+- All design phases and acceptance criteria are complete. Runtime implementation remains deliberately unstarted pending user approval.
+- NAVA correctly blocked the attempted amend as a history rewrite. The original design commit is preserved and this final status/error record will use a separate normal commit.
 
 ---
 
