@@ -1,3 +1,10 @@
+# 2026-08-28 NAVA Command Room Phase 1 deployment
+
+- Authorized deployment started from clean commit `290b795`; installed runtime is still the prior build at `D:\Program Files\NAVA Agent`.
+- Preflight: NAVA local MCP and Live Logs are healthy, 13 workspaces and migrations 001-004 are intact, Command Room flag is absent, and one unrelated BEELZEBUB writer lease remains untouched.
+- Active durable EA task `d9239bc8-21b8-4621-9313-300dcc3f7322` is running; installation/restart is blocked until it finishes. Do not terminate it.
+- Node 24 installer packaging is running as durable task `a7e1457e-8428-43a9-a6e8-6f574b283a1f`.
+
 # 2026-08-28 NAVA Command Room Phase 1
 
 - Phase 1 implementation is complete in source: local SQLite broker, exact eight feature-gated tools, CLI/Desktop runtime wiring, official bundled skill, and manual MAIN + five-LEAD workflow.
@@ -496,3 +503,18 @@
 - The first lease expired during the full repository scan; status showed no active writer, so a new lease `31289bdb-8866-4239-9182-d5032d6e7622` was acquired before final state/commit work. An empty accidental `D:\Program` directory remains as a cleanup candidate; no files are inside it.
 - Final reliability commit was created with message `feat: harden NAVA continuity and tunnel health`. Working-tree status was clean immediately before this final documentation update; lease release is the last runtime action.
 - Final commit was amended to include the completed plan status; the writer lease was released and verified with `active leases = 0` before this final status update.
+
+
+## 2026-08-28 Phase 1 deployment worker
+
+- Fresh unsigned installer task completed successfully as durable task `cf795695-89b4-4efd-89ee-c21914b0b866`; its packaged app.asar matches the unpacked build and contains `command_room_join`, `005_command_room_core`, `command_room_enabled`, and `nava-command-room`.
+- Deployment worker `2496a522-5ebc-4a2b-bd25-94fa80fa5a37` is running under the NAVA writer lease and waits only for the known R386 EA Python PID `37324` to exit before restarting NAVA.
+- The worker is bounded to the existing EA deadline plus two minutes, verifies the PID path/command marker, preserves the task, backs up the installed app, NAVA data, Tunnel profile, and shortcut, then installs and verifies the Phase 1 runtime.
+- No EA/MT5/VPS files are in scope; no unrelated workspace lease is touched.
+
+
+## 2026-08-28 Phase 1 deployment worker retry
+
+- The first deployment worker `2496a522-5ebc-4a2b-bd25-94fa80fa5a37` exited before mutation because PowerShell reserves `$PID`; no process was stopped and no backup was changed.
+- Renamed the helper parameter to `$ProcessId`; parser check passed with zero errors.
+- Replacement deployment worker `c710f8c1-3dec-4f95-a6da-d439d01e8d93` is running with the same bounded EA-PID guard and install sequence.
