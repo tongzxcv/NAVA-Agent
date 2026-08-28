@@ -35,6 +35,9 @@
 - Committed the complete design set with message `docs: design NAVA command room`; this closure update is folded into the same commit before lease release.
 - All design phases and acceptance criteria are complete. Runtime implementation remains deliberately unstarted pending user approval.
 - NAVA correctly blocked the attempted amend as a history rewrite. The original design commit is preserved and this final status/error record will use a separate normal commit.
+- Direct workspace-scoped checkpoint was correctly rejected while the design lease was active; the same checkpoint succeeded through workspace_lease_call. Added this proven requirement to the architecture, ADR risk table, findings, and tests before final closure.
+- Corrected two validator-only issues (JavaScript quoting, then CRLF assumption); the portable LF check, diff check, evidence grep, and focused secret scan now pass.
+- The first refinement stage was safely rejected by the docs ignore rule; no index corruption occurred. Retry is restricted to the exact five refined paths with `--force`.
 
 ---
 

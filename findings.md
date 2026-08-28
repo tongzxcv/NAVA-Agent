@@ -28,6 +28,7 @@
 - `parallel_delegate` currently returns a deterministic plan only. It detects possible writes by payload text and does not schedule or execute agents.
 - Room, participant, message, task, inbox cursor, and resource-allocation data should be durable SQLite tables under additive migrations beginning after `004`; runtime JSON remains appropriate only for backward-compatible session continuity/WSE state.
 - The existing workspace lease repository already returns actionable owner/expiry conflicts and deletes expired leases transactionally; Command Room messages should surface those conflicts rather than bypass them.
+- Live closure testing proved that session_checkpoint with a leased workspace is rejected unless it is invoked through workspace_lease_call using the owning lease. The Command Room skill/contract must carry this lease context automatically.
 
 ## Desktop/UI and IPC observations
 

@@ -68,6 +68,7 @@ agent_swarm_run ปัจจุบันเป็น planned capability ไม�
 | --- | --- |
 | wrong chat/slot impersonation | one-time join code, connectionEpoch, optional extension pairing, no permission escalation |
 | duplicate task/result | idempotencyKey + expectedVersion |
+| checkpoint ขณะถือ writer lease ถูกปฏิเสธ | route session_checkpoint ผ่าน existing workspace_lease_call และทดสอบ envelope ใน bundled skill |
 | writer collision | existing workspace lease only |
 | MT5/VPS collision | explicit resource capacity and expiring resource lease |
 | agent disappears/chat full | checkpoint, stale detection, slot takeover with new epoch |

@@ -209,6 +209,7 @@ QUEUED -> DELIVERED -> ACKED
 - inbox ไม่ส่งข้อมูลเกิน limit และคืน nextCursor/truncated
 - command_room_task ไม่แก้ไฟล์แทน agent
 - การแก้ไฟล์ยังผ่าน workspace_lease_call รูปแบบเดิม
+- ถ้า workspace มี active writer lease การเรียก session_checkpoint ที่ระบุ workspaceId ต้องผ่าน workspace_lease_call ด้วย leaseId เดิม; bundled skill ต้องสร้าง envelope นี้ให้ agent เพื่อลด INVALID_INPUT/PERMISSION_REQUIRED
 
 ตัวอย่างผล submit ที่ควรเก็บ:
 
@@ -328,7 +329,7 @@ writer lease เป็น collision control ไม่ใช่ authorization
 
 1. Lead เรียก session_resume ด้วย projectKey
 2. ตรวจ Git/workspace/durable task/Obsidian ก่อน mutation
-3. บันทึก checkpoint หลัง milestone และก่อนงานยาว
+3. บันทึก checkpoint หลัง milestone และก่อนงานยาว; ถ้าถือ writer lease ให้ route session_checkpoint ผ่าน workspace_lease_call ด้วย lease เดิม
 4. command_room_task อ้าง checkpointId/durableTaskId เท่านั้น
 5. ถ้าแชทใกล้เต็ม Lead ส่ง HANDOFF_READY ให้ Main และ park ตัวเอง
 
@@ -594,6 +595,7 @@ Gate: ไม่มี wrong-tab wake, retry bounded, revoke/replace chat ทำ�
 - storage migration/rollback ผ่าน
 - manual Main + 2 Leads ทำงาน end-to-end
 - writer collision และ resource contention ผ่าน
+- active writer สามารถบันทึก checkpoint ผ่าน lease wrapper และ direct call ที่ขาด lease context ถูกปฏิเสธแบบ actionable
 - chat-full takeover จาก checkpoint ผ่าน
 - Tunnel/MCP restart recovery ผ่าน
 - manifest refresh ไม่มี missing tools

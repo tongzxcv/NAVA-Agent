@@ -44,6 +44,10 @@
 | First documentation check found two Markdown hard-break spaces plus one extra blank line at EOF in each planning file | 1 | Normalized trailing whitespace/final newlines; rerun passed with zero formatting failures and zero broken links. |
 | Pre-stage diff review exposed a duplicate Review phase row created by incremental plan updates | 1 | Collapsed it to one completed Review phase and one in-progress Verify/commit phase before staging. |
 | NAVA rejected `git commit --amend --no-edit` because history rewrites require explicit user confirmation | 1 | Preserved the design commit and will create a separate non-rewriting closure commit for the final planning state. |
+| Direct session_checkpoint with workspaceId was rejected while this task held that workspace lease | 1 | Routed session_checkpoint through workspace_lease_call with the same lease; it succeeded and the design/test matrix now requires this typed envelope. |
+| First refinement-check orchestration string had a JavaScript quoting error before any command ran | 1 | Rebuilt the command with plain strings and reran; no file or runtime action occurred in the failed attempt. |
+| The next newline check assumed Windows CRLF while task files intentionally contain LF | 1 | Changed the validator to accept exactly one LF final newline; all refinement checks then passed. |
+| Refinement staging without `--force` was rejected because the allowlist-style .gitignore still covers the tracked docs/adr parent | 1 | Use exact-path `git add --force` for only the five refined files, then inspect the cached name list and diff. |
 
 ---
 
