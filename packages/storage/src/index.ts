@@ -1,5 +1,6 @@
 export * from './audit-repository.js';
 export * from './checkpoint-repository.js';
+export * from './command-room-repository.js';
 export * from './database.js';
 export * from './settings-repository.js';
 export * from './workspace-repository.js';

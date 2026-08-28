@@ -3,6 +3,7 @@ import type { CapabilityService } from '@lnwjud/capabilities';
 import type { ExtensionsService } from '@lnwjud/extensions';
 import type {
   ApplyPatchRequest,
+  CommandRoomBroker,
   CodexService,
   DeleteFileRequest,
   FileActor,
@@ -58,6 +59,7 @@ export interface McpApplicationServices {
   readonly activityLogPath?: string;
   readonly localProviders?: () => { readonly pdfProvider?: string; readonly lspCommands?: Readonly<Record<string, string>> };
   readonly capabilities?: CapabilityService;
+  readonly commandRoom?: Pick<CommandRoomBroker, 'join' | 'status' | 'inbox' | 'send' | 'task' | 'presence' | 'resource' | 'admin'>;
   readonly extensions?: ExtensionsService;
   readonly workspaceInfo?: WorkspaceInfoPort;
   readonly workspaceLeases?: WorkspaceLeasePort;

@@ -40,6 +40,125 @@ CREATE TABLE IF NOT EXISTS workspace_leases (
 CREATE INDEX IF NOT EXISTS workspace_leases_expires_at_idx ON workspace_leases(expires_at);
 `;
 
+export const COMMAND_ROOM_CORE_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS command_rooms (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'PAUSED', 'ARCHIVED')),
+  policy_json TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  creation_key TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS command_room_agents (
+  id TEXT PRIMARY KEY NOT NULL,
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  slot_key TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('MAIN', 'LEAD')),
+  provider TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('AVAILABLE', 'ONLINE', 'WORKING', 'WAITING', 'SLEEPING', 'OFFLINE')),
+  project_key TEXT,
+  workspace_id TEXT,
+  connection_epoch INTEGER NOT NULL DEFAULT 0 CHECK (connection_epoch >= 0),
+  current_task_id TEXT,
+  last_heartbeat_at TEXT,
+  last_checkpoint_id TEXT,
+  capabilities_json TEXT NOT NULL,
+  join_code_hash TEXT,
+  session_hash TEXT UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(room_id, slot_key)
+);
+
+CREATE TABLE IF NOT EXISTS command_room_admin_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  actor_agent_id TEXT NOT NULL REFERENCES command_room_agents(id),
+  event_type TEXT NOT NULL,
+  target_slot_key TEXT,
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(room_id, actor_agent_id, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS command_room_messages (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  sender_agent_id TEXT NOT NULL REFERENCES command_room_agents(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('UPDATE', 'QUESTION', 'RESULT', 'HANDOFF')),
+  subject TEXT NOT NULL,
+  body_json TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,
+  reply_to_id TEXT,
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  UNIQUE(room_id, sender_agent_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS command_room_messages_room_seq_idx ON command_room_messages(room_id, seq);
+
+CREATE TABLE IF NOT EXISTS command_room_message_receipts (
+  message_id TEXT NOT NULL REFERENCES command_room_messages(id) ON DELETE CASCADE,
+  recipient_agent_id TEXT NOT NULL REFERENCES command_room_agents(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (status IN ('QUEUED', 'DELIVERED', 'ACKED', 'EXPIRED', 'DEAD_LETTER')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  delivered_at TEXT,
+  acked_at TEXT,
+  last_error TEXT,
+  PRIMARY KEY(message_id, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS command_room_receipts_recipient_idx ON command_room_message_receipts(recipient_agent_id, status);
+
+CREATE TABLE IF NOT EXISTS command_room_cursors (
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES command_room_agents(id) ON DELETE CASCADE,
+  last_message_seq INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(room_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS command_room_tasks (
+  id TEXT PRIMARY KEY NOT NULL,
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  project_key TEXT NOT NULL,
+  workspace_id TEXT,
+  title TEXT NOT NULL,
+  brief_json TEXT NOT NULL,
+  mutation_mode TEXT NOT NULL CHECK (mutation_mode IN ('READ_ONLY', 'WRITE')),
+  state TEXT NOT NULL CHECK (state IN ('QUEUED', 'CLAIMED', 'RUNNING', 'WAITING', 'REVIEW', 'COMPLETED', 'FAILED', 'CANCELLED')),
+  priority INTEGER NOT NULL DEFAULT 0,
+  assigned_agent_id TEXT REFERENCES command_room_agents(id),
+  created_by_agent_id TEXT NOT NULL REFERENCES command_room_agents(id),
+  checkpoint_id TEXT,
+  durable_task_id TEXT,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  claimed_at TEXT,
+  started_at TEXT,
+  deadline_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS command_room_tasks_room_state_idx ON command_room_tasks(room_id, state, priority, created_at);
+
+CREATE TABLE IF NOT EXISTS command_room_task_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL REFERENCES command_room_tasks(id) ON DELETE CASCADE,
+  actor_agent_id TEXT NOT NULL REFERENCES command_room_agents(id),
+  event_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(task_id, actor_agent_id, idempotency_key)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS command_room_task_events_assign_idempotency_idx ON command_room_task_events(actor_agent_id, idempotency_key) WHERE event_type = 'ASSIGN';
+`;
+
 export class SqliteDatabase {
   public readonly connection: DatabaseSync;
   private readonly existedBeforeOpen: boolean;
@@ -56,6 +175,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '002_audit', sql: AUDIT_MIGRATION_SQL });
     this.applyMigration({ id: '003_checkpoints', sql: CHECKPOINT_MIGRATION_SQL });
     this.applyMigration({ id: '004_workspace_leases', sql: WORKSPACE_LEASE_MIGRATION_SQL });
+    this.applyMigration({ id: '005_command_room_core', sql: COMMAND_ROOM_CORE_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

@@ -18,6 +18,7 @@ import { workspaceLeaseTools } from './tools/workspace-lease-tools.js';
 import { upgradeTools } from './tools/upgrade-tools.js';
 import { ToolSchemaRegistry } from './tool-schema-registry.js';
 import { codexTools } from './tools/codex-tools.js';
+import { commandRoomTools } from './tools/command-room-tools.js';
 import { capabilityTools } from './tools/capability-tools.js';
 import { fileTools } from './tools/file-tools.js';
 import { gitTools } from './tools/git-tools.js';
@@ -40,6 +41,8 @@ export interface ToolRegistryOptions {
   readonly allowAiDeleteProvider?: () => boolean;
   /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
   readonly codexToolsEnabled?: boolean;
+  /** Exposes the local manual Command Room broker. Disabled unless explicitly enabled. */
+  readonly commandRoomEnabled?: boolean;
   readonly incrementalVerifier?: IncrementalVerifier;
   readonly maxToolDurationMs?: number;
 }
@@ -92,6 +95,7 @@ export class ToolRegistry {
       ...files.slice(2),
       ...processTools(context),
       ...(options.codexToolsEnabled === true ? codexTools(context) : []),
+      ...(options.commandRoomEnabled === true ? commandRoomTools(context) : []),
       ...capabilityTools(context),
       ...skillTools(context),
       ...mcpBridgeTools(context),
@@ -202,7 +206,7 @@ export class ToolRegistry {
   }
 
   private async checkWorkspaceLease(tool: McpToolDefinition, input: unknown, leaseId: string | undefined): Promise<Result<void>> {
-    if (tool.permission === 'READ' || tool.name.startsWith('workspace_lease_') || this.services.workspaceLeases === undefined) {
+    if (tool.permission === 'READ' || tool.name.startsWith('workspace_lease_') || tool.name.startsWith('command_room_') || this.services.workspaceLeases === undefined) {
       return { ok: true, value: undefined };
     }
     const workspaceId = await mutationWorkspaceId(this.services, this.actor, input);
@@ -211,7 +215,7 @@ export class ToolRegistry {
   }
 
   private async maybeSaveAutomaticCheckpoint(tool: McpToolDefinition, input: unknown): Promise<void> {
-    if (tool.permission === 'READ' || tool.name.startsWith('workspace_lease_') || tool.name.startsWith('session_') || tool.name === 'tool_batch') return;
+    if (tool.permission === 'READ' || tool.name.startsWith('workspace_lease_') || tool.name.startsWith('session_') || tool.name.startsWith('command_room_') || tool.name === 'tool_batch') return;
     const workspaceId = explicitWorkspaceId(input);
     if (workspaceId === undefined) return;
     const record = isRecord(input) ? input : {};

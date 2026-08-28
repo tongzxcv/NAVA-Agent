@@ -35,6 +35,8 @@ export interface McpServerOptions {
   readonly allowAiDeleteProvider?: () => boolean;
   /** Exposes quota-consuming Codex delegation tools. Disabled unless explicitly enabled. */
   readonly codexToolsEnabled?: boolean;
+  /** Exposes the local Command Room broker. Disabled unless explicitly enabled. */
+  readonly commandRoomEnabled?: boolean;
   /** Shared across per-request server factories so repeated diff fingerprints can hit cache. */
   readonly incrementalVerifier?: IncrementalVerifier;
   /** Shared across per-request server factories so the run clock starts at the first tool call. */
@@ -49,6 +51,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.profileProvider === undefined ? {} : { profileProvider: options.profileProvider }),
     ...(options.allowAiDeleteProvider === undefined ? {} : { allowAiDeleteProvider: options.allowAiDeleteProvider }),
     ...(options.codexToolsEnabled === undefined ? {} : { codexToolsEnabled: options.codexToolsEnabled }),
+    ...(options.commandRoomEnabled === undefined ? {} : { commandRoomEnabled: options.commandRoomEnabled }),
     ...(options.incrementalVerifier === undefined ? {} : { incrementalVerifier: options.incrementalVerifier }),
   });
   const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();

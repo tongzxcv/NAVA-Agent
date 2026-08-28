@@ -16,3 +16,4 @@ export * from './workspace-index-queue.js';
 export * from './workspace-index.js';
 export * from './lifecycle-hooks.js';
 export * from './runtime-cache.js';
+export * from './command-room-broker.js';

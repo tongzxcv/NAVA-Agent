@@ -164,6 +164,7 @@ async function main(): Promise<void> {
     actor: runtime.actor,
     activityTracker: runtime.activityTracker,
     codexToolsEnabled: runtime.codexToolsEnabled,
+    commandRoomEnabled: runtime.commandRoomEnabled,
     profileProvider: runtime.profileProvider,
     allowAiDeleteProvider: runtime.allowAiDeleteProvider,
     onError: (error): void => {

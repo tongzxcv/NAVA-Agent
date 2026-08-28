@@ -1,3 +1,42 @@
+# 2026-08-28 NAVA Command Room Phase 1
+
+- Phase 1 implementation is complete in source: local SQLite broker, exact eight feature-gated tools, CLI/Desktop runtime wiring, official bundled skill, and manual MAIN + five-LEAD workflow.
+- Final review added proven MAIN chat-full takeover. The RED failure was the LEAD-only guard; GREEN revokes the old MAIN session and rejoins MAIN at the next connection epoch.
+- Final gates passed: root typecheck and lint; storage 15/15, application 63/63, MCP 176/176, CLI 24/24, shared 15/15, domain 3/3, Desktop full suite; CLI and Node 24 Desktop builds; tool catalog synchronized at the unchanged default 227 tools.
+- Skill gates passed: official validator, sync doctor, and router index rebuild. The repo-local bundled skill remains source-only until a separately authorized NAVA build/install.
+- Secret/artifact guard reported only existing ignored/generated installers, build outputs, images, and `.env.example`; Git status contains none of those task-external candidates.
+
+
+- Wired the disabled-by-default `command_room_enabled` setting through shared config, MCP server options, CLI stdio runtime, Desktop HTTP runtime, and Doctor counts; both runtimes now share one SQLite broker service without adding UI.
+- First affected typecheck separated stale package declarations from true strict types; SQLite bind arrays and MCP Zod optional contracts were corrected, then all affected declarations and package typechecks passed.
+
+- RED→GREEN MCP tracer 6 passes: the disabled registry adds zero tools, the explicit flag adds exactly the fixed eight names, and create/join/send/inbox works through the public ToolRegistry over real SQLite (5/5 vertical integration tests).
+- TDD MCP tracer is RED as intended: all four broker tests remain green; the enabled registry advertises zero `command_room_*` tools because the fixed tool module/flag plumbing has not been added yet.
+- RED→GREEN rebind/lifecycle tracer 5 passes: MAIN rotates a full LEAD slot with a one-time hashed code and higher connection epoch, the old session is revoked, and pause/status/resume remain controllable without browser identity (4/4 broker integration tests).
+- TDD rebind/lifecycle tracer is RED as intended: three prior broker tests remain green and the new flow reaches the existing create-only admin branch, proving rebind/pause/resume are the remaining broker gap.
+- RED→GREEN presence/status tracer 4 passes: bounded room/agent/task state, explicit workspace-lease observability, Phase-1 manual resource status, heartbeat metadata, and park behavior pass (3/3 broker integration tests).
+- TDD presence/status tracer is RED as intended: the two prior broker tests remain green and the new bounded status flow fails only because `broker.presence` is not implemented yet.
+- RED→GREEN task tracer 3 passes: MAIN assignment, READ_ONLY Phase 1 gate, duplicate assign replay, assigned-Lead ownership, stale expectedVersion rejection, claim/start/submit/review/approve, checkpoint reference, and terminal cleanup all pass (2/2 broker integration tests).
+- TDD task tracer is RED as intended: existing room/message test remains green and the new ownership/version/idempotency flow fails only because `broker.task` is not implemented yet.
+- RED→GREEN broker tracer 2 passes through real SQLite: MAIN/LEAD manual join, hashed one-time codes/sessions, idempotent immutable send, bounded inbox delivery, explicit acknowledgement, and persistent cursor all pass (1/1 focused CLI integration test).
+- RED→GREEN storage tracer 1 passes: migration `005_command_room_core` creates the normalized core tables transactionally, and a room plus MAIN/LEAD slots survive closing and reopening SQLite (1/1 focused test).
+- TDD storage tracer is RED as intended: the new public integration test fails only because `command-room-repository.js` does not exist; all 14 pre-existing storage tests still pass.
+- Source inspection is complete and the public Phase 1 contract is frozen: hashed one-time joins/sessions, immutable bounded messages with receipts/cursors, read-only task workflow, status-only resources, manual admin lifecycle, and no browser/UI/runtime deployment.
+- Verified the MCP seam: one ToolRegistry option, one persisted user-setting flag (default false), one shared runtime service, and exactly +8 tools when enabled preserve the existing disabled counts of 221/227.
+- Verified the storage seam: transactional migrations, WAL/backups, concrete Result-based repositories, and temporary SQLite integration tests support a minimal migration-005/repository slice with no new package or dependency.
+- Logged two read-only inspection/tooling errors: one oversized result was truncated, and one over-quoted PowerShell `rg` invocation did not run. Follow-up reads are split and bounded.
+
+- User approved Phase 1 only.
+- Re-read the required SCQA, persistent-planning, minimal-implementation, TDD, multi-chat coordination, and skill-creation guidance.
+- Resumed stable checkpoint `nava-command-room`; the prior design nextAction exactly matches this implementation scope.
+- Verified Local Disk C workspace ID and acquired writer lease `37ddae73-143f-4790-aae9-72c447228bcf` as owner `codex-nava-command-room-phase1`.
+- Froze acceptance criteria and five vertical tracer bullets before source changes.
+- Current phase: verify live Git state and public package/tool/skill seams.
+- Verified HEAD `b841893`; no source changes exist beyond the new planning sections.
+- Planning catch-up returned no unsynchronized state. Consulted prior continuity/runtime evidence and retained its bounded-state and no-unapproved-restart constraints.
+
+---
+
 # 2026-08-28 NAVA Command Room architecture design
 
 - Converted the broad request into an SCQA design task; implementation and deployment are explicitly out of scope.

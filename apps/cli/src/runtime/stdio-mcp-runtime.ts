@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CheckpointService,
   CodexService,
+  CommandRoomBroker,
   FileService,
   GitService,
   ProcessService,
@@ -36,7 +37,7 @@ import {
   WslFilesystemCapabilityBackend,
 } from '@lnwjud/capabilities';
 import type { Result } from '@lnwjud/domain';
-import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_CODEX_TOOLS_ENABLED, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList, parseStringRecordSetting } from '@lnwjud/shared';
+import { ALLOW_AI_DELETE_SETTING_KEY, DEFAULT_CODEX_TOOLS_ENABLED, DEFAULT_COMMAND_ROOM_ENABLED, DEFAULT_MCP_CALL_TIMEOUT_MS, DEFAULT_MCP_IDLE_TIMEOUT_MS, DEFAULT_PROCESS_TIMEOUT_MS, USER_SETTING_KEYS, loadCheckpointEncryptionKey, parseBooleanSetting, parseCustomPermissionSettings, parseIntegerSetting, parsePathList, parseStringRecordSetting } from '@lnwjud/shared';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -48,6 +49,7 @@ import {
   AesGcmCheckpointCipher,
   SqliteAuditRepository,
   SqliteCheckpointRepository,
+  SqliteCommandRoomRepository,
   SqliteDatabase,
   SqliteSettingsRepository,
   SqliteWorkspaceLeaseRepository,
@@ -65,6 +67,7 @@ export interface StdioMcpRuntime {
   readonly profileProvider: () => PermissionProfile;
   readonly allowAiDeleteProvider: () => boolean;
   readonly codexToolsEnabled: boolean;
+  readonly commandRoomEnabled: boolean;
   close(): Promise<void>;
 }
 
@@ -189,6 +192,7 @@ export function createStdioMcpRuntime(
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, effectiveUnrestricted),
     workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
+    commandRoom: new CommandRoomBroker(new SqliteCommandRoomRepository(database)),
     workspaceQuery,
     projectSnapshot: new ProjectSnapshotService(workspaceRepository, {
       projectService,
@@ -214,6 +218,7 @@ export function createStdioMcpRuntime(
     profileProvider,
     allowAiDeleteProvider,
     codexToolsEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.codexToolsEnabled), DEFAULT_CODEX_TOOLS_ENABLED),
+    commandRoomEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.commandRoomEnabled), DEFAULT_COMMAND_ROOM_ENABLED),
     close: async (): Promise<void> => {
       await (await sharedActivityLease)?.close();
       await extensions.close().catch(() => undefined);

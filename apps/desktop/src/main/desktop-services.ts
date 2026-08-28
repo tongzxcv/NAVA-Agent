@@ -5,6 +5,7 @@ import {
   DoctorService,
   CheckpointService,
   CodexService,
+  CommandRoomBroker,
   FileService,
   GitService,
   ProjectService,
@@ -50,6 +51,7 @@ import {
   DEFAULT_MCP_IDLE_TIMEOUT_MS,
   DEFAULT_PROCESS_TIMEOUT_MS,
   DEFAULT_CODEX_TOOLS_ENABLED,
+  DEFAULT_COMMAND_ROOM_ENABLED,
   DEFAULT_TUNNEL_MAX_AUTO_RESTARTS,
   DEFAULT_UPDATE_INTERVAL_MINUTES,
   STDIO_ALLOWED_ROOTS_SETTING_KEY,
@@ -72,7 +74,7 @@ import {
   serializeStringRecordSetting,
   loadCheckpointEncryptionKey,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
@@ -265,6 +267,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     extensions: extensionsService,
     workspaceInfo: workspaceInfoService,
     workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
+    commandRoom: new CommandRoomBroker(new SqliteCommandRoomRepository(database)),
     workspaceQuery: workspaceQueryService,
     projectSnapshot: projectSnapshotService,
     project: projectService,
@@ -326,6 +329,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       profileProvider: activePermissionProfile,
       allowAiDeleteProvider,
       codexToolsEnabled: readSettings().codexToolsEnabled,
+      commandRoomEnabled: parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.commandRoomEnabled), DEFAULT_COMMAND_ROOM_ENABLED),
     }),
   });
   const tunnelController = new TunnelController({
@@ -366,10 +370,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     mcpPort: checkLocalPort,
     mcpTools: async (): Promise<DoctorProbeResult> => {
       const codexToolsEnabled = readSettings().codexToolsEnabled;
+      const commandRoomEnabled = parseBooleanSetting(settingsRepository.get(USER_SETTING_KEYS.commandRoomEnabled), DEFAULT_COMMAND_ROOM_ENABLED);
       const tools = new ToolRegistry(mcpServices, mcpActor, {
         profileProvider: activePermissionProfile,
         allowAiDeleteProvider,
         codexToolsEnabled,
+        commandRoomEnabled,
       }).list();
       const names = new Set(tools.map((tool) => tool.name));
       const required = [
@@ -379,7 +385,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         'diagnostic_bundle_create',
       ];
       const missing = required.filter((name) => !names.has(name));
-      const minimum = codexToolsEnabled ? 227 : 221;
+      const minimum = (codexToolsEnabled ? 227 : 221) + (commandRoomEnabled ? 8 : 0);
       if (missing.length > 0 || tools.length < minimum) {
         return { status: 'fail', message: `${tools.length} MCP tools advertised; missing: ${missing.join(', ') || `expected at least ${minimum}`}` };
       }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceRepository } from '@lnwjud/storage';
 import { permissionProfiles } from '@lnwjud/permissions';
+import { USER_SETTING_KEYS } from '@lnwjud/shared';
 import { createStdioMcpRuntime } from './stdio-mcp-runtime.js';
 import { sharedActivitySnapshotPath } from '@lnwjud/mcp-server';
 
@@ -29,6 +30,25 @@ afterEach(async () => {
 });
 
 describe('stdio MCP runtime', () => {
+  it('keeps Command Room disabled by default and enables it only from the persisted flag', async () => {
+    const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-command-room-flag-'));
+    temporaryRoots.push(dataPath);
+
+    const disabled = createStdioMcpRuntime(dataPath, workspace);
+    expect(disabled.commandRoomEnabled).toBe(false);
+    expect(disabled.services.commandRoom).toBeDefined();
+    await disabled.close();
+
+    const database = new SqliteDatabase(path.join(dataPath, 'lnwjud.sqlite'));
+    new SqliteSettingsRepository(database).set(USER_SETTING_KEYS.commandRoomEnabled, 'true');
+    database.close();
+
+    const enabled = createStdioMcpRuntime(dataPath, workspace);
+    expect(enabled.commandRoomEnabled).toBe(true);
+    expect(enabled.services.commandRoom).toBeDefined();
+    await enabled.close();
+  });
+
   it('does not overwrite the Desktop permission profile when using full tunnel access', async () => {
     const dataPath = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-stdio-profile-'));
     temporaryRoots.push(dataPath);

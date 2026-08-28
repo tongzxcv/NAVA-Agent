@@ -1,3 +1,68 @@
+# NAVA Command Room Phase 1 implementation
+
+## SCQA
+
+- **Situation:** The proposed local-first Command Room architecture and ADR-0001 are committed. NAVA v4.11 already has SQLite WAL, additive migrations, continuity checkpoints, durable tasks, audit/activity, workspace authority, and expiring writer leases.
+- **Complication:** No room/message/agent/task persistence or executable room broker exists yet. The current planned swarm is not an executor, manual lease/checkpoint envelopes are error-prone, and Phase 1 must not depend on browser wake-up, new cloud infrastructure, or the installed runtime being restarted.
+- **Question:** What is the smallest implementation that proves one Main and reusable Leads can join, exchange bounded messages, assign/claim/update tasks, recover state after restart, and preserve all existing permission/lease boundaries?
+- **Answer:** Add one transactional core migration and one deep broker service, expose the fixed eight MCP contracts behind a disabled-by-default feature flag, add one concise bundled skill, and build through vertical RED→GREEN slices using public interfaces.
+
+## Acceptance criteria
+
+- [x] Current branch/worktree, package boundaries, tool registry, test conventions, and bundled-skill path are verified before source edits.
+- [x] Migration `005_command_room_core` is additive, transactional, backed up by the existing migration flow, and preserves all prior data.
+- [x] Public broker behavior supports room create/status, slot join/rejoin, bounded inbox/cursor/ack, idempotent send, task assignment/claim/transitions, presence, and manual resource status without browser automation.
+- [x] Exactly eight stable `command_room_*` tools are registered only when the feature flag is enabled; default behavior and primitive tools remain unchanged.
+- [x] Invalid inputs return actionable validation through existing schema/result contracts; no raw prompts, credentials, or unbounded output are persisted.
+- [x] Workspace mutations still require the existing writer lease; a leased workspace checkpoint uses the same lease wrapper.
+- [x] Bundled `nava-command-room` skill covers Main/Lead boot, inbox, task, checkpoint, chat-full takeover, and release behavior without extra README/scripts.
+- [x] Focused storage/application/MCP/skill tests pass, followed by affected package typecheck/lint/build gates.
+- [x] No Chrome extension, Command Room UI, provider quota switching, resource scheduler execution, installed-runtime replacement, EA/MT5/VPS change, or active-project interruption is introduced.
+- [x] Task-owned changes pass secret/artifact and staged-diff checks and are committed without unrelated files.
+
+## Phases
+
+- [completed] Verify live Git state, catch up planning, inspect current public interfaces/tests, and freeze the Phase 1 tracer bullets.
+- [completed] RED→GREEN storage migration and repository slice.
+- [completed] RED→GREEN broker room/join/message/task/presence behavior.
+- [completed] RED→GREEN fixed eight-tool registration, feature flag, and leased-checkpoint contract.
+- [completed] Create and validate the bundled nava-command-room skill.
+- [completed] Run focused/full affected verification, review scope, scan, commit, checkpoint, and release lease.
+
+## Safety boundaries
+
+- Do not install, package, restart, or reconfigure the currently installed NAVA runtime in Phase 1.
+- Do not build the Chrome extension or Desktop Command Room page.
+- Do not touch EA, MT5, VPS, Tunnel credentials/profile, registered workspaces, or another project writer.
+- Keep the feature disabled by default and additive; existing tool counts must be unchanged when disabled.
+- Reuse existing workspace leases, permission checks, audit/activity, continuity, and durable task IDs rather than cloning them.
+- Store bounded summaries/JSON only; never persist raw prompts, secrets, cookies, credentials, private keys, or large tool outputs.
+- Use one room broker implementation and no new dependency, framework, process, database, or second lock system.
+
+## TDD tracer bullets
+
+1. Opening SQLite applies migration 005 and a room created through the repository survives reopen.
+2. Broker creates a room, joins MAIN/LEAD slots, sends one idempotent bounded message, and advances inbox cursor.
+3. Main assigns a task; one Lead claims it; stale expectedVersion and unauthorized transitions fail.
+4. Feature flag off advertises no room tools; on advertises exactly eight and one manual create/join/inbox flow succeeds through ToolRegistry.
+5. Bundled skill passes structural validation and names only tools/contracts that the runtime exposes.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Initial source-seam inspection returned more output than the tool budget and was truncated | 1 | Split all follow-up reads by package/file and never repeat the oversized query. |
+| First broker RED run also reported temp SQLite `EBUSY` after the expected missing `CommandRoomBroker` failure | 1 | The GREEN implementation reaches the normal close path; the rerun passes and temp cleanup is clean. |
+| The original Phase 1 writer lease expired during the user pause; one already-wrapped no-conflict mutation completed after expiry because no competing lease existed | 1 | Verified the workspace had no active writer and acquired a new 60-minute lease before any further source mutation. |
+| First parallel `rg` invocation quoted every token as a PowerShell expression and failed before reading files | 1 | Use a plain PowerShell command string or native argument syntax in the corrected read-only calls. |
+| First feature-flag patch preparation assumed uniform CRLF around one service line and stopped before mutation | 1 | Re-read the bounded seam, matched either newline style, and applied the same leased patch atomically. |
+| Skill validator failed under the system and bundled Python runtimes because PyYAML was absent | 2 | Used the existing Python 3.11 runtime with PyYAML 6.0.3; the official validator passed without installing a package. |
+| The MCP package test script could not find bare corepack from the inherited PATH | 1 | Dependencies were already built; running the complete package Vitest suite through the pinned portable corepack passed 176/176. |
+| First Desktop build inherited Node 25 in a child script and correctly rejected it | 1 | Prepended the pinned Node 24.19.0 runtime to PATH; the full Desktop production build passed. |
+| Final workflow review showed MAIN self-rebind was blocked although chat-full takeover required it | 1 | Added a failing MAIN takeover test, allowed rebind of any valid room slot, and reran focused/typecheck/lint gates successfully. |
+
+---
+
 # NAVA Command Room architecture design (Main 1 + Project Lead 5)
 
 ## SCQA

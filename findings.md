@@ -1,3 +1,64 @@
+# NAVA Command Room Phase 1 findings
+
+## Frozen scope from the accepted design
+
+- Implement only the local manual broker, core persistence, fixed eight MCP tools, feature flag, bundled skill, and focused tests.
+- Main is read-only by default; Lead slots are reusable; browser wake-up and Desktop room UI are later phases.
+- Existing `workspace_leases` remains the only file-writer lock. Phase 1 does not implement shared MT5/VPS resource execution.
+- Manual normal chats and Project chats use the same room identity; ChatGPT Project membership is optional display metadata.
+- Installed NAVA remains untouched during source implementation and tests.
+- Live Git verification starts from clean source commit `b841893`; only the three Phase 1 planning files are currently modified.
+- Planning catch-up reported no unsynchronized prior-session work.
+- Prior NAVA continuity evidence requires bounded/redacted state, atomic persistence, verificationRequired on resume, and installed-runtime proof only if a later deployment is explicitly authorized.
+- The implementation must directly address the observed invalid wrapper pattern by keeping schemas stable and actionable.
+
+## Implemented and verified result
+
+- Migration `005_command_room_core`, the SQLite repository, and one application broker now persist rooms, hashed one-time joins/sessions, immutable messages, receipts/cursors, optimistic read-only tasks, presence, and admin lifecycle state.
+- The exact eight `command_room_*` tools are hidden by default and add exactly eight entries only when `command_room_enabled=true`; default 221/227 Doctor and catalog counts are unchanged.
+- CLI stdio and Desktop HTTP runtimes share the same local SQLite broker. No Command Room UI or installed-runtime deployment was added.
+- Schema-bound invalid input reports the offending field without echoing values. Broker payloads are bounded and do not accept raw prompts, credentials, cookies, API keys, private keys, or unbounded tool output.
+- Chat-full takeover now covers LEAD and MAIN slots: rebind revokes the old session, advances the required connection epoch, and issues a new one-time code.
+- The bundled `nava-command-room` skill documents MAIN/LEAD boot, inbox acknowledgement, read-only task flow, leased checkpoint wrapping, takeover, parking, and Phase 1 non-goals.
+- Verification passed: official skill validation, skill sync audit, router index rebuild, root typecheck/lint, affected package tests, Desktop tests, synchronized default tool catalog, CLI build, and Node 24 Desktop production build.
+- Repository-wide artifact scanning found only pre-existing/ignored build, installer, image, and example candidates; no task-owned changed path is among them and none will be staged.
+
+## Verified storage seam
+
+- `@lnwjud/storage` uses Node `DatabaseSync`, WAL, a 5-second busy timeout, foreign keys, pre-migration backup, and transactional additive migrations 001–004 in `database.ts`.
+- Repository style is a concrete SQLite class returning the shared `Result` contract; Phase 1 should add one concrete command-room repository, not a one-implementation interface or dependency.
+- Migration 005 belongs in the existing constructor flow, the repository should be exported from `src/index.ts`, and integration tests should follow the temporary-database/reopen pattern.
+- The current storage package has no command-room files; the first tracer test can be added without touching UI/runtime installation.
+
+## Verified MCP and feature-flag seam
+
+- `ToolRegistry` owns the advertised tool array and already gates Codex tools through a boolean option; Command Room can follow this exact additive pattern with `commandRoomEnabled === true`.
+- Runtime settings are persisted through `USER_SETTING_KEYS`; `DEFAULT_CODEX_TOOLS_ENABLED = false` proves the disabled-by-default convention. Add one command-room key/default and thread it through CLI/Desktop runtime options, without adding environment-only behavior.
+- `createStdioMcpRuntime` already owns the one SQLite database and constructs services; it is the correct place to construct one shared repository/broker and expose it through `McpApplicationServices`.
+- Current doctor minimum is 221 tools when Codex delegation is disabled and 227 when enabled. Phase 1 must preserve those counts when Command Room is off and add exactly eight when on.
+- Registry tests already validate gated tool sets, public schemas, permissions, activity, lease enforcement, and automatic checkpoints; Phase 1 should extend those public tests rather than bypassing the registry.
+
+## Frozen Phase 1 public shape
+
+- Keep the accepted six core tables in migration 005: rooms, agents, immutable messages, receipts/cursors, tasks, and task events. Add only the credential hashes/creation idempotency fields required for safe manual join and replay.
+- Application owns one `CommandRoomBroker` over a narrow repository port; storage owns one concrete SQLite implementation; MCP depends only on the broker public methods.
+- Manual identity uses one-time slot join codes stored only as hashes and opaque agent-session IDs stored only as hashes. Raw prompts, credentials, cookies, API keys, and large output are never accepted.
+- Inbox uses explicit `read` and `ack` actions, limit at most 50, immutable messages, delivery receipts, and a monotonic per-agent cursor.
+- Phase 1 task mutations are read-only work only. Assign/claim/start/wait/submit/approve/reject/fail/cancel use optimistic task versions and idempotency keys; filesystem writer/resource scheduling stays Phase 2.
+- `command_room_resource` is present but status-only and explicitly reports manual Phase 1. `command_room_admin` covers create/pause/resume/archive/rebind; browser binding/wake stays unavailable.
+- Every broker response carries `manifestVersion`, `roomVersion`, and `serverTime`; summaries and task payloads are bounded before persistence.
+- Repository-owned bundled skills live under `.agents/skills`; `nava-command-room` will be scaffolded with the required skill-creator script and validated structurally.
+
+## Questions for source inspection
+
+- Which package should own the minimal public repository and broker interfaces without introducing a one-implementation abstraction?
+- Where is the default tool list assembled, and what existing flag pattern can hide all eight tools without changing disabled counts?
+- Which result/error helpers and permission classifications should room state transitions reuse?
+- Where do current bundled skills live and how are they packaged/tested?
+- What is the smallest public integration test that proves persistence and ToolRegistry behavior end to end?
+
+---
+
 # NAVA Command Room design findings
 
 ## Initial runtime observations
