@@ -518,3 +518,13 @@
 - The first deployment worker `2496a522-5ebc-4a2b-bd25-94fa80fa5a37` exited before mutation because PowerShell reserves `$PID`; no process was stopped and no backup was changed.
 - Renamed the helper parameter to `$ProcessId`; parser check passed with zero errors.
 - Replacement deployment worker `c710f8c1-3dec-4f95-a6da-d439d01e8d93` is running with the same bounded EA-PID guard and install sequence.
+
+## 2026-08-28 — Phase 1 deployment completed
+
+- The user confirmed the EA research run was complete before installation. Only the exact isolated research tester for `R386_CONT_R148_SEL92_G18` was stopped; no live EA or unrelated project workspace was changed.
+- NAVA Agent 4.11.0 was installed from the verified unpacked package after the NSIS installer hung before copying files. The packaged and installed `app.asar` SHA-256 is `A0DAB55070474F998640037B5CC25AED86814C8883202D7AC86821F0D3528127`.
+- Command Room Phase 1 is enabled. Direct local Streamable HTTP MCP verification returned server version 4.11.0, 229 tools, and all eight command-room tools. `command_room_status` reached input-schema validation, confirming the tool is registered.
+- The local MCP endpoint is `http://127.0.0.1:18765/mcp`. The tunnel client is running with the new `D:/Program Files/NAVA Agent/lnwjud-mcp-stdio.cmd` launcher; local `/healthz` returned `live`, `/readyz` returned `ready`, and the tunnel log recorded metadata fetch and startup.
+- A user Desktop shortcut was created at `C:\Users\Endlessly\Desktop\NAVA Agent.lnk`. The Public Desktop shortcut could not be created because that location returned access denied.
+- The pre-install runtime and app-data backup is at `E:\AI_CACHE\nava-agent-setup\20260828-2145-v4.11.0-before-command-room-phase1`. The connector may still show the remote layer as unknown until the ChatGPT connector is refreshed; this is not evidence that the local MCP or tunnel client is down.
+- Source implementation commit before this deployment record: `290b795`. This deployment record must be committed separately.
