@@ -962,3 +962,14 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Expand Desktop room overview from 20 to 100 rooms so old acceptance rooms remain manageable.
 - [x] Storage regression proves ACTIVE cannot be deleted and ARCHIVED cascades room-owned rows.
 - [x] Install v4.11.4, delete the 13 archived acceptance/test rooms, create persistent NAVA EA LAB — ALL-RW, and verify UI/runtime.
+
+## Command Room Phase 3 preparation — 2026-08-29
+
+- [x] Freeze Phase 2B baseline at v4.11.4; do not reopen writer/resource/ALL-RW contracts without evidence.
+- [x] Create `docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md` with migration 007, extension identity/wake, security boundaries, acceptance gates, and implementation order.
+- [x] Target Phase 3 implementation as v4.12.0, but do not bump source version until the first Phase 3 source change begins.
+- [ ] Start RED tests for migration 007 and pairing/wake state transitions.
+- [ ] Implement storage/application/Desktop/extension vertical slice behind opt-in `extensionWakeEnabled`.
+- [ ] Pass wrong-tab, revoke/replace, bounded retry, restart recovery, secret-redaction, and Phase 2B regression gates before installed pilot.
+
+Phase 3 remains unimplemented; this checkpoint only prepares the next phase and preserves v4.11.4 as the release baseline.

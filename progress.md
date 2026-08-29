@@ -665,3 +665,11 @@
 - Final room state: exactly one ACTIVE room, 3 queued READ_ONLY initial-focus tasks, 3 handoff messages, zero room writer leases, zero resource leases, zero resource queue.
 - Bootstrap credentials are outside Git at `E:\AI_CACHE\nava-agent-setup\nava-ea-lab-all-rw-bootstrap.json`; ACL inheritance is removed and full control is limited to `ISYOURGODZ\Endlessly` and SYSTEM. Credentials were not printed to chat/output.
 - Installed app.asar proof found Thai/English labels for per-room Delete and Delete all archived in the actual renderer bundle.
+
+## 2026-08-29 Phase 3 prepared after v4.11.4
+
+- Phase 2B is frozen at installed NAVA v4.11.4. Command Room cleanup, persistent ALL-RW room, three project bindings, writer/resource safety, and Desktop-only archived-room deletion are treated as the release baseline.
+- Added `docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md` as the Phase 3 kickoff contract. Phase 3 is optional browser extension identity/wake with migration 007, exact conversation binding, encrypted local binding material, visible bounded wake delivery, revoke/replace, restart recovery, and fail-closed wrong-tab protection.
+- Proposed implementation target is v4.12.0; version remains v4.11.4 until actual Phase 3 source implementation begins.
+- Hard boundaries remain: extension is never the task/checkpoint source of truth, never expands NAVA permissions, never reads cookies/full transcripts/prompt history, never creates chats silently, and does not start Phase 4 provider/quota work.
+- Next source action: start RED tests + migration 007 contract from the Phase 3 plan, while keeping installed v4.11.4 untouched until a separate installed gate.

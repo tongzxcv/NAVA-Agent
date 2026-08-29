@@ -42,13 +42,30 @@ response without opening a public inbound port on the Windows machine.
 
 ## Current release: v4.11.4
 
-The current published installer and runtime contract are `v4.11.4`. The runtime
-advertises **221 MCP tools**. The earlier 184-tool snapshot remains only as the
-compatibility baseline used by the v4 architecture; new v4 gateway capabilities
-are additive.
+The current published installer and runtime contract are `v4.11.4`. The default runtime advertises
+**221 MCP tools**; enabling Command Room adds its 8 opt-in `command_room_*` tools.
+The earlier 184-tool snapshot remains only as the compatibility baseline used by
+the v4 architecture; new v4 gateway capabilities are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
 
+### What's new in v4.11.4 — Command Room Phase 2B
+
+- Completes the local Command Room Phase 2B coordination baseline: persistent
+  MAIN/LEAD rooms, task handoff, presence, workspace writer serialization, and
+  bounded shared-resource leasing/queueing.
+- Adds ALL-RW project routing where a Lead's project is an initial focus rather
+  than an access boundary; conflicting writes to the same workspace remain
+  serialized by the writer lease.
+- Adds Desktop-only cleanup controls for archived Command Rooms. Active/paused
+  rooms cannot be deleted, and archived rooms are only removable when writer
+  leases, resource leases, and resource queue entries are clear.
+- Keeps the 8 `command_room_*` MCP tools opt-in behind the Command Room setting;
+  the normal 221-tool default contract is unchanged.
+- Freezes `v4.11.4` as the Phase 2B baseline. The next planned implementation is
+  the opt-in Phase 3 extension identity/wake slice documented in
+  [`NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md`](docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md),
+  targeting `v4.12.0` only when Phase 3 source work begins.
 ### What's new in v4.11.0
 
 - Adds automatic bounded checkpoints after successful workspace mutations and
