@@ -854,3 +854,66 @@ The repository seams are verified. The implementation will preserve the existing
 | Second package command assumed a hoisted electron-builder CLI that pnpm does not create | 1 | Resolved the exact pnpm package path before launching a fresh Node 24 package task. |
 | First install preflight found a Tunnel-owned `conhost.exe` child outside the strict allowlist | 1 | Stopped before mutation, verified PID/path/parent, and allowed only that exact console-host path. |
 | Second install preflight found the configured Tunnel-owned `codex app-server` chain outside the strict allowlist | 1 | Stopped before mutation, verified `cmd -> node -> codex.exe app-server`, and allowed only those exact paths/command markers. |
+# Active Task: NAVA Command Room Phase 2B preparation — writer/resource coordination
+
+## Current state
+
+Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed and verified. The accepted architecture still defines Phase 2 as Desktop UI **plus** writer/resource coordination. The current broker rejects WRITE tasks and reports PHASE_1_MANUAL, so Phase 2 is not architecture-complete yet.
+
+## SCQA
+
+- **Situation:** NAVA already has one authoritative expiring writer lease per workspace, a versioned Command Room task state machine, durable checkpoints, SQLite WAL, and a working local-admin Desktop page.
+- **Complication:** Command Room does not inject the existing workspace lease service, migration 006 is absent, shared resources have no persisted capacity/lease state, and the current MCP contract allows only resource status.
+- **Question:** What is the smallest safe step that completes the accepted Phase 2 gate before any browser extension work?
+- **Answer:** Implement a Phase 2B vertical slice that reuses the existing workspace lease as the sole file-writer authority, adds migration 006 for separate shared-resource leases, enables bounded WRITE task coordination without executing tools on behalf of agents, and renders truthful lease/resource status in the existing Desktop page.
+
+## Acceptance criteria
+
+- [ ] Add transactional migration 006_command_room_resources with pre-migration backup and reopen/restart persistence proof.
+- [ ] Seed only the accepted resource catalog: seven explicit MT5 terminal paths, cpu-heavy-project capacity 2, vps-nava-writer, managed-browser-writer, and gpu-heavy.
+- [ ] Inject the existing workspace lease port into CommandRoomBroker; do not create a second writer lock or duplicate lease table.
+- [ ] Allow WRITE assignment only with a registered workspaceId; acquisition returns an actionable conflict and never grants filesystem authorization.
+- [ ] Bind workspace lease ownership to room/slot/task; renew only while the same task is RUNNING; release on submit, fail, cancel, park, leave, expiry, or verified stale recovery.
+- [ ] Extend the existing command_room_resource tool with bounded request, renew, and release actions while keeping the fixed eight-tool surface.
+- [ ] Enforce resource capacity atomically with idempotency, expiry cleanup, priority/FIFO evidence, and no automatic mutation retry.
+- [ ] Preserve workspace_lease_call, permission profiles, human confirmations, path roots, destructive-action blocks, and audit redaction unchanged.
+- [ ] Extend the Desktop overview/cards with source-of-truth workspace/resource lease status and actionable conflict text; never display opaque lease credentials after their required one-time response.
+- [ ] Pass same-workspace collision, different-workspace writers, seven-terminal uniqueness, VPS/browser/GPU capacity, restart recovery, stale lease cleanup, and bounded rendering tests.
+- [ ] Run a task-owned installed pilot with Main + 3 Leads and at most 2 writers on different workspaces; do not use EA Live, production VPS mutation, or real MT5 orders.
+- [ ] Scan and commit only task-owned files. Package/install/push only after separate user authorization.
+
+## Implementation slices
+
+- [ ] **Tracer 1 — storage/resource truth:** RED tests for migration 006, atomic capacity, expiry, idempotent replay, and restart persistence; then the minimum repository implementation.
+- [ ] **Tracer 2 — writer task lifecycle:** share the existing workspace lease instance with the broker, enable guarded WRITE tasks, and prove acquire/renew/release/conflict transitions.
+- [ ] **Tracer 3 — MCP and Desktop truth:** expand only the existing resource union and overview DTOs; render lease/resource state with no new framework.
+- [ ] **Tracer 4 — concurrency/recovery:** independent clients prove two different-workspace writers, same-workspace denial, resource non-overlap, stale/restart reconciliation, and no duplicate mutation.
+- [ ] **Release gate:** build/package/backup/install and visually verify only after all source and isolated-runtime gates pass.
+
+## Planned source seams
+
+- packages/domain/src/command-room.ts
+- packages/storage/src/database.ts
+- packages/storage/src/command-room-repository.ts
+- packages/storage/src/command-room-repository.integration.test.ts
+- packages/application/src/command-room-broker.ts
+- packages/mcp-server/src/tools/command-room-tools.ts
+- apps/cli/src/runtime/stdio-mcp-runtime.ts
+- apps/cli/src/runtime/command-room.integration.test.ts
+- apps/desktop/src/main/desktop-services.ts
+- existing Desktop IPC/preload/renderer Command Room files
+- a dependency-free installed-runtime Phase 2B acceptance script under scripts/
+
+## Design guardrails
+
+- Phase 2B coordinates ownership only; it does not execute shell, MT5, VPS, browser, Git, or filesystem mutations for an agent.
+- Writer lease remains collision control, not authorization.
+- Prefer deriving resource wait order from existing versioned tasks/events. Add another queue table only if a RED concurrency test proves the frozen migration-006 tables cannot provide deterministic fairness; update ADR-0001 before such a schema expansion.
+- Do not start Phase 3 extension identity/wake, migration 007, Codex provider automation, cloud services, or automatic quota switching in this phase.
+- Do not update the installed NAVA runtime while the user is actively using it; source preparation and installation are separate gates.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Existing progress called the Desktop vertical slice “Phase 2 complete,” while ADR-0001 defines Phase 2 as UI plus writer/resource coordination | 1 | Name the next implementation Phase 2B and close the original Phase 2 acceptance gate before Phase 3. |

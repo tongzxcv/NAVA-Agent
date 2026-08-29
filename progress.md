@@ -588,3 +588,11 @@
 - Read-only installed HTTP MCP acceptance reports version 4.11.0, 229 tools, and all eight `command_room_*` tools.
 - Visual installed-runtime QA passed: the native navigation exposes `ห้องบัญชาการ`; the Main 1 + Lead 5 creation form, credential warning, archived room cards, agent states, and task summaries render at 1920x1040 without clipping or white-on-white text.
 - Secret/artifact guard passed on the exact 16 staged files: 0 secret patterns, 0 artifact candidates, and 0 files over 10 MB. Commit `d9a23d8` created `feat: add NAVA Command Room desktop`; no push was performed.
+# 2026-08-29 Command Room Phase 2B prepared
+
+- Resumed checkpoint f35b4b5b-043e-4ef7-a104-5645e2ac988a and verified it against a clean repository at 87adc64, installed NAVA 4.11.0 evidence, and zero active workspace writers.
+- Reviewed ADR-0001, the full Command Room design, current migration/repository/broker/MCP/Desktop seams, and separated the pending architecture work from unrelated benchmark phase numbering.
+- The next implementation is frozen as **Phase 2B: writer/resource coordination completion**, not Phase 3 extension work.
+- Prepared SCQA, twelve acceptance gates, four tracer slices, exact source seams, pilot boundaries, and release/rollback separation.
+- No application source, installed runtime, Tunnel profile, credentials, EA/MT5 project, VPS workload, or browser state was changed in this preparation step.
+- Next action when authorized: start Tracer 1 with failing migration-006/resource-capacity tests, then implement the minimum storage seam.

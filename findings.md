@@ -595,3 +595,16 @@
 - Overview intentionally contains no join codes or session hashes. One-time codes exist only in the immediate create response and the UI tells the user to save them before leaving.
 - The current history contains five archived Phase 1.5 acceptance rooms. They render as archived evidence; no production room was created automatically during installation.
 - Local MCP and Tunnel were both restored after the controlled install. The already-open Codex connector still has its old callable schema, so new ChatGPT/Codex chats may need connector refresh before `command_room_*` wrappers appear even though the installed HTTP catalog already exposes all eight tools.
+# 2026-08-29 Command Room Phase 2B preparation findings
+
+- ADR-0001 and the Thai architecture define Phase 2 as four inseparable parts: migration 006, existing writer-lease integration, a shared-resource scheduler, and Main/Lead Desktop cards.
+- The installed Phase 2 slice currently completes only the Desktop creation/overview/card path. It is safe and useful, but it does not satisfy the architecture-level Phase 2 gate.
+- Current source evidence is explicit: CommandRoomBroker.task() rejects every WRITE assignment, status() and resource() return PHASE_1_MANUAL, resourceSchema accepts only status, and SqliteDatabase applies migrations only through 005_command_room_core.
+- CommandRoomBroker currently receives only SqliteCommandRoomRepository. CLI and Desktop each construct SqliteWorkspaceLeaseRepository separately for MCP services, so Phase 2B should construct one instance and inject the same lease port into both MCP workspace tools and the broker.
+- No second writer lock is needed. Existing workspace_leases remains the single source of truth, with an owner label scoped to room, slot, and task.
+- Shared-resource leases are separate from file authority. They prevent two projects from using the same MT5 terminal path, VPS writer, managed browser writer, or GPU-heavy slot; they do not grant permission to use those capabilities.
+- The fixed eight-tool surface remains valid. command_room_resource can become a discriminated union for status/request/renew/release without adding another MCP tool.
+- Phase 2B must return actionable conflict metadata but must not automatically retry a mutation. A resource request may queue/wait; the actual agent decides when to retry after new evidence.
+- The accepted UI already has the correct page and cards. The next UI diff should add truthful workspace/resource ownership and conflicts to existing DTOs rather than introduce routing, state management, or a second database connection.
+- The next installed pilot should use isolated task-owned rooms and harmless registered workspaces/resources. Real EA Live, real orders, production VPS changes, and unrelated writers remain outside scope.
+- Phase 3 browser pairing/wake should remain blocked until Phase 2B proves same-workspace exclusion, different-workspace concurrency, MT5/VPS non-collision, restart reconciliation, and release on terminal task states.
