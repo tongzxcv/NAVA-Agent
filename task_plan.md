@@ -968,8 +968,8 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Freeze Phase 2B baseline at v4.11.4; do not reopen writer/resource/ALL-RW contracts without evidence.
 - [x] Create `docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md` with migration 007, extension identity/wake, security boundaries, acceptance gates, and implementation order.
 - [x] Target Phase 3 implementation as v4.12.0, but do not bump source version until the first Phase 3 source change begins.
-- [ ] Start RED tests for migration 007 and pairing/wake state transitions.
-- [ ] Implement storage/application/Desktop/extension vertical slice behind opt-in `extensionWakeEnabled`.
+- [x] Start RED tests for migration 007 and pairing/wake state transitions; migration/repository/application service tests are green.
+- [ ] Implement storage/application/Desktop/extension vertical slice behind opt-in `extensionWakeEnabled` — storage + initial application service are in progress; Desktop/extension remain untouched.
 - [ ] Pass wrong-tab, revoke/replace, bounded retry, restart recovery, secret-redaction, and Phase 2B regression gates before installed pilot.
 
-Phase 3 remains unimplemented; this checkpoint only prepares the next phase and preserves v4.11.4 as the release baseline.
+Phase 3 source implementation is now active on `feature/command-room-phase3` targeting v4.12.0. Installed v4.11.4 remains untouched and continues as the runtime baseline until the user authorizes an install/restart gate.

@@ -8,6 +8,9 @@ export type CommandRoomMessageKind = 'UPDATE' | 'QUESTION' | 'RESULT' | 'HANDOFF
 export type CommandRoomReceiptStatus = 'QUEUED' | 'DELIVERED' | 'ACKED' | 'EXPIRED' | 'DEAD_LETTER';
 export type CommandRoomMutationMode = 'READ_ONLY' | 'WRITE';
 export type CommandRoomTaskState = 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'WAITING' | 'REVIEW' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type CommandRoomBindingState = 'CHALLENGED' | 'PAIRED' | 'STALE' | 'REVOKED' | 'REPLACED';
+export type CommandRoomWakeDeliveryState = 'QUEUED' | 'ATTEMPTING' | 'DELIVERED' | 'SUBMITTED' | 'MANUAL_FALLBACK' | 'DEAD_LETTER' | 'CANCELLED';
+export type CommandRoomWakeReason = 'TASK_ASSIGNED' | 'HANDOFF_READY' | 'USER_WAKE';
 
 export interface CommandRoomPolicy {
   readonly directLeadMessaging: boolean;
@@ -92,6 +95,46 @@ export interface CommandRoomTaskRecord {
   readonly startedAt?: string;
   readonly deadlineAt?: string;
   readonly completedAt?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CommandRoomBindingRecord {
+  readonly id: string;
+  readonly roomId: string;
+  readonly agentId: string;
+  readonly slotKey: string;
+  readonly provider: CommandRoomProvider;
+  readonly extensionInstallationId?: string;
+  readonly encryptedConversationRef?: string;
+  readonly conversationRefFingerprint?: string;
+  readonly connectionEpoch: number;
+  readonly state: CommandRoomBindingState;
+  readonly challengeHash?: string;
+  readonly challengeExpiresAt?: string;
+  readonly pairedAt?: string;
+  readonly lastSeenAt?: string;
+  readonly revokedAt?: string;
+  readonly replacedAt?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CommandRoomWakeDeliveryRecord {
+  readonly id: string;
+  readonly roomId: string;
+  readonly agentId: string;
+  readonly bindingId: string;
+  readonly eventKey: string;
+  readonly taskId?: string;
+  readonly reason: CommandRoomWakeReason;
+  readonly state: CommandRoomWakeDeliveryState;
+  readonly attemptCount: number;
+  readonly lastAttemptAt?: string;
+  readonly nextEligibleAt?: string;
+  readonly deliveredAt?: string;
+  readonly submittedAt?: string;
+  readonly lastErrorCode?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

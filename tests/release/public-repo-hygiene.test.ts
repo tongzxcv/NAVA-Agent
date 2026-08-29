@@ -58,13 +58,14 @@ describe('public repository hygiene', () => {
     expect(leaks, `developer-specific content found in: ${leaks.join(', ')}`).toEqual([]);
   });
 
-  it('documents the package version as the current v4 runtime rather than a stale release', async () => {
+  it('documents the source target separately from the currently published runtime', async () => {
     const readme = await readFile(path.join(repositoryRoot, 'README.md'), 'utf8');
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     expect(typeof rootPackage.version).toBe('string');
 
-    expect(readme).toContain(`## Current release: v${rootPackage.version as string}`);
-    expect(readme).toContain(`current published installer and runtime contract are \`v${rootPackage.version as string}\``);
+    expect(readme).toContain(`## Current source target: v${rootPackage.version as string} (Phase 3 development)`);
+    expect(readme).toContain('current published installer and installed runtime baseline remain `v4.11.4`');
+    expect(readme).toContain(`This branch targets \`v${rootPackage.version as string}\` source-only Phase 3 development`);
     expect(readme).toContain('227 configurable tools');
     expect(readme).toContain('221 are advertised by default');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));

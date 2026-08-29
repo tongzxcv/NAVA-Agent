@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createPreMigrationBackupSync } from './backup-service.js';
 import { AUDIT_MIGRATION_SQL } from './migrations/audit-migration.js';
 import { CHECKPOINT_MIGRATION_SQL } from './migrations/checkpoint-migration.js';
+import { COMMAND_ROOM_BINDING_MIGRATION_SQL } from './migrations/command-room-binding-migration.js';
 
 export interface SqliteDatabaseOptions {
   readonly backupDirectory?: string;
@@ -232,6 +233,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '004_workspace_leases', sql: WORKSPACE_LEASE_MIGRATION_SQL });
     this.applyMigration({ id: '005_command_room_core', sql: COMMAND_ROOM_CORE_MIGRATION_SQL });
     this.applyMigration({ id: '006_command_room_resources', sql: COMMAND_ROOM_RESOURCE_MIGRATION_SQL });
+    this.applyMigration({ id: '007_command_room_bindings', sql: COMMAND_ROOM_BINDING_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {
