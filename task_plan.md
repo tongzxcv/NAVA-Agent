@@ -879,7 +879,7 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Preserve workspace_lease_call, permission profiles, human confirmations, path roots, destructive-action blocks, and audit redaction unchanged.
 - [x] Extend the Desktop overview/cards with source-of-truth workspace/resource lease status and actionable conflict text; never display opaque lease credentials after their required one-time response.
 - [x] Pass same-workspace collision, different-workspace writers, seven-terminal uniqueness, VPS/browser/GPU capacity, restart recovery, stale lease cleanup, and bounded rendering tests. Installed multi-session restart and UIA visual proof pass.
-- [x] Run a task-owned installed pilot with Main + 3 Leads and at most 2 writers on different workspaces; do not use EA Live, production VPS mutation, or real MT5 orders.
+- [x] Run a task-owned installed pilot with Main + 3 Leads and verify 3 concurrent writers on three distinct workspaces; do not use EA Live, production VPS mutation, or real MT5 orders.
 - [x] Scan and commit only task-owned files. Package/install/push only after separate user authorization.
 
 ## Implementation slices
@@ -887,7 +887,7 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] **Tracer 1 — storage/resource truth:** RED tests for migration 006, atomic capacity, expiry, idempotent replay, and restart persistence; then the minimum repository implementation.
 - [x] **Tracer 2 — writer task lifecycle:** share the existing workspace lease instance with the broker, enable guarded WRITE tasks, and prove acquire/renew/release/conflict transitions.
 - [x] **Tracer 3 — MCP and Desktop truth:** expand only the existing resource union and overview DTOs; render lease/resource state with no new framework.
-- [x] **Tracer 4 — concurrency/recovery:** independent installed MCP sessions prove two different-workspace writers, same-workspace denial, resource queue persistence/promotion, restart recovery, and cleanup.
+- [x] **Tracer 4 — concurrency/recovery:** independent installed MCP sessions prove three different-workspace writers, same-workspace denial, restart recovery, cleanup, plus the existing resource queue persistence/promotion gate.
 - [x] **Release gate:** fresh Node 24 package, rollback backup, hash-verified install, controlled restart, Tunnel recovery, installed verifier, and UIA bounded-rendering proof pass.
 
 ## Planned source seams
@@ -922,6 +922,14 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - Tunnel recovered after install/restart with `/healthz=200 live` and `/readyz=200 ready`. No EA Live, production VPS mutation, or real MT5 order was used.
 - Installed UIA proof on the real NAVA window found the latest Phase 2B acceptance room ARCHIVED, WRITE task rows, post-cleanup writer/resource/queue counts at 0/0/0, zero UUID-like credential strings, and zero horizontal overflow inside the 1280x800 document. The only join-code/session-secret text states that overview omits those values.
 - Phase 2B is architecture-complete. Phase 3 browser identity/wake, migration 007, provider automation, and cloud/quota work remain unstarted.
+
+## Three-writer readiness extension — 2026-08-29
+
+- **PASS:** installed NAVA v4.11.1 ran three concurrent WRITE tasks on three distinct registered workspaces; same-workspace collision remained blocked.
+- Detached verifier survived a controlled NAVA root replacement: `threeWritersPassed=true`, `restartObserved=true`, `writerLeasesRecovered=true`, `leasesReleased=true`, and `roomArchived=true`; server version remained 4.11.1 and all eight Command Room tools remained present among 229 tools.
+- Source regression `apps/cli/src/runtime/command-room-phase2b.integration.test.ts` now includes three concurrent writers, SQLite reopen recovery of all three leases, and cleanup; focused suite passes 3/3 under Node 24.19.0.
+- The three-writer extension intentionally runs writer-only during installed acceptance so it does not seize a shared MT5/VPS/browser/GPU resource. Shared-resource capacity/queue behavior remains covered by the earlier Phase 2B installed gate and is independent of workspace-writer concurrency.
+- Runtime had no global two-writer cap, but the extension exposed a stale QUEUED-resource cleanup bug after interrupted acceptance runs. v4.11.2 fixes releaseForTask/Agent/Room to close matching QUEUED requests; fresh package/install is therefore required before final readiness.
 
 ## Design guardrails
 

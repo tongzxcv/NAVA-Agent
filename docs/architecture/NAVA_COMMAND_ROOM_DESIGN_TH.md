@@ -75,7 +75,7 @@ ChatGPT normal chat / ChatGPT Project chat / optional Codex
 | MAIN | แบ่งงาน ตรวจผล แก้ blocker | online, read-only |
 | LEAD-1 | โปรเจกต์ที่เร่งที่สุด | active writer |
 | LEAD-2 | โปรเจกต์ลำดับสอง | active writer |
-| LEAD-3 | วิจัย/ตรวจผล/อ่านอย่างเดียว | active reader |
+| LEAD-3 | โปรเจกต์ลำดับสาม หรือวิจัย/review | active writer หรือ reader |
 | LEAD-4 | สำรองเมื่อแชทเต็มหรืองานใหม่เข้า | sleeping |
 | LEAD-5 | สำรองหรือ review อิสระ | sleeping |
 
@@ -83,7 +83,7 @@ ChatGPT normal chat / ChatGPT Project chat / optional Codex
 
 - LEAD-1 ผูก BEELZEBUB และถือ writer lease เฉพาะ workspace BEELZEBUB
 - LEAD-2 ผูก RATCHET และถือ writer lease เฉพาะ workspace RATCHET
-- LEAD-3 อ่านผล AUTOBOTS หรือทำ review โดยไม่ถือ writer lease
+- LEAD-3 ผูก AUTOBOTS และถือ writer lease เฉพาะ workspace AUTOBOTS เมื่อเป็นงานเขียน; ถ้าเป็น review อย่างเดียวให้ทำแบบ reader
 - LEAD-4/5 หลับจน Main ขอเพิ่มกำลังหรือใช้แทนแชทที่เต็ม
 
 เมื่อโปรเจกต์จบ ให้ park Lead, ปล่อย lease/resource, เก็บ checkpoint แล้ว rebind slot เดิมกับโปรเจกต์ถัดไป
@@ -519,9 +519,9 @@ Gate: restart recovery, idempotency, inbox cursor และ no secret regression
 - existing writer-lease integration
 - resource scheduler
 - Main + Lead cards
-- pilot 3 active Leads, writers สูงสุด 2 คนละ workspace
+- pilot 3 active Leads และยืนยัน 3 concurrent writers บน 3 workspace ที่ต่างกัน
 
-Gate: same-workspace collision ถูก block, different-workspace writers ผ่าน, MT5/VPS resource ไม่ชน
+Gate: same-workspace collision ถูก block, 3 different-workspace writers ผ่านและ recover หลัง restart, MT5/VPS resource ไม่ชน
 
 ### Phase 3 — Extension identity/wake
 
@@ -623,7 +623,7 @@ Gate: ไม่มี wrong-tab wake, retry bounded, revoke/replace chat ทำ�
 1. MAIN อยู่ในแชทที่ผู้ใช้ใช้คุมภาพรวม
 2. LEAD-1 = โปรเจกต์เขียนหลัก
 3. LEAD-2 = โปรเจกต์เขียนรอง
-4. LEAD-3 = งานอ่าน/วิเคราะห์/review
+4. LEAD-3 = โปรเจกต์เขียนลำดับสาม หรือสลับเป็นงานอ่าน/วิเคราะห์/review
 5. LEAD-4/5 sleeping
 6. ทดลอง manual mode หนึ่งสัปดาห์ก่อนเปิด extension
 7. เปิด Codex participant เฉพาะงานที่ผู้ใช้ต้องการใช้โควต้า Codex จริง

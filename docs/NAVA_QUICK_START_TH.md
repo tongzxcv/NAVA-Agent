@@ -59,6 +59,8 @@ NAVA Agent เชื่อม ChatGPT หรือ Codex เข้ากับ�
 - ก่อนเริ่มงานหลายแชท ให้สั่ง `workspace_authority` แบบอ่านอย่างเดียวเพื่อดู Workspace และ writer ที่กำลังใช้งาน
 - ถ้าจะแก้ไฟล์ ให้แต่ละแชทขอ **Workspace Lease** ของโปรเจกต์นั้นก่อนเริ่มเขียน
 - ถ้ามีแชทอื่นถือ Lease อยู่ ให้หยุดรอหรือไปทำโปรเจกต์อื่น ห้ามฝืนแก้ไฟล์เดียวกัน
+- NAVA v4.11.2 รองรับ **3 writer พร้อมกันบน 3 Workspace ที่ต่างกัน**; acceptance ของ writer/restart ผ่านแล้ว และ v4.11.2 เพิ่มการ cleanup resource queue เมื่อ task/agent/room ถูกปล่อย และ writer leases ทั้ง 3 recover หลัง NAVA restart ได้
+- Shared resource เช่น MT5 terminal, VPS writer, managed browser หรือ GPU ยังมี capacity/queue ของตัวเอง แยกจากจำนวน Workspace writers; writer 3 คนทำพร้อมกันได้แต่ resource เดียวกันอาจต้องรอคิว
 - เมื่อทำงานเสร็จ ให้ปล่อย Lease ระบบมีวันหมดอายุเพื่อกู้คืนกรณีแชทหยุดกลางทาง
 
 ตัวอย่างคำสั่งสำหรับงานเขียน:

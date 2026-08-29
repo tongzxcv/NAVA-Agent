@@ -140,6 +140,68 @@ describe('Command Room Phase 2B', () => {
     expect(finalStatus.resources.leases).toHaveLength(0);
     database.close();
   });
+  it('runs three writers on distinct workspaces and recovers all three after reopen', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-phase2b-three-writers-'));
+    temporaryRoots.push(root);
+    const filename = path.join(root, 'state.db');
+    let now = new Date('2026-08-29T04:00:00.000Z');
+
+    let database = new SqliteDatabase(filename);
+    seedWorkspace(database, 'workspace-a', path.join(root, 'workspace-a'));
+    seedWorkspace(database, 'workspace-b', path.join(root, 'workspace-b'));
+    seedWorkspace(database, 'workspace-c', path.join(root, 'workspace-c'));
+    let broker = createBroker(database, () => now);
+
+    const created = value(await broker.admin({ action: 'create', name: 'Three Writer Room', idempotencyKey: 'three-writer-room', leadSlots: 3 }));
+    const main = value(await broker.join({ roomId: created.room.id, slotKey: 'MAIN', joinCode: created.joinCodes.MAIN, provider: 'CHATGPT', connectionEpoch: 1 }));
+    const lead1 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-1', joinCode: created.joinCodes['LEAD-1'], provider: 'CHATGPT', connectionEpoch: 1 }));
+    const lead2 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-2', joinCode: created.joinCodes['LEAD-2'], provider: 'CHATGPT', connectionEpoch: 1 }));
+    const lead3 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-3', joinCode: created.joinCodes['LEAD-3'], provider: 'CHATGPT', connectionEpoch: 1 }));
+
+    const first = await assignWrite(broker, created.room.id, main.agentSessionId, 'LEAD-1', 'workspace-a', lead3.roomVersion, 'three-first');
+    const firstClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: first.task.id, expectedVersion: first.task.version, idempotencyKey: 'three-first-claim' }));
+    const firstStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: first.task.id, expectedVersion: firstClaimed.task.version, idempotencyKey: 'three-first-start' }));
+
+    const second = await assignWrite(broker, created.room.id, main.agentSessionId, 'LEAD-2', 'workspace-b', firstStarted.roomVersion, 'three-second');
+    const secondClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead2.agentSessionId, taskId: second.task.id, expectedVersion: second.task.version, idempotencyKey: 'three-second-claim' }));
+    const secondStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead2.agentSessionId, taskId: second.task.id, expectedVersion: secondClaimed.task.version, idempotencyKey: 'three-second-start' }));
+
+    const third = await assignWrite(broker, created.room.id, main.agentSessionId, 'LEAD-3', 'workspace-c', secondStarted.roomVersion, 'three-third');
+    const thirdClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead3.agentSessionId, taskId: third.task.id, expectedVersion: third.task.version, idempotencyKey: 'three-third-claim' }));
+    const thirdStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead3.agentSessionId, taskId: third.task.id, expectedVersion: thirdClaimed.task.version, idempotencyKey: 'three-third-start' }));
+
+    const beforeRestart = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+    expect(beforeRestart.workspaceLeases.entries.map((entry) => entry.workspaceId).sort()).toEqual(['workspace-a', 'workspace-b', 'workspace-c']);
+
+    database.close();
+    now = new Date('2026-08-29T04:01:00.000Z');
+    database = new SqliteDatabase(filename);
+    broker = createBroker(database, () => now);
+
+    const recovered = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+    expect(recovered.workspaceLeases.entries.map((entry) => entry.workspaceId).sort()).toEqual(['workspace-a', 'workspace-b', 'workspace-c']);
+
+    const firstSubmitted = value(await broker.task({
+      action: 'submit', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: first.task.id,
+      expectedVersion: firstStarted.task.version, result: { summary: 'writer one complete', evidenceRefs: ['test:three-writers'] }, idempotencyKey: 'three-first-submit',
+    }));
+    expect(firstSubmitted.task.state).toBe('REVIEW');
+    const secondSubmitted = value(await broker.task({
+      action: 'submit', roomId: created.room.id, agentSessionId: lead2.agentSessionId, taskId: second.task.id,
+      expectedVersion: secondStarted.task.version, result: { summary: 'writer two complete', evidenceRefs: ['test:three-writers'] }, idempotencyKey: 'three-second-submit',
+    }));
+    expect(secondSubmitted.task.state).toBe('REVIEW');
+    const thirdSubmitted = value(await broker.task({
+      action: 'submit', roomId: created.room.id, agentSessionId: lead3.agentSessionId, taskId: third.task.id,
+      expectedVersion: thirdStarted.task.version, result: { summary: 'writer three complete', evidenceRefs: ['test:three-writers'] }, idempotencyKey: 'three-third-submit',
+    }));
+    expect(thirdSubmitted.task.state).toBe('REVIEW');
+
+    const finalStatus = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+    expect(finalStatus.workspaceLeases.entries).toHaveLength(0);
+    database.close();
+  });
+
   it('moves expired or parked WRITE work to WAITING and releases every lease', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-phase2b-expiry-'));
     temporaryRoots.push(root);

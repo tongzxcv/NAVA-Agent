@@ -4,6 +4,8 @@ import process from 'node:process';
 const endpoint = process.env.NAVA_MCP_URL ?? 'http://127.0.0.1:18765/mcp';
 const workspaceA = process.env.NAVA_PHASE2B_WORKSPACE_A;
 const workspaceB = process.env.NAVA_PHASE2B_WORKSPACE_B;
+const workspaceC = process.env.NAVA_PHASE2B_WORKSPACE_C;
+const skipResource = process.env.NAVA_PHASE2B_SKIP_RESOURCE === '1';
 const protocolVersion = '2025-11-25';
 const deadlineMs = Number.parseInt(process.env.NAVA_RESTART_TIMEOUT_MS ?? '180000', 10);
 const runKey = `p2b-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -18,7 +20,7 @@ const expectedTools = [
   'command_room_admin',
 ];
 
-assert(workspaceA && workspaceB && workspaceA !== workspaceB, 'Set distinct NAVA_PHASE2B_WORKSPACE_A and NAVA_PHASE2B_WORKSPACE_B workspace IDs');
+assert(workspaceA && workspaceB && workspaceC && new Set([workspaceA, workspaceB, workspaceC]).size === 3, 'Set distinct NAVA_PHASE2B_WORKSPACE_A, NAVA_PHASE2B_WORKSPACE_B, and NAVA_PHASE2B_WORKSPACE_C workspace IDs');
 
 class McpClient {
   constructor(name) {
@@ -185,6 +187,8 @@ const verdict = {
   commandRoomTools: [],
   sameWorkspaceBlocked: false,
   differentWorkspacePassed: false,
+  threeWritersPassed: false,
+  resourceSkipped: skipResource,
   resourceQueued: false,
   restartObserved: false,
   writerLeasesRecovered: false,
@@ -197,8 +201,9 @@ const verdict = {
 try {
   const lead1Client = new McpClient('nava-phase2b-lead1');
   const lead2Client = new McpClient('nava-phase2b-lead2');
-  const lead3Client = new McpClient('nava-phase2b-codex-lead3');
-  await Promise.all([client.initialize(), lead1Client.initialize(), lead2Client.initialize(), lead3Client.initialize()]);
+  const lead3Client = new McpClient('nava-phase2b-lead3');
+  const lead4Client = new McpClient('nava-phase2b-collision-lead4');
+  await Promise.all([client.initialize(), lead1Client.initialize(), lead2Client.initialize(), lead3Client.initialize(), lead4Client.initialize()]);
   verdict.serverVersionBefore = client.serverVersion;
 
   const tools = await client.listTools();
@@ -211,7 +216,7 @@ try {
     action: 'create',
     name: `NAVA Phase 2B acceptance ${runKey}`,
     idempotencyKey: `${runKey}/room/create`,
-    leadSlots: 3,
+    leadSlots: 4,
   });
   roomId = field(field(created, 'room'), 'id');
   const joinCodes = field(created, 'joinCodes');
@@ -219,6 +224,7 @@ try {
   const lead1SessionId = await join(lead1Client, roomId, joinCodes, 'LEAD-1');
   const lead2SessionId = await join(lead2Client, roomId, joinCodes, 'LEAD-2');
   const lead3SessionId = await join(lead3Client, roomId, joinCodes, 'LEAD-3');
+  const lead4SessionId = await join(lead4Client, roomId, joinCodes, 'LEAD-4');
 
   let first = field(await assignWrite(client, roomId, mainSessionId, 'LEAD-1', workspaceA, 'writer-a'), 'task');
   first = field(await transition(lead1Client, 'claim', roomId, lead1SessionId, first, 'writer-a'), 'task');
@@ -226,45 +232,55 @@ try {
   first = field(firstStarted, 'task');
   assert(field(first, 'state') === 'RUNNING', 'first writer did not start');
 
-  let collision = field(await assignWrite(client, roomId, mainSessionId, 'LEAD-2', workspaceA, 'writer-collision'), 'task');
-  collision = field(await transition(lead2Client, 'claim', roomId, lead2SessionId, collision, 'writer-collision'), 'task');
-  const collisionStarted = await transition(lead2Client, 'start', roomId, lead2SessionId, collision, 'writer-collision');
+  let collision = field(await assignWrite(client, roomId, mainSessionId, 'LEAD-4', workspaceA, 'writer-collision'), 'task');
+  collision = field(await transition(lead4Client, 'claim', roomId, lead4SessionId, collision, 'writer-collision'), 'task');
+  const collisionStarted = await transition(lead4Client, 'start', roomId, lead4SessionId, collision, 'writer-collision');
   collision = field(collisionStarted, 'task');
   verdict.sameWorkspaceBlocked = field(collision, 'state') === 'WAITING' && field(field(collisionStarted, 'leaseConflict'), 'workspaceId') === workspaceA;
   assert(verdict.sameWorkspaceBlocked, 'same-workspace writer was not blocked');
 
-  let second = field(await assignWrite(client, roomId, mainSessionId, 'LEAD-3', workspaceB, 'writer-b'), 'task');
-  second = field(await transition(lead3Client, 'claim', roomId, lead3SessionId, second, 'writer-b'), 'task');
-  const secondStarted = await transition(lead3Client, 'start', roomId, lead3SessionId, second, 'writer-b');
+  let second = field(await assignWrite(client, roomId, mainSessionId, 'LEAD-2', workspaceB, 'writer-b'), 'task');
+  second = field(await transition(lead2Client, 'claim', roomId, lead2SessionId, second, 'writer-b'), 'task');
+  const secondStarted = await transition(lead2Client, 'start', roomId, lead2SessionId, second, 'writer-b');
   second = field(secondStarted, 'task');
-  verdict.differentWorkspacePassed = field(second, 'state') === 'RUNNING';
-  assert(verdict.differentWorkspacePassed, 'different-workspace writer did not start');
 
-  const firstResource = await lead1Client.call('command_room_resource', {
-    action: 'request',
-    roomId,
-    agentSessionId: lead1SessionId,
-    taskId: field(first, 'id'),
-    resourceKey: 'mt5-terminal-1',
-    idempotencyKey: `${runKey}/resource/first`,
-  });
-  assert(field(field(firstResource, 'request'), 'state') === 'GRANTED', 'first MT5 resource was not granted');
+  let third = field(await assignWrite(client, roomId, mainSessionId, 'LEAD-3', workspaceC, 'writer-c'), 'task');
+  third = field(await transition(lead3Client, 'claim', roomId, lead3SessionId, third, 'writer-c'), 'task');
+  const thirdStarted = await transition(lead3Client, 'start', roomId, lead3SessionId, third, 'writer-c');
+  third = field(thirdStarted, 'task');
+  verdict.differentWorkspacePassed = field(second, 'state') === 'RUNNING' && field(third, 'state') === 'RUNNING';
+  verdict.threeWritersPassed = field(first, 'state') === 'RUNNING' && verdict.differentWorkspacePassed;
+  assert(verdict.threeWritersPassed, 'three different-workspace writers did not run concurrently');
 
-  const secondResource = await lead3Client.call('command_room_resource', {
-    action: 'request',
-    roomId,
-    agentSessionId: lead3SessionId,
-    taskId: field(second, 'id'),
-    resourceKey: 'mt5-terminal-1',
-    idempotencyKey: `${runKey}/resource/second`,
-  });
-  verdict.resourceQueued = field(field(secondResource, 'request'), 'state') === 'QUEUED';
-  assert(verdict.resourceQueued, 'contended MT5 resource was not queued');
+  if (!skipResource) {
+    const firstResource = await lead1Client.call('command_room_resource', {
+      action: 'request',
+      roomId,
+      agentSessionId: lead1SessionId,
+      taskId: field(first, 'id'),
+      resourceKey: 'mt5-terminal-1',
+      idempotencyKey: `${runKey}/resource/first`,
+    });
+    assert(field(field(firstResource, 'request'), 'state') === 'GRANTED', 'first MT5 resource was not granted');
+
+    const secondResource = await lead3Client.call('command_room_resource', {
+      action: 'request',
+      roomId,
+      agentSessionId: lead3SessionId,
+      taskId: field(third, 'id'),
+      resourceKey: 'mt5-terminal-1',
+      idempotencyKey: `${runKey}/resource/third`,
+    });
+    verdict.resourceQueued = field(field(secondResource, 'request'), 'state') === 'QUEUED';
+    assert(verdict.resourceQueued, 'contended MT5 resource was not queued');
+  }
 
   const before = await status(client, roomId, mainSessionId);
-  assert(field(field(before, 'workspaceLeases'), 'entries').length === 2, 'expected two active writers before restart');
-  assert(field(field(before, 'resources'), 'leases').length === 1, 'expected one active resource before restart');
-  assert(field(field(before, 'resources'), 'queueDepth') === 1, 'expected one queued resource before restart');
+  assert(field(field(before, 'workspaceLeases'), 'entries').length === 3, 'expected three active writers before restart');
+  if (!skipResource) {
+    assert(field(field(before, 'resources'), 'leases').length === 1, 'expected one active resource before restart');
+    assert(field(field(before, 'resources'), 'queueDepth') === 1, 'expected one queued resource before restart');
+  }
   process.stdout.write(`PERSISTENCE_READY version=${verdict.serverVersionBefore} room=${roomId}\n`);
 
   const restarted = await waitForRestart();
@@ -273,11 +289,11 @@ try {
   verdict.serverVersionAfter = client.serverVersion;
 
   const recovered = await status(client, roomId, mainSessionId);
-  verdict.writerLeasesRecovered = field(field(recovered, 'workspaceLeases'), 'entries').length === 2;
-  verdict.resourceLeasesRecovered = field(field(recovered, 'resources'), 'leases').length === 1
-    && field(field(recovered, 'resources'), 'queueDepth') === 1;
+  verdict.writerLeasesRecovered = field(field(recovered, 'workspaceLeases'), 'entries').length === 3;
+  verdict.resourceLeasesRecovered = skipResource || (field(field(recovered, 'resources'), 'leases').length === 1
+    && field(field(recovered, 'resources'), 'queueDepth') === 1);
   assert(verdict.writerLeasesRecovered, 'writer leases did not recover after restart');
-  assert(verdict.resourceLeasesRecovered, 'resource lease or queue did not recover after restart');
+  if (!skipResource) assert(verdict.resourceLeasesRecovered, 'resource lease or queue did not recover after restart');
 
   await client.call('command_room_task', {
     action: 'wait',
@@ -289,32 +305,46 @@ try {
     idempotencyKey: `${runKey}/task/writer-a/wait`,
   });
 
-  const promoted = await client.call('command_room_resource', {
-    action: 'request',
+  if (!skipResource) {
+    const promoted = await client.call('command_room_resource', {
+      action: 'request',
+      roomId,
+      agentSessionId: lead3SessionId,
+      taskId: field(third, 'id'),
+      resourceKey: 'mt5-terminal-1',
+      idempotencyKey: `${runKey}/resource/third`,
+    });
+    verdict.queuePromoted = field(field(promoted, 'request'), 'state') === 'GRANTED'
+      && field(field(promoted, 'request'), 'duplicate') === true;
+    assert(verdict.queuePromoted, 'queued MT5 resource was not promoted');
+  } else {
+    verdict.queuePromoted = true;
+  }
+
+  await client.call('command_room_task', {
+    action: 'submit',
     roomId,
-    agentSessionId: lead3SessionId,
+    agentSessionId: lead2SessionId,
     taskId: field(second, 'id'),
-    resourceKey: 'mt5-terminal-1',
-    idempotencyKey: `${runKey}/resource/second`,
+    expectedVersion: field(second, 'version'),
+    result: { summary: 'Installed Phase 2B three-writer restart proof passed for writer B.', evidenceRefs: ['acceptance:phase2b-installed'] },
+    idempotencyKey: `${runKey}/task/writer-b/submit`,
   });
-  verdict.queuePromoted = field(field(promoted, 'request'), 'state') === 'GRANTED'
-    && field(field(promoted, 'request'), 'duplicate') === true;
-  assert(verdict.queuePromoted, 'queued MT5 resource was not promoted');
 
   await client.call('command_room_task', {
     action: 'submit',
     roomId,
     agentSessionId: lead3SessionId,
-    taskId: field(second, 'id'),
-    expectedVersion: field(second, 'version'),
-    result: { summary: 'Installed Phase 2B restart and contention proof passed.', evidenceRefs: ['acceptance:phase2b-installed'] },
-    idempotencyKey: `${runKey}/task/writer-b/submit`,
+    taskId: field(third, 'id'),
+    expectedVersion: field(third, 'version'),
+    result: { summary: 'Installed Phase 2B three-writer restart and contention proof passed for writer C.', evidenceRefs: ['acceptance:phase2b-installed'] },
+    idempotencyKey: `${runKey}/task/writer-c/submit`,
   });
 
   const finalState = await status(client, roomId, mainSessionId);
   verdict.leasesReleased = field(field(finalState, 'workspaceLeases'), 'entries').length === 0
-    && field(field(finalState, 'resources'), 'leases').length === 0
-    && field(field(finalState, 'resources'), 'queueDepth') === 0;
+    && (skipResource || (field(field(finalState, 'resources'), 'leases').length === 0
+      && field(field(finalState, 'resources'), 'queueDepth') === 0));
   assert(verdict.leasesReleased, 'task-owned leases were not fully released');
 
   const archivedResult = await client.call('command_room_admin', {

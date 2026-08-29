@@ -196,6 +196,9 @@ export class SqliteCommandRoomResourceRepository {
         connection.prepare("UPDATE command_room_resource_requests SET state = 'RELEASED', updated_at = ? WHERE lease_id = ?").run(releasedAt, leaseId);
         connection.prepare('DELETE FROM command_room_resource_leases WHERE lease_id = ?').run(leaseId);
       }
+      connection.prepare(
+        `UPDATE command_room_resource_requests SET state = 'RELEASED', lease_id = NULL, updated_at = ? WHERE ${where} AND state = 'QUEUED'`,
+      ).run(releasedAt, ...values);
       connection.exec('COMMIT;');
       return leaseIds.length;
     } catch (error) {

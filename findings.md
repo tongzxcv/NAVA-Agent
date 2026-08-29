@@ -626,3 +626,16 @@
 - The verifier cleaned its harmless AI TRADER Reference / MooPing Ledger lease rows and archived its task-owned room. The only remaining writer during finalization is the explicit C: release-task lease.
 - Installed UIA confirms the Desktop overview is credential-free in practice: no UUID-like values are displayed, the page explicitly states that overview has no join code/session secret, and all measured elements stay inside the document horizontally while long room history uses vertical scrolling.
 - The Phase 2B release used no EA Live action, real MT5 order, production VPS mutation, browser writer action, or project-file write in the pilot workspaces.
+
+
+## 2026-08-29 three-writer readiness findings
+
+- There is no global runtime limit of two Command Room writers. The prior “writers สูงสุด 2” value was an acceptance-pilot constraint only.
+- Installed v4.11.1 is now empirically verified for three simultaneous WRITE tasks when each task has a distinct registered workspace. Same-workspace exclusivity remains unchanged and correctly blocks the fourth collision probe.
+- All three workspace writer leases survive an actual NAVA root-process replacement and can be released normally after recovery; this closes the gap between theoretical no-cap behavior and an installed three-chat operating guarantee.
+- Writer concurrency and shared-resource capacity are separate dimensions. Three leads may WRITE three projects concurrently while a single-capacity MT5 terminal/VPS/browser/GPU resource can still place one or more tasks in WAITING.
+- The failed first extension run exposed a test-harness issue, not a runtime writer failure: the NAVA-tied verifier lost its endpoint during restart. Detaching both verifier and restart worker produced a clean end-to-end PASS without changing the installed runtime.
+
+- Interrupted acceptance exposed a real shared-resource lifecycle defect: queued requests without a granted lease were not closed by `releaseForTask/Agent/Room`, so an orphaned FIFO head could block future callers even when active resource leases were zero.
+- The minimal fix is storage-local and contract-preserving: scoped release now marks matching `state=QUEUED` requests `RELEASED` while still returning only the number of active leases removed. Broker lifecycle calls were already correct.
+- The two orphaned test queues were identified by exact task-owned acceptance room IDs/name prefix, backed up before mutation, then cleaned via the patched repository; no non-acceptance resource request was touched.

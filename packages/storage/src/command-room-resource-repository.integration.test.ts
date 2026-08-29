@@ -124,6 +124,37 @@ describe('SqliteCommandRoomResourceRepository', () => {
 
     reopenedDatabase.close();
   });
+  it('closes queued requests when their task or room releases without an active resource lease', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-resource-queued-cleanup-'));
+    cleanup.push(directory);
+    const database = new SqliteDatabase(join(directory, 'nava.db'));
+    seedCommandRoom(database);
+    const repository = new SqliteCommandRoomResourceRepository(database);
+
+    const holder = await request(repository, 'mt5-terminal-1', 'task-1', 'lead-1', 'cleanup-holder', 10, '2026-08-29T01:00:00.000Z');
+    const queuedTask = await request(repository, 'mt5-terminal-1', 'task-2', 'lead-2', 'cleanup-queued-task', 10, '2026-08-29T01:00:01.000Z');
+    expect(holder.state).toBe('GRANTED');
+    expect(queuedTask).toMatchObject({ state: 'QUEUED', queuePosition: 1 });
+
+    expect(await repository.releaseForTask('room-1', 'task-2', '2026-08-29T01:00:02.000Z')).toBe(0);
+    expect(database.connection.prepare('SELECT state FROM command_room_resource_requests WHERE request_id = ?').get(queuedTask.requestId))
+      .toEqual({ state: 'RELEASED' });
+
+    await repository.release({ leaseId: holder.lease!.leaseId, agentId: 'lead-1', releasedAt: '2026-08-29T01:00:03.000Z' });
+    const next = await request(repository, 'mt5-terminal-1', 'task-3', 'lead-3', 'cleanup-next', 10, '2026-08-29T01:00:04.000Z');
+    expect(next.state).toBe('GRANTED');
+
+    const roomQueued = await request(repository, 'mt5-terminal-2', 'task-2', 'lead-2', 'cleanup-room-queued', 10, '2026-08-29T01:00:05.000Z');
+    expect(roomQueued.state).toBe('GRANTED');
+    const anotherRoomQueued = await request(repository, 'mt5-terminal-2', 'task-3', 'lead-3', 'cleanup-room-waiter', 10, '2026-08-29T01:00:06.000Z');
+    expect(anotherRoomQueued.state).toBe('QUEUED');
+    await repository.releaseForRoom('room-1', '2026-08-29T01:00:07.000Z');
+    expect(database.connection.prepare('SELECT state FROM command_room_resource_requests WHERE request_id = ?').get(anotherRoomQueued.requestId))
+      .toEqual({ state: 'RELEASED' });
+    expect((await repository.status({ roomId: 'room-1', now: '2026-08-29T01:00:08.000Z' })).queueDepth).toBe(0);
+    database.close();
+  });
+
   it('enforces capacity two and promotes queued work by priority aging then FIFO', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-resource-order-'));
     cleanup.push(directory);

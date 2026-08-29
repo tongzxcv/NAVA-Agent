@@ -623,3 +623,17 @@
 - Tunnel recovered after the verifier restart with `healthz=200 live` and `readyz=200 ready`. No EA Live, project-file mutation in the two pilot workspaces, production VPS mutation, or real MT5 order occurred.
 - Installed visual gate used Windows UI Automation against the real NAVA PID 42000 / hwnd 63766824. The 1280x800 RootWebArea showed the latest Phase 2B acceptance room ARCHIVED, MAIN/LEAD cards, WRITE task rows, and post-cleanup writer/resource/queue counts 0/0/0. UIA found zero UUID-like displayed values and zero horizontal overflow; the visible join-code/session-secret phrase is the explanatory text that overview does not contain those secrets.
 - Phase 2B Source Gate and Installed Gate are complete. Package/backup/result artifacts remain outside Git and no push is performed.
+
+
+## 2026-08-29 Command Room three-writer readiness
+
+- User requested all three project chats to be able to WRITE concurrently. Runtime inspection confirmed the old “at most 2 writers” wording was a pilot acceptance limit, not a runtime hard cap.
+- Extended `scripts/verify-command-room-phase2b.mjs` to require a third distinct workspace and to report `threeWritersPassed`; added a writer-only installed mode so three-writer readiness can be verified without taking any shared MT5/VPS/browser/GPU resource.
+- First 3-writer attempt proved `threeWritersPassed=true` before restart but timed out because the verifier was still tied to the NAVA process tree. A second detached verifier plus detached WMI restart worker fixed the harness problem rather than changing runtime behavior.
+- Final installed proof passed on v4.11.1: 229 tools, Command Room 8/8, same-workspace collision blocked, three different-workspace writers RUNNING concurrently, controlled restart observed, all three writer leases recovered, all task-owned writer leases released, and acceptance room archived. Restart worker result: old root PID 37872 -> new root PID 36392, port 18765 recovered.
+- Source regression now explicitly exercises three concurrent writer leases across workspace-a/b/c, SQLite close/reopen recovery of all three, and final cleanup; focused Vitest suite passes 3/3 under Node 24.19.0 and `git diff --check` passes.
+- The initial three-writer proof required no core writer change, but subsequent failed-run cleanup inspection found stale QUEUED resource requests that could block later FIFO allocation. Storage release semantics were fixed, version synchronized to v4.11.2, and a fresh package/install is required. Shared resources continue to queue independently by capacity.
+
+- Queue-cleanup bug fix: `releaseForTask`, `releaseForAgent`, and `releaseForRoom` now close matching QUEUED requests even when no resource lease was ever granted; return semantics still count released active leases only. Storage regression passes 3/3 and Phase2B regression passes 3/3.
+- Live DB was backed up to `E:\AI_CACHE\nava-agent-setup\20260829-queue-cleanup-pre-v4.11.2.sqlite`, then only two known `NAVA Phase 2B acceptance p2b-*` rooms were maintained through the source repository. Both now have resource queue depth 0, the timeout room is ARCHIVED, and acceptance QUEUED count is 0.
+- Version synchronized to v4.11.2. TypeScript build, focused ESLint, packaging regression 4/4, and git diff check pass before packaging.
