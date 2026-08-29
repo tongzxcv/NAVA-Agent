@@ -202,6 +202,12 @@ export class SqliteCommandRoomRepository {
     return toRoom(this.database.connection.prepare(roomSelect('WHERE creation_key = ?')).get(creationKey));
   }
 
+  public async listRooms(limit: number): Promise<readonly CommandRoomRecord[]> {
+    return this.database.connection.prepare(
+      `${roomSelect('')} ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'PAUSED' THEN 1 ELSE 2 END, updated_at DESC LIMIT ?`,
+    ).all(limit).flatMap(roomRows);
+  }
+
   public async listAgents(roomId: string): Promise<readonly CommandRoomAgentRecord[]> {
     return this.database.connection.prepare(
       agentSelect("WHERE room_id = ? ORDER BY CASE slot_key WHEN 'MAIN' THEN 0 ELSE 1 END, slot_key"),
@@ -846,6 +852,11 @@ function parseStringArray(value: string): readonly string[] | null {
   } catch {
     return null;
   }
+}
+
+function roomRows(value: unknown): readonly CommandRoomRecord[] {
+  const room = toRoom(value);
+  return room === null ? [] : [room];
 }
 
 function agentRows(value: unknown): readonly CommandRoomAgentRecord[] {

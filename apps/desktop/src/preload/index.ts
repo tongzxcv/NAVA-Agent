@@ -6,7 +6,17 @@ import {
   type AgentState,
   type BackupSummary,
   type ClearLogBufferRequest,
+  type CommandRoomAgentState,
+  type CommandRoomAgentSummary,
+  type CommandRoomOverview,
+  type CommandRoomProvider,
+  type CommandRoomRole,
+  type CommandRoomStatus,
+  type CommandRoomSummary,
+  type CommandRoomTaskState,
+  type CommandRoomTaskSummary,
   type ConfigureTunnelProfileRequest,
+  type CreateCommandRoomResult,
   type DashboardSnapshot,
   type DoctorCheck,
   type DoctorReport,
@@ -69,6 +79,19 @@ function numberField(value: Record<string, unknown>, field: string): number {
   return fieldValue;
 }
 
+function optionalStringField(value: Record<string, unknown>, field: string): string | undefined {
+  const fieldValue = value[field];
+  if (fieldValue === undefined) return undefined;
+  if (typeof fieldValue === 'string') return fieldValue;
+  throw new Error('Invalid IPC response');
+}
+
+function enumField<T extends string>(value: Record<string, unknown>, field: string, allowed: readonly T[]): T {
+  const fieldValue = value[field];
+  if (typeof fieldValue !== 'string' || !allowed.includes(fieldValue as T)) throw new Error('Invalid IPC response');
+  return fieldValue as T;
+}
+
 function nullableString(value: unknown): string | null {
   if (value === null) return null;
   if (typeof value === 'string') return value;
@@ -89,6 +112,69 @@ function workspaceSummary(value: unknown): WorkspaceSummary {
 function workspaceList(value: unknown): readonly WorkspaceSummary[] {
   if (!Array.isArray(value)) throw new Error('Invalid IPC response');
   return value.map(workspaceSummary);
+}
+
+function commandRoomAgentSummary(value: unknown): CommandRoomAgentSummary {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const projectKey = optionalStringField(value, 'projectKey');
+  const workspaceId = optionalStringField(value, 'workspaceId');
+  const currentTaskId = optionalStringField(value, 'currentTaskId');
+  const lastHeartbeatAt = optionalStringField(value, 'lastHeartbeatAt');
+  return {
+    slotKey: stringField(value, 'slotKey'),
+    role: enumField<CommandRoomRole>(value, 'role', ['MAIN', 'LEAD']),
+    provider: enumField<CommandRoomProvider>(value, 'provider', ['CHATGPT', 'CODEX', 'OTHER']),
+    state: enumField<CommandRoomAgentState>(value, 'state', ['AVAILABLE', 'ONLINE', 'WORKING', 'WAITING', 'SLEEPING', 'OFFLINE']),
+    ...(projectKey === undefined ? {} : { projectKey }),
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    ...(currentTaskId === undefined ? {} : { currentTaskId }),
+    ...(lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt }),
+  };
+}
+
+function commandRoomTaskSummary(value: unknown): CommandRoomTaskSummary {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const workspaceId = optionalStringField(value, 'workspaceId');
+  const assignedSlotKey = optionalStringField(value, 'assignedSlotKey');
+  return {
+    id: stringField(value, 'id'),
+    title: stringField(value, 'title'),
+    projectKey: stringField(value, 'projectKey'),
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    mutationMode: enumField(value, 'mutationMode', ['READ_ONLY', 'WRITE']),
+    state: enumField<CommandRoomTaskState>(value, 'state', ['QUEUED', 'CLAIMED', 'RUNNING', 'WAITING', 'REVIEW', 'COMPLETED', 'FAILED', 'CANCELLED']),
+    ...(assignedSlotKey === undefined ? {} : { assignedSlotKey }),
+    version: numberField(value, 'version'),
+    updatedAt: stringField(value, 'updatedAt'),
+  };
+}
+
+function commandRoomSummary(value: unknown): CommandRoomSummary {
+  if (!isRecord(value) || !Array.isArray(value.agents) || !Array.isArray(value.tasks)) throw new Error('Invalid IPC response');
+  return {
+    id: stringField(value, 'id'),
+    name: stringField(value, 'name'),
+    status: enumField<CommandRoomStatus>(value, 'status', ['ACTIVE', 'PAUSED', 'ARCHIVED']),
+    version: numberField(value, 'version'),
+    createdAt: stringField(value, 'createdAt'),
+    updatedAt: stringField(value, 'updatedAt'),
+    agents: value.agents.map(commandRoomAgentSummary),
+    tasks: value.tasks.map(commandRoomTaskSummary),
+  };
+}
+
+function commandRoomOverview(value: unknown): CommandRoomOverview {
+  if (!isRecord(value) || !Array.isArray(value.rooms)) throw new Error('Invalid IPC response');
+  return { rooms: value.rooms.map(commandRoomSummary) };
+}
+
+function createCommandRoomResult(value: unknown): CreateCommandRoomResult {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    duplicate: booleanField(value, 'duplicate'),
+    room: commandRoomSummary(value.room),
+    joinCodes: stringRecordResponse(value.joinCodes),
+  };
 }
 
 function stringList(value: unknown): readonly string[] {
@@ -686,6 +772,8 @@ const api: LnwjudApi = {
   addWorkspace,
   selectWorkspace,
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),
+  getCommandRoomOverview: () => invoke(ipcChannels.getCommandRoomOverview).then(commandRoomOverview),
+  createCommandRoom: (request) => invoke(ipcChannels.createCommandRoom, { name: request.name }).then(createCommandRoomResult),
   setPermissionProfile,
   setUnrestrictedMode,
   setAiDeletePolicy,

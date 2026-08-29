@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +23,7 @@ import {
 } from '@lnwjud/application';
 import { AuditService, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
-import type { Result } from '@lnwjud/domain';
+import type { CommandRoomRecord, Result } from '@lnwjud/domain';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -83,6 +84,10 @@ import {
   type AgentState,
   type AuditEventSummary,
   type ClearLogBufferRequest,
+  type CommandRoomOverview,
+  type CommandRoomSummary,
+  type CreateCommandRoomRequest,
+  type CreateCommandRoomResult,
   type ConfigureTunnelProfileRequest,
   type ConnectionModes,
   type DashboardSnapshot,
@@ -253,6 +258,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     idleTimeoutMs: readSettings().mcpIdleTimeoutMs,
   });
   const activityLogPath = mcpActivityLogPath(dataPath);
+  const commandRoomRepository = new SqliteCommandRoomRepository(database);
+  const commandRoomBroker = new CommandRoomBroker(commandRoomRepository);
   const mcpServices: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     activityLogPath,
@@ -267,7 +274,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     extensions: extensionsService,
     workspaceInfo: workspaceInfoService,
     workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
-    commandRoom: new CommandRoomBroker(new SqliteCommandRoomRepository(database)),
+    commandRoom: commandRoomBroker,
     workspaceQuery: workspaceQueryService,
     projectSnapshot: projectSnapshotService,
     project: projectService,
@@ -400,6 +407,46 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     return workspace;
   }
 
+  async function toCommandRoomSummary(room: CommandRoomRecord): Promise<CommandRoomSummary> {
+    const [agents, tasks] = await Promise.all([
+      commandRoomRepository.listAgents(room.id),
+      commandRoomRepository.listTasks(room.id, 100),
+    ]);
+    const agentSlots = new Map(agents.map((agent) => [agent.id, agent.slotKey] as const));
+    return {
+      id: room.id,
+      name: room.name,
+      status: room.status,
+      version: room.version,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+      agents: agents.map((agent) => ({
+        slotKey: agent.slotKey,
+        role: agent.role,
+        provider: agent.provider,
+        state: agent.state,
+        ...(agent.projectKey === undefined ? {} : { projectKey: agent.projectKey }),
+        ...(agent.workspaceId === undefined ? {} : { workspaceId: agent.workspaceId }),
+        ...(agent.currentTaskId === undefined ? {} : { currentTaskId: agent.currentTaskId }),
+        ...(agent.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: agent.lastHeartbeatAt }),
+      })),
+      tasks: tasks.map((task) => {
+        const assignedSlotKey = task.assignedAgentId === undefined ? undefined : agentSlots.get(task.assignedAgentId);
+        return {
+          id: task.id,
+          title: task.title,
+          projectKey: task.projectKey,
+          ...(task.workspaceId === undefined ? {} : { workspaceId: task.workspaceId }),
+          mutationMode: task.mutationMode,
+          state: task.state,
+          ...(assignedSlotKey === undefined ? {} : { assignedSlotKey }),
+          version: task.version,
+          updatedAt: task.updatedAt,
+        };
+      }),
+    };
+  }
+
   async function selectAndMaybeRestart(workspaceId: string): Promise<WorkspaceSummary> {
     const workspace = await resolveWorkspaceOrThrow(workspaceId);
     await ensureMachineRoots(workspace.realRootPath);
@@ -500,6 +547,23 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         tunnel,
         settings: readSettings(),
         appVersion: APP_VERSION,
+      };
+    },
+    getCommandRoomOverview: async (): Promise<CommandRoomOverview> => ({
+      rooms: await Promise.all((await commandRoomRepository.listRooms(20)).map(toCommandRoomSummary)),
+    }),
+    createCommandRoom: async (request: CreateCommandRoomRequest): Promise<CreateCommandRoomResult> => {
+      const created = unwrap(await commandRoomBroker.admin({
+        action: 'create',
+        name: request.name,
+        idempotencyKey: `desktop-${randomUUID()}`,
+        leadSlots: 5,
+      }), 'Command Room could not be created');
+      if (created.action !== 'create') throw new Error('Unexpected Command Room admin response');
+      return {
+        duplicate: created.duplicate,
+        room: await toCommandRoomSummary(created.room),
+        joinCodes: created.joinCodes,
       };
     },
     setPermissionProfile: async (request: SetPermissionProfileRequest): Promise<{ readonly profile: IpcPermissionProfileName }> => {

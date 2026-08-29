@@ -2,6 +2,7 @@ export type MessageKey =
   | 'brand'
   | 'nav.home'
   | 'nav.projects'
+  | 'nav.commandRoom'
   | 'nav.git'
   | 'nav.workLog'
   | 'nav.live'
@@ -132,6 +133,7 @@ export const th: Messages = {
   brand: 'NAVA Agent',
   'nav.home': 'หน้าหลัก',
   'nav.projects': 'โปรเจกต์',
+  'nav.commandRoom': 'ห้องบัญชาการ',
   'nav.git': 'Git',
   'nav.workLog': 'บันทึกการทำงาน',
   'nav.live': 'Live Logs',
@@ -261,6 +263,7 @@ export const en: Messages = {
   brand: 'NAVA Agent',
   'nav.home': 'Home',
   'nav.projects': 'Projects',
+  'nav.commandRoom': 'Command Room',
   'nav.git': 'Git',
   'nav.workLog': 'Work Log',
   'nav.live': 'Live Logs',

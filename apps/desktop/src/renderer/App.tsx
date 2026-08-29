@@ -14,6 +14,7 @@ import type {
 import { AppShell, type Screen } from './features/shell/AppShell.js';
 import { ControlCenterPage } from './features/home/ControlCenterPage.js';
 import { ProjectsPage } from './features/projects/ProjectsPage.js';
+import { CommandRoomPage } from './features/command-room/CommandRoomPage.js';
 import { GitPage } from './features/git/GitPage.js';
 import { WorkLogPage } from './features/worklog/WorkLogPage.js';
 import { LiveLogsPage } from './features/live/LiveLogsPage.js';
@@ -403,6 +404,7 @@ export function App(): ReactElement {
           onAddWorkspace={addWorkspace}
         />
       ) : null}
+      {screen === 'commandRoom' ? <CommandRoomPage locale={locale} /> : null}
       {screen === 'git' ? (
         <GitPage
           locale={locale}

@@ -556,3 +556,34 @@
 - Installed-runtime acceptance rerun `6639b9e3-a062-4ce0-8e44-9c46d41e3aeb` passed the same 229-tool, two-session, isolation, permission, task-lifecycle, resource-mode, and archive gates.
 - Commit `6e18bf8` created the repeatable Phase 1.5 acceptance checkpoint; the branch was clean and 15 commits ahead immediately afterward.
 - The first final checkpoint call was correctly blocked because it bypassed the held lease. A short finalization lease was reacquired so the operational note, amended commit, and checkpoint can use the required wrapper.
+
+## 2026-08-29 Phase 1.5 restart gate resumed
+
+- Resumed checkpoint `25732e3e-23d5-4a6c-bdbe-b2fcf11746f8` and verified it against current runtime evidence.
+- Git is clean on `fix/nava-tunnel-probe-timeout`, ahead 15; no durable NAVA tasks are active.
+- Workspace authority reports zero active writers across all registered projects; the prior BEELZEBUB lease is gone.
+- Acquired C: writer lease `57e03179-2533-43ab-864d-aa4369441ede` for the restart-persistence gate and Phase 2 implementation.
+- Phase 2 remains blocked until a task-owned Command Room survives an exact NAVA-owned process restart.
+
+## 2026-08-29 Phase 1.5 restart persistence passed
+
+- Added `scripts/verify-command-room-restart-persistence.mjs`; Node syntax and ESLint pass.
+- Controlled restart verifier passed: version 4.11.0 before/after, offline observed, same room readable, room version preserved, task-owned room archived.
+- Installed local MCP recovered on PID 27412. Tunnel was restored from NAVA UI and reports `live` / `ready` on PID 9504.
+- Phase 1.5 is complete. Phase 2 Main 1 + Project Lead 5 desktop vertical slice is now authorized by the plan gate.
+
+## 2026-08-29 Phase 2 build
+
+- Main 1 + Lead 5 local-admin overview/create vertical slice is implemented through the existing SQLite repository, broker, typed IPC/preload, and React shell.
+- TypeScript build and changed-file ESLint pass; focused Command Room/storage/production-IPC tests pass 12/12.
+- Desktop production build completed through TypeScript, main/preload bundling, renderer, and MCP stdio bundling. Its strict launcher step rejected inherited Node 25.8.2; rerunning that step with NAVA's private Node 24.19.0 passed.
+- The final renderer rebuild passed under portable Node 24 after the last minimal cleanup. TypeScript, changed-file ESLint, and focused Command Room tests pass 12/12.
+- Fresh unsigned Phase 2 packaging is running as durable NAVA task `eb2e3ed9-b871-4c13-8784-01b888b46258`; two earlier package commands failed before packaging because their config/CLI paths were wrong.
+## 2026-08-29 Phase 2 installed-runtime acceptance
+
+- Fresh Node 24 unsigned package completed as durable task `eb2e3ed9-b871-4c13-8784-01b888b46258`; package SHA256 is `D9C595185E657EEBF8F28D4EEB2620426660E5D5D2920723114DC9B679629D4B`.
+- Backup completed at `E:\\AI_CACHE\\nava-agent-setup\\20260829-0750-v4.11.0-before-command-room-phase2`: installed app 573.63 MB, NAVA app data 515.81 MB, Tunnel profile 9.47 MB, and Desktop shortcut.
+- Stopped only the verified NAVA root PID 27412 and its validated descendants, installed from `win-unpacked`, and hash-matched the executable, `app.asar`, MCP bundle, and private Node runtime.
+- Installed NAVA restarted on PID 35208 with local MCP port 18765. Tunnel restarted through the NAVA UI on PID 42556 and passed `healthz=live` / `readyz=ready`.
+- Read-only installed HTTP MCP acceptance reports version 4.11.0, 229 tools, and all eight `command_room_*` tools.
+- Visual installed-runtime QA passed: the native navigation exposes `ห้องบัญชาการ`; the Main 1 + Lead 5 creation form, credential warning, archived room cards, agent states, and task summaries render at 1920x1040 without clipping or white-on-white text.

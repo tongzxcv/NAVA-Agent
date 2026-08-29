@@ -819,10 +819,10 @@ The repository seams are verified. The implementation will preserve the existing
 - [x] Two independent MCP sessions list all eight command-room tools.
 - [x] Main and Lead identities can join one isolated test room and exchange bounded messages without cross-room leakage.
 - [x] Task, presence, and resource/writer coordination behave deterministically under concurrent requests.
-- [ ] Command-room state survives an owned NAVA restart and remains readable afterward.
+- [x] Command-room state survives an owned NAVA restart and remains readable afterward.
 - [x] Existing workspace leases, permissions, continuity, MCP health, and Tunnel health remain intact.
 - [x] No production defect was reproduced; the dependency-free installed-runtime harness is the repeatable regression check.
-- [ ] Phase 2 Main 1 + Project Lead 5 preset/UI scope is implemented only after Phase 1.5 passes.
+- [x] Phase 2 Main 1 + Project Lead 5 preset/UI scope is implemented only after Phase 1.5 passes.
 - [ ] Relevant tests/build pass, task-owned changes are secret/artifact scanned and committed, and no push occurs unless requested.
 
 ## Boundaries
@@ -846,3 +846,11 @@ The repository seams are verified. The implementation will preserve the existing
 | Final direct `session_checkpoint` call was rejected while this task owned the workspace lease | 1 | Released the lease, reacquired a short finalization lease, and route the checkpoint through `workspace_lease_call`. |
 | Direct `git` status/diff calls were rejected while this task owned the workspace lease | 1 | Re-ran the same read-only Git commands through `workspace_lease_call`. |
 | Vitest attempt through `cmd.exe` treated the quoted pnpm path as a literal command name | 1 | Switched to PowerShell call-operator invocation. |
+| Restart verifier ESLint initially treated `setTimeout` as an undefined browser global | 1 | Use `globalThis.setTimeout`; syntax and ESLint then passed. |
+| Direct Tunnel launch lacked NAVA's in-memory Runtime API key environment | 1 | Do not expose or reload the key; start Tunnel through the verified NAVA UI button and confirm `healthz=live` / `readyz=ready`. |
+| First post-click PowerShell JSON summary serialized WebResponse objects incorrectly | 1 | Re-query only bounded string content and owning PID; Tunnel was already live/ready. |
+| Desktop production build inherited Node 25.8.2 and stopped at the strict launcher gate | 1 | Reused the installed private Node 24.19.0 runtime to generate the launcher; source build output was otherwise complete. |
+| First Phase 2 package command resolved `apps/desktop/electron-builder.yml` twice | 1 | Corrected the config path relative to the Desktop working directory. |
+| Second package command assumed a hoisted electron-builder CLI that pnpm does not create | 1 | Resolved the exact pnpm package path before launching a fresh Node 24 package task. |
+| First install preflight found a Tunnel-owned `conhost.exe` child outside the strict allowlist | 1 | Stopped before mutation, verified PID/path/parent, and allowed only that exact console-host path. |
+| Second install preflight found the configured Tunnel-owned `codex app-server` chain outside the strict allowlist | 1 | Stopped before mutation, verified `cmd -> node -> codex.exe app-server`, and allowed only those exact paths/command markers. |

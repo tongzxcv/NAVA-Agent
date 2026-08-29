@@ -38,6 +38,8 @@ export const ipcChannels = {
   getUpdateStatus: 'lnwjud:get-update-status',
   checkForUpdates: 'lnwjud:check-for-updates',
   installUpdate: 'lnwjud:install-update',
+  getCommandRoomOverview: 'lnwjud:get-command-room-overview',
+  createCommandRoom: 'lnwjud:create-command-room',
 } as const;
 
 export const pushChannels = {
@@ -48,6 +50,60 @@ export const pushChannels = {
 export type IpcChannel = typeof ipcChannels[keyof typeof ipcChannels];
 export type PermissionProfileName = 'safe' | 'balanced' | 'full' | 'custom';
 export type UiLocale = 'th' | 'en';
+export type CommandRoomStatus = 'ACTIVE' | 'PAUSED' | 'ARCHIVED';
+export type CommandRoomRole = 'MAIN' | 'LEAD';
+export type CommandRoomProvider = 'CHATGPT' | 'CODEX' | 'OTHER';
+export type CommandRoomAgentState = 'AVAILABLE' | 'ONLINE' | 'WORKING' | 'WAITING' | 'SLEEPING' | 'OFFLINE';
+export type CommandRoomTaskState = 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'WAITING' | 'REVIEW' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+export interface CommandRoomAgentSummary {
+  readonly slotKey: string;
+  readonly role: CommandRoomRole;
+  readonly provider: CommandRoomProvider;
+  readonly state: CommandRoomAgentState;
+  readonly projectKey?: string;
+  readonly workspaceId?: string;
+  readonly currentTaskId?: string;
+  readonly lastHeartbeatAt?: string;
+}
+
+export interface CommandRoomTaskSummary {
+  readonly id: string;
+  readonly title: string;
+  readonly projectKey: string;
+  readonly workspaceId?: string;
+  readonly mutationMode: 'READ_ONLY' | 'WRITE';
+  readonly state: CommandRoomTaskState;
+  readonly assignedSlotKey?: string;
+  readonly version: number;
+  readonly updatedAt: string;
+}
+
+export interface CommandRoomSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly status: CommandRoomStatus;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly agents: readonly CommandRoomAgentSummary[];
+  readonly tasks: readonly CommandRoomTaskSummary[];
+}
+
+export interface CommandRoomOverview {
+  readonly rooms: readonly CommandRoomSummary[];
+}
+
+export interface CreateCommandRoomRequest {
+  readonly name: string;
+}
+
+export interface CreateCommandRoomResult {
+  readonly duplicate: boolean;
+  readonly room: CommandRoomSummary;
+  /** One-time join codes. Empty on duplicate creation and never returned by overview. */
+  readonly joinCodes: Readonly<Record<string, string>>;
+}
 export type AgentState = 'stopped' | 'idle' | 'busy';
 export type TunnelRunState = 'stopped' | 'starting' | 'running' | 'error';
 export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'installing' | 'up-to-date' | 'error' | 'unavailable';
@@ -427,6 +483,8 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getUpdateStatus]: undefined;
   readonly [ipcChannels.checkForUpdates]: undefined;
   readonly [ipcChannels.installUpdate]: undefined;
+  readonly [ipcChannels.getCommandRoomOverview]: undefined;
+  readonly [ipcChannels.createCommandRoom]: CreateCommandRoomRequest;
 }
 
 export interface IpcResponseMap {
@@ -466,6 +524,8 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getUpdateStatus]: UpdateStatus;
   readonly [ipcChannels.checkForUpdates]: UpdateStatus;
   readonly [ipcChannels.installUpdate]: { readonly accepted: boolean; readonly status: UpdateStatus };
+  readonly [ipcChannels.getCommandRoomOverview]: CommandRoomOverview;
+  readonly [ipcChannels.createCommandRoom]: CreateCommandRoomResult;
 }
 
 export interface LnwjudApi {
@@ -505,6 +565,8 @@ export interface LnwjudApi {
   getUpdateStatus(): Promise<IpcResponseMap[typeof ipcChannels.getUpdateStatus]>;
   checkForUpdates(): Promise<IpcResponseMap[typeof ipcChannels.checkForUpdates]>;
   installUpdate(): Promise<IpcResponseMap[typeof ipcChannels.installUpdate]>;
+  getCommandRoomOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomOverview]>;
+  createCommandRoom(request: CreateCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.createCommandRoom]>;
   onLogEvent(callback: (line: LogLine) => void): () => void;
   onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
 }

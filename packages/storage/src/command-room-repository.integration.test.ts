@@ -73,6 +73,7 @@ describe('SqliteCommandRoomRepository', () => {
       policy: { directLeadMessaging: false },
       version: 1,
     });
+    await expect(second.listRooms(20)).resolves.toMatchObject([{ id: 'room-1', name: 'EA Command', status: 'ACTIVE' }]);
     await expect(second.listAgents('room-1')).resolves.toMatchObject([
       { id: 'agent-main', slotKey: 'MAIN', role: 'MAIN', state: 'AVAILABLE' },
       { id: 'agent-lead-1', slotKey: 'LEAD-1', role: 'LEAD', state: 'AVAILABLE' },

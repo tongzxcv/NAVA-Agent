@@ -570,3 +570,28 @@
 - Desktop already constructs the `CommandRoomBroker` for MCP, but there is no renderer/preload IPC surface for Command Room. Phase 2 should reuse that same broker/repository instance rather than opening another database or calling the local MCP endpoint from the renderer.
 - The minimum useful Phase 2 page is local-admin-safe: create the Main 1 + Lead 5 room, reveal one-time join codes/prompts only in the creation response, and show a credential-free room/agent/task overview. Chat agents continue to perform authenticated room mutations through MCP.
 - Navigation can add one `commandRoom` screen and bilingual message keys. No client router or shared state package is needed.
+
+## 2026-08-29 Phase 1.5 restart-persistence proof
+
+- Before restart, the task-owned verifier created a Main 1 + Lead 5 room and kept room/auth material only in process memory.
+- Exact installed NAVA root PID 5672 and its verified child tree were stopped; the new local MCP listener returned as PID 27412.
+- The verifier observed a real offline interval, initialized a fresh MCP transport, authenticated to the same room, read it as ACTIVE, and confirmed the room version was unchanged.
+- The verifier archived the task-owned room and exited 0; no test room was left active.
+- NAVA's configured Tunnel does not auto-start after this controlled app restart. A direct client launch correctly failed because the Runtime API key is injected by NAVA and was not exposed. Starting from the verified NAVA UI restored `healthz=live` and `readyz=ready` on PID 9504.
+- The C: writer lease survived the restart, durable task list remains empty, and `mcp_health` reports local MCP available with remote control-plane truthfully unknown.
+
+## 2026-08-29 Phase 2 implementation seam
+
+- Command Room creation already defaults to five Leads and returns one-time join codes only on the first successful create; duplicate create correctly returns an empty code map.
+- The existing broker status path already emits public agent/task records and intentionally omits join/session hashes. The Desktop page needs a trusted local-admin overview because normal status requires an agent session.
+- The existing SQLite repository has room lookup plus agent/task lists but no room list. The minimum backend change is one bounded `listRooms(limit)` port and a broker `overview(limit)` method for local Desktop use only; MCP tool exposure remains unchanged.
+- Desktop already owns the same `CommandRoomBroker` instance used by MCP. Phase 2 should expose create/overview through existing typed IPC/preload patterns rather than creating a second database or calling local MCP from the renderer.
+- Renderer navigation is a closed `Screen` union with centralized labels. Add one Command Room screen and one page component; reuse the existing dark theme, Prompt fonts, cards, buttons, and focus behavior.
+- The page will show one-time codes/boot prompts only in the immediate creation result. Reloaded overview remains credential-free.
+- Electron-builder remains usable without weakening repository release defaults: the local Phase 2 package uses the established temporary `signAndEditExecutable=false` command-line override and a separate output directory; `electron-builder.yml` remains signed-by-default.
+## 2026-08-29 Phase 2 installed findings
+
+- The installed Desktop page is functional through the native typed IPC path; no browser extension, second database, or new runtime dependency was introduced.
+- Overview intentionally contains no join codes or session hashes. One-time codes exist only in the immediate create response and the UI tells the user to save them before leaving.
+- The current history contains five archived Phase 1.5 acceptance rooms. They render as archived evidence; no production room was created automatically during installation.
+- Local MCP and Tunnel were both restored after the controlled install. The already-open Codex connector still has its old callable schema, so new ChatGPT/Codex chats may need connector refresh before `command_room_*` wrappers appear even though the installed HTTP catalog already exposes all eight tools.

@@ -101,6 +101,22 @@ describe('production desktop IPC acceptance', () => {
       .rejects.toThrow(/requires at least one allowed root/);
   });
 
+  it('routes a bounded Command Room overview and validates Main 1 + Lead 5 creation', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+
+    await expect(requiredHandler(ipcChannels.getCommandRoomOverview)(trusted)).resolves.toEqual({ rooms: [] });
+    await expect(requiredHandler(ipcChannels.createCommandRoom)(trusted, { name: '  EA Portfolio  ' })).resolves.toMatchObject({
+      room: { name: 'EA Portfolio', agents: [{ slotKey: 'MAIN' }] },
+      joinCodes: { MAIN: 'one-time-main' },
+    });
+    await expect(requiredHandler(ipcChannels.createCommandRoom)(trusted, { name: '' })).rejects.toThrow('Invalid IPC payload: name');
+    await expect(requiredHandler(ipcChannels.createCommandRoom)(trusted, { name: 'x'.repeat(121) })).rejects.toThrow('Invalid IPC payload: name');
+
+    expect(services.createCommandRoom).toHaveBeenCalledWith({ name: 'EA Portfolio' });
+  });
+
   it('notifies the native tray after a trusted locale change', async () => {
     const services = desktopServices();
     const onLocaleChanged = vi.fn();
@@ -155,6 +171,17 @@ function desktopServices(): DesktopIpcServices {
     addWorkspace: vi.fn(async () => { throw new Error('unused'); }),
     selectWorkspace: vi.fn(async () => { throw new Error('unused'); }),
     getDashboard: vi.fn(async () => { throw new Error('unused'); }),
+    getCommandRoomOverview: vi.fn(async () => ({ rooms: [] })),
+    createCommandRoom: vi.fn(async (request) => ({
+      duplicate: false,
+      room: {
+        id: 'room-1', name: request.name, status: 'ACTIVE', version: 1,
+        createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        agents: [{ slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'AVAILABLE' }],
+        tasks: [],
+      },
+      joinCodes: { MAIN: 'one-time-main' },
+    })),
     setPermissionProfile: vi.fn(async (request) => ({ profile: request.profile })),
     setUnrestrictedMode: vi.fn(async (request) => ({ unrestricted: request.enabled, restartRequired: false })),
     setAiDeletePolicy: vi.fn(async (request) => ({ enabled: request.enabled })),
