@@ -587,3 +587,4 @@
 - Installed NAVA restarted on PID 35208 with local MCP port 18765. Tunnel restarted through the NAVA UI on PID 42556 and passed `healthz=live` / `readyz=ready`.
 - Read-only installed HTTP MCP acceptance reports version 4.11.0, 229 tools, and all eight `command_room_*` tools.
 - Visual installed-runtime QA passed: the native navigation exposes `ห้องบัญชาการ`; the Main 1 + Lead 5 creation form, credential warning, archived room cards, agent states, and task summaries render at 1920x1040 without clipping or white-on-white text.
+- Secret/artifact guard passed on the exact 16 staged files: 0 secret patterns, 0 artifact candidates, and 0 files over 10 MB. Commit `d9a23d8` created `feat: add NAVA Command Room desktop`; no push was performed.

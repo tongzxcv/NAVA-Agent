@@ -823,7 +823,7 @@ The repository seams are verified. The implementation will preserve the existing
 - [x] Existing workspace leases, permissions, continuity, MCP health, and Tunnel health remain intact.
 - [x] No production defect was reproduced; the dependency-free installed-runtime harness is the repeatable regression check.
 - [x] Phase 2 Main 1 + Project Lead 5 preset/UI scope is implemented only after Phase 1.5 passes.
-- [ ] Relevant tests/build pass, task-owned changes are secret/artifact scanned and committed, and no push occurs unless requested.
+- [x] Relevant tests/build pass, task-owned changes are secret/artifact scanned and committed, and no push occurs unless requested.
 
 ## Boundaries
 
