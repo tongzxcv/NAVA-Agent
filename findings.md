@@ -617,3 +617,12 @@
 - Resource leases remain coordination rather than capability authority. Request/renew/release do not bypass workspace roots, permission profiles, human confirmations, destructive-action policy, or audit redaction.
 - Source evidence now covers same-workspace denial, different-workspace writers, stale writer reconciliation, terminal release, resource capacity/idempotency/expiry, exact MT5 terminal catalog, VPS/browser/GPU capacity, and SQLite reopen persistence. Independent installed MCP sessions, controlled installed restart, and visual bounded-rendering proof remain release-gate evidence.
 - The installed verifier scripts/verify-command-room-phase2b.mjs is intentionally source-only for now. It is designed to keep credentials in memory, use task-owned rooms/workspaces, pause for an external controlled NAVA restart, and avoid EA Live, production VPS mutation, and real MT5 orders.
+
+## 2026-08-29 Command Room Phase 2B installed findings
+
+- The machine already had a pre-df3f0cb build reporting version 4.11.1, so version text alone was insufficient evidence. The release gate rebuilt from source commit df3f0cb and verified installed hashes against that fresh package.
+- The installed multi-session acceptance closes the architecture gap rather than only exercising SQLite directly: same-workspace WRITE ownership is denied, different-workspace writers coexist, resource capacity queues deterministically, and both writer/resource state survive an actual NAVA process replacement.
+- Queue recovery is deliberately non-automatic: after restart the queued request remains durable and promotion occurs only when its owner explicitly retries after capacity is released. No mutation was auto-retried.
+- The verifier cleaned its harmless AI TRADER Reference / MooPing Ledger lease rows and archived its task-owned room. The only remaining writer during finalization is the explicit C: release-task lease.
+- Installed UIA confirms the Desktop overview is credential-free in practice: no UUID-like values are displayed, the page explicitly states that overview has no join code/session secret, and all measured elements stay inside the document horizontally while long room history uses vertical scrolling.
+- The Phase 2B release used no EA Live action, real MT5 order, production VPS mutation, browser writer action, or project-file write in the pilot workspaces.

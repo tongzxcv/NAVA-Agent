@@ -854,7 +854,7 @@ The repository seams are verified. The implementation will preserve the existing
 | Second package command assumed a hoisted electron-builder CLI that pnpm does not create | 1 | Resolved the exact pnpm package path before launching a fresh Node 24 package task. |
 | First install preflight found a Tunnel-owned `conhost.exe` child outside the strict allowlist | 1 | Stopped before mutation, verified PID/path/parent, and allowed only that exact console-host path. |
 | Second install preflight found the configured Tunnel-owned `codex app-server` chain outside the strict allowlist | 1 | Stopped before mutation, verified `cmd -> node -> codex.exe app-server`, and allowed only those exact paths/command markers. |
-# Active Task: NAVA Command Room Phase 2B preparation — writer/resource coordination
+# Active Task: NAVA Command Room Phase 2B — writer/resource coordination
 
 ## Current state
 
@@ -878,8 +878,8 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Enforce resource capacity atomically with idempotency, expiry cleanup, priority/FIFO evidence, and no automatic mutation retry.
 - [x] Preserve workspace_lease_call, permission profiles, human confirmations, path roots, destructive-action blocks, and audit redaction unchanged.
 - [x] Extend the Desktop overview/cards with source-of-truth workspace/resource lease status and actionable conflict text; never display opaque lease credentials after their required one-time response.
-- [ ] Pass same-workspace collision, different-workspace writers, seven-terminal uniqueness, VPS/browser/GPU capacity, restart recovery, stale lease cleanup, and bounded rendering tests. Source/SQLite sub-gates pass; installed multi-session restart + visual bounded-rendering proof remains.
-- [ ] Run a task-owned installed pilot with Main + 3 Leads and at most 2 writers on different workspaces; do not use EA Live, production VPS mutation, or real MT5 orders.
+- [x] Pass same-workspace collision, different-workspace writers, seven-terminal uniqueness, VPS/browser/GPU capacity, restart recovery, stale lease cleanup, and bounded rendering tests. Installed multi-session restart and UIA visual proof pass.
+- [x] Run a task-owned installed pilot with Main + 3 Leads and at most 2 writers on different workspaces; do not use EA Live, production VPS mutation, or real MT5 orders.
 - [x] Scan and commit only task-owned files. Package/install/push only after separate user authorization.
 
 ## Implementation slices
@@ -887,8 +887,8 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] **Tracer 1 — storage/resource truth:** RED tests for migration 006, atomic capacity, expiry, idempotent replay, and restart persistence; then the minimum repository implementation.
 - [x] **Tracer 2 — writer task lifecycle:** share the existing workspace lease instance with the broker, enable guarded WRITE tasks, and prove acquire/renew/release/conflict transitions.
 - [x] **Tracer 3 — MCP and Desktop truth:** expand only the existing resource union and overview DTOs; render lease/resource state with no new framework.
-- [ ] **Tracer 4 — concurrency/recovery:** isolated broker/SQLite proof passes; independent installed MCP sessions plus controlled restart remain pending.
-- [ ] **Release gate:** build/package/backup/install and visually verify only after all source and isolated-runtime gates pass.
+- [x] **Tracer 4 — concurrency/recovery:** independent installed MCP sessions prove two different-workspace writers, same-workspace denial, resource queue persistence/promotion, restart recovery, and cleanup.
+- [x] **Release gate:** fresh Node 24 package, rollback backup, hash-verified install, controlled restart, Tunnel recovery, installed verifier, and UIA bounded-rendering proof pass.
 
 ## Planned source seams
 
@@ -912,6 +912,16 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - The extra command_room_resource_requests queue table is justified and recorded in ADR-0001; no automatic mutation retry was added.
 - Installed NAVA remains 4.11.0. No package, install, NAVA restart, Tunnel restart, push, EA Live action, VPS mutation, or MT5 order was performed in this source gate.
 - The installed Phase 2B verifier is prepared at scripts/verify-command-room-phase2b.mjs and remains blocked on the separately authorized release/pilot gate.
+
+## Installed gate status — 2026-08-29
+
+- **PASS:** fresh v4.11.1 package was built from commit df3f0cb under Node 24.19.0 and installed from the commit-qualified unpacked output after a complete rollback backup.
+- Backup: `E:\AI_CACHE\nava-agent-setup\20260829-154132-v4.11.1-pre-df3f0cb-before-v4.11.1-phase2b`. Installed EXE/app.asar/MCP bundle hashes match the fresh package.
+- Installed verifier passed with 229 advertised tools and all eight Command Room tools; independent sessions were distinct, same-workspace writer collision was blocked, two writers on different workspaces ran concurrently, and writer leases survived the controlled restart.
+- Shared-resource proof passed: contention entered WAITING, resource leases and the durable queue survived restart, explicit retry promoted the queued request after capacity cleared, and cleanup released all task-owned leases and archived the acceptance room.
+- Tunnel recovered after install/restart with `/healthz=200 live` and `/readyz=200 ready`. No EA Live, production VPS mutation, or real MT5 order was used.
+- Installed UIA proof on the real NAVA window found the latest Phase 2B acceptance room ARCHIVED, WRITE task rows, post-cleanup writer/resource/queue counts at 0/0/0, zero UUID-like credential strings, and zero horizontal overflow inside the 1280x800 document. The only join-code/session-secret text states that overview omits those values.
+- Phase 2B is architecture-complete. Phase 3 browser identity/wake, migration 007, provider automation, and cloud/quota work remain unstarted.
 
 ## Design guardrails
 

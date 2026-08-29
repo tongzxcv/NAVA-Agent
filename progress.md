@@ -607,3 +607,19 @@
 - The first combined patch command returned a generic operation failure without an accepted mutation; the edits were then applied as small leased changes and verified by tests.
 - Installed NAVA remains v4.11.0 and was not restarted or replaced. Source is prepared as v4.11.1. Package/install/restart/push remain deliberately pending because the frozen Phase 2B plan requires separate authorization for the installed pilot/release gate.
 - Final task-owned guard covers 46 changed/untracked files: 0 artifact candidates, 0 files over 10 MB, and 0 secret-pattern files; git diff --check passes. This source checkpoint commit intentionally leaves the installed pilot/release gate open.
+
+## 2026-08-29 Command Room Phase 2B installed gate
+
+- User authorized the Phase 2B installed gate. Fresh v4.11.1 packaging from commit df3f0cb is running as durable task `d5114c12-5e66-4f54-8894-18b33ec27a28` into `apps/desktop/dist/installers-unsigned-phase2b-release-df3f0cb`; stale 14:27 package output will not be installed.
+
+- First fresh package task `d5114c12-5e66-4f54-8894-18b33ec27a28` failed safely before packaging because child `node` resolved to v25.8.2 at the packaged-stdio Node-24 guard. No installed files changed. Retry `4f839452-ae84-42dd-a730-5a7cbef874ef` prepends the verified Node 24.19.0 directory to PATH and keeps the guard unchanged.
+
+- Fresh package retry `4f839452-ae84-42dd-a730-5a7cbef874ef` passed under Node 24.19.0. Installer SHA256 `B49E50655984C74A4D91923FCB382CFE0DE95BCD78E66577BCE41221BEEE59DA`; unpacked EXE `6AF426CF355A57C3651244838500D9837D16152FB60790619C867AD01FA94111`; app.asar `F4E11D1E290309F0C9AC13305628AB59067E319F26C77BEBDEB87B075A321502`; MCP bundle `E678A3D9AC8CC13E331620A29BB19DBDAFFCA1A8C3D93854C180DC2C876B02DD`.
+- Pre-install safety gate: workspace authority shows only this C: writer lease and managed task list is empty. Installed MCP currently reports 4.11.1 but its core hashes match the stale pre-df3f0cb 14:27 build, so this gate will reinstall the same version number from the fresh commit-qualified package.
+
+- Fresh df3f0cb runtime installed successfully after rollback backup `E:\AI_CACHE\nava-agent-setup\20260829-154132-v4.11.1-pre-df3f0cb-before-v4.11.1-phase2b`; installed hashes match the fresh package and local MCP 4.11.1 plus Tunnel health/ready 200/200 recovered.
+- Installed Phase 2B verifier is running as durable task `724496e4-8714-4594-937f-cf9a8066e954` using harmless lease-only workspaces AI TRADER Reference and MooPing Ledger; it performs no project file mutation or MT5 order.
+- Controlled NAVA restart passed while the verifier remained alive. Verifier result: server 4.11.1 before/after, 229 tools with all eight Command Room tools, distinct MCP sessions, same-workspace writer blocked, different-workspace writers passed, writer leases recovered, resource queued in WAITING, resource leases/queue recovered, queued request promoted after explicit retry, restart observed, cleanup leases released, and room archived.
+- Tunnel recovered after the verifier restart with `healthz=200 live` and `readyz=200 ready`. No EA Live, project-file mutation in the two pilot workspaces, production VPS mutation, or real MT5 order occurred.
+- Installed visual gate used Windows UI Automation against the real NAVA PID 42000 / hwnd 63766824. The 1280x800 RootWebArea showed the latest Phase 2B acceptance room ARCHIVED, MAIN/LEAD cards, WRITE task rows, and post-cleanup writer/resource/queue counts 0/0/0. UIA found zero UUID-like displayed values and zero horizontal overflow; the visible join-code/session-secret phrase is the explanatory text that overview does not contain those secrets.
+- Phase 2B Source Gate and Installed Gate are complete. Package/backup/result artifacts remain outside Git and no push is performed.
