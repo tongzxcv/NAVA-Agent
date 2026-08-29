@@ -202,6 +202,63 @@ describe('Command Room Phase 2B', () => {
     database.close();
   });
 
+  it('allows MAIN and every LEAD to take WRITE work on any registered workspace while preserving same-workspace exclusion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-all-rw-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    seedWorkspace(database, 'workspace-a', path.join(root, 'workspace-a'));
+    seedWorkspace(database, 'workspace-b', path.join(root, 'workspace-b'));
+    seedWorkspace(database, 'workspace-c', path.join(root, 'workspace-c'));
+    const broker = createBroker(database, () => new Date('2026-08-29T05:00:00.000Z'));
+
+    const created = value(await broker.admin({ action: 'create', name: 'All RW Room', idempotencyKey: 'all-rw-room', leadSlots: 3 }));
+    const main = value(await broker.join({ roomId: created.room.id, slotKey: 'MAIN', joinCode: created.joinCodes.MAIN, provider: 'CHATGPT', connectionEpoch: 1 }));
+    const lead1 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-1', joinCode: created.joinCodes['LEAD-1'], provider: 'CHATGPT', connectionEpoch: 1 }));
+    const lead2 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-2', joinCode: created.joinCodes['LEAD-2'], provider: 'CHATGPT', connectionEpoch: 1 }));
+    const lead3 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-3', joinCode: created.joinCodes['LEAD-3'], provider: 'CHATGPT', connectionEpoch: 1 }));
+
+    const mainTask = await assignWrite(broker, created.room.id, main.agentSessionId, 'MAIN', 'workspace-a', lead3.roomVersion, 'main-write');
+    const mainClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: main.agentSessionId, taskId: mainTask.task.id, expectedVersion: mainTask.task.version, idempotencyKey: 'main-write-claim' }));
+    const mainStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: main.agentSessionId, taskId: mainTask.task.id, expectedVersion: mainClaimed.task.version, idempotencyKey: 'main-write-start' }));
+    expect(mainStarted).toMatchObject({ task: { state: 'RUNNING' }, workspaceLease: { workspaceId: 'workspace-a', owner: expect.stringContaining('MAIN') } });
+
+    const collision = await assignWrite(broker, created.room.id, main.agentSessionId, 'LEAD-1', 'workspace-a', mainStarted.roomVersion, 'lead-collision');
+    const collisionClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: collision.task.id, expectedVersion: collision.task.version, idempotencyKey: 'lead-collision-claim' }));
+    const collisionStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: collision.task.id, expectedVersion: collisionClaimed.task.version, idempotencyKey: 'lead-collision-start' }));
+    expect(collisionStarted).toMatchObject({ task: { state: 'WAITING' }, leaseConflict: { workspaceId: 'workspace-a', retryable: true } });
+
+    const second = await assignWrite(broker, created.room.id, main.agentSessionId, 'LEAD-2', 'workspace-b', collisionStarted.roomVersion, 'lead-two-write');
+    const secondClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead2.agentSessionId, taskId: second.task.id, expectedVersion: second.task.version, idempotencyKey: 'lead-two-claim' }));
+    const secondStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead2.agentSessionId, taskId: second.task.id, expectedVersion: secondClaimed.task.version, idempotencyKey: 'lead-two-start' }));
+
+    const third = await assignWrite(broker, created.room.id, main.agentSessionId, 'LEAD-3', 'workspace-c', secondStarted.roomVersion, 'lead-three-write');
+    const thirdClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead3.agentSessionId, taskId: third.task.id, expectedVersion: third.task.version, idempotencyKey: 'lead-three-claim' }));
+    const thirdStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead3.agentSessionId, taskId: third.task.id, expectedVersion: thirdClaimed.task.version, idempotencyKey: 'lead-three-start' }));
+
+    const status = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+    expect(status.workspaceLeases.entries.map((entry) => entry.workspaceId).sort()).toEqual(['workspace-a', 'workspace-b', 'workspace-c']);
+
+    value(await broker.task({ action: 'submit', roomId: created.room.id, agentSessionId: main.agentSessionId, taskId: mainTask.task.id, expectedVersion: mainStarted.task.version, result: { summary: 'main complete', evidenceRefs: ['test:all-rw'] }, idempotencyKey: 'main-submit' }));
+    value(await broker.task({ action: 'submit', roomId: created.room.id, agentSessionId: lead2.agentSessionId, taskId: second.task.id, expectedVersion: secondStarted.task.version, result: { summary: 'lead two complete', evidenceRefs: ['test:all-rw'] }, idempotencyKey: 'lead-two-submit' }));
+    value(await broker.task({ action: 'submit', roomId: created.room.id, agentSessionId: lead3.agentSessionId, taskId: third.task.id, expectedVersion: thirdStarted.task.version, result: { summary: 'lead three complete', evidenceRefs: ['test:all-rw'] }, idempotencyKey: 'lead-three-submit' }));
+    const finalStatus = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+    expect(finalStatus.workspaceLeases.entries).toHaveLength(0);
+    const collisionCancelled = value(await broker.task({ action: 'cancel', roomId: created.room.id, agentSessionId: main.agentSessionId, taskId: collision.task.id, expectedVersion: collisionStarted.task.version, idempotencyKey: 'lead-collision-cancel' }));
+    const readAssigned = value(await broker.task({
+      action: 'assign', roomId: created.room.id, agentSessionId: main.agentSessionId, assignedSlotKey: 'LEAD-1',
+      projectKey: 'read-any-workspace', workspaceId: 'workspace-c', title: 'read any workspace',
+      brief: { summary: 'prove unrestricted participant read access', acceptanceCriteria: ['READ does not require a writer lease'], evidenceRefs: [] },
+      mutationMode: 'READ_ONLY', expectedVersion: collisionCancelled.roomVersion, idempotencyKey: 'lead-read-assign',
+    }));
+    const readClaimed = value(await broker.task({ action: 'claim', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: readAssigned.task.id, expectedVersion: readAssigned.task.version, idempotencyKey: 'lead-read-claim' }));
+    const readStarted = value(await broker.task({ action: 'start', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: readAssigned.task.id, expectedVersion: readClaimed.task.version, idempotencyKey: 'lead-read-start' }));
+    expect(readStarted.task.state).toBe('RUNNING');
+    const readStatus = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+    expect(readStatus.workspaceLeases.entries).toHaveLength(0);
+    value(await broker.task({ action: 'submit', roomId: created.room.id, agentSessionId: lead1.agentSessionId, taskId: readAssigned.task.id, expectedVersion: readStarted.task.version, result: { summary: 'read complete', evidenceRefs: ['test:all-rw'] }, idempotencyKey: 'lead-read-submit' }));
+    database.close();
+  });
+
   it('moves expired or parked WRITE work to WAITING and releases every lease', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-phase2b-expiry-'));
     temporaryRoots.push(root);

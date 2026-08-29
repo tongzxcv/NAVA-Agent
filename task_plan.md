@@ -944,3 +944,12 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 | Error | Attempt | Resolution |
 |---|---:|---|
 | Existing progress called the Desktop vertical slice “Phase 2 complete,” while ADR-0001 defines Phase 2 as UI plus writer/resource coordination | 1 | Name the next implementation Phase 2B and close the original Phase 2 acceptance gate before Phase 3. |
+
+
+## All-participant RW extension — 2026-08-29
+
+- [x] Remove the LEAD-only assignment target restriction; MAIN may self-assign while MAIN remains the only dispatcher.
+- [x] Preserve registered-workspace validation and the existing per-workspace writer lease for every WRITE task.
+- [x] Prove MAIN WRITE, LEAD cross-project WRITE, same-workspace WAITING collision, and READ_ONLY without a writer lease; focused Phase2B suite passes 4/4.
+- [x] Validate installed v4.11.2 three-writer restart recovery on the real BEELZEBUB, RATCHET, and AUTOBOTS workspaces before extending permissions.
+- [ ] Build/install v4.11.3 and create the persistent NAVA EA LAB ALL-RW room for BEELZEBUB, RATCHET, and AUTOBOTS.

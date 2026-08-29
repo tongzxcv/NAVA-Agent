@@ -836,7 +836,7 @@ export class CommandRoomBroker {
         }
       }
       const assigned = await this.repository.getAgentBySlot(input.roomId, input.assignedSlotKey.trim().toUpperCase());
-      if (assigned === null || assigned.role !== 'LEAD') return err(appError('INVALID_INPUT', 'assignedSlotKey must identify a LEAD slot'));
+      if (assigned === null) return err(appError('INVALID_INPUT', 'assignedSlotKey must identify a Command Room participant slot'));
       const valid = validateTaskBrief(input);
       if (!valid.ok) return valid;
       const occurredAt = this.now().toISOString();

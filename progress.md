@@ -637,3 +637,12 @@
 - Queue-cleanup bug fix: `releaseForTask`, `releaseForAgent`, and `releaseForRoom` now close matching QUEUED requests even when no resource lease was ever granted; return semantics still count released active leases only. Storage regression passes 3/3 and Phase2B regression passes 3/3.
 - Live DB was backed up to `E:\AI_CACHE\nava-agent-setup\20260829-queue-cleanup-pre-v4.11.2.sqlite`, then only two known `NAVA Phase 2B acceptance p2b-*` rooms were maintained through the source repository. Both now have resource queue depth 0, the timeout room is ARCHIVED, and acceptance QUEUED count is 0.
 - Version synchronized to v4.11.2. TypeScript build, focused ESLint, packaging regression 4/4, and git diff check pass before packaging.
+
+
+## 2026-08-29 Command Room ALL-RW participants
+
+- Installed v4.11.2 final acceptance passed using the real BEELZEBUB EA Lab, RATCHET EA_Lab, and Autobots workspaces: three writers ran concurrently, same-workspace collision was blocked, NAVA restart was observed, all three leases recovered, cleanup released leases, and the acceptance room archived.
+- User requested every participant to read/write every connected project. Runtime already allowed every LEAD to target any registered workspace; the remaining restriction was that task assignment rejected MAIN as a worker target.
+- Broker assignment now accepts any Command Room participant slot while keeping MAIN as the only dispatcher. WRITE still requires a registered workspace and acquires the existing workspace lease; no collision/authorization bypass was added.
+- New regression proves MAIN WRITE, LEAD same-workspace WAITING collision, concurrent writes on other workspaces, then READ_ONLY access without a writer lease. Focused Phase2B suite passes 4/4 and focused ESLint passes.
+- Version synchronized to v4.11.3; source/package/install gate is next.

@@ -72,18 +72,20 @@ ChatGPT normal chat / ChatGPT Project chat / optional Codex
 
 | Slot | หน้าที่เริ่มต้น | สถานะปกติ |
 | --- | --- | --- |
-| MAIN | แบ่งงาน ตรวจผล แก้ blocker | online, read-only |
-| LEAD-1 | โปรเจกต์ที่เร่งที่สุด | active writer |
-| LEAD-2 | โปรเจกต์ลำดับสอง | active writer |
-| LEAD-3 | โปรเจกต์ลำดับสาม หรือวิจัย/review | active writer หรือ reader |
+| MAIN | แบ่งงาน ตรวจผล แก้ blocker หรือรับงานเอง | online, reader/writer |
+| LEAD-1 | โฟกัสโปรเจกต์ที่เร่งที่สุดเป็นค่าเริ่มต้น | active reader/writer |
+| LEAD-2 | โฟกัสโปรเจกต์ลำดับสองเป็นค่าเริ่มต้น | active reader/writer |
+| LEAD-3 | โฟกัสโปรเจกต์ลำดับสามหรือ review เป็นค่าเริ่มต้น | active reader/writer |
 | LEAD-4 | สำรองเมื่อแชทเต็มหรืองานใหม่เข้า | sleeping |
 | LEAD-5 | สำรองหรือ review อิสระ | sleeping |
 
+ตั้งแต่ v4.11.3 ทุก participant slot (MAIN และ LEAD) สามารถรับ `READ_ONLY` หรือ `WRITE` task ของ registered workspace ใดก็ได้ ไม่ได้ล็อกสิทธิ์ตามชื่อโปรเจกต์ถาวร; `WRITE` ต้องได้ workspace writer lease ก่อนเสมอ ดังนั้นหลายตัวเขียนพร้อมกันได้เมื่อเป็นคนละ workspace แต่ workspace เดียวกันยังมี writer ได้ทีละตัวเท่านั้น.
+
 ตัวอย่างในช่วงที่ทำ BEELZEBUB, RATCHET และ AUTOBOTS พร้อมกัน:
 
-- LEAD-1 ผูก BEELZEBUB และถือ writer lease เฉพาะ workspace BEELZEBUB
-- LEAD-2 ผูก RATCHET และถือ writer lease เฉพาะ workspace RATCHET
-- LEAD-3 ผูก AUTOBOTS และถือ writer lease เฉพาะ workspace AUTOBOTS เมื่อเป็นงานเขียน; ถ้าเป็น review อย่างเดียวให้ทำแบบ reader
+- LEAD-1 เริ่มโฟกัส BEELZEBUB แต่สลับไปอ่าน/เขียน RATCHET หรือ AUTOBOTS ได้เมื่อ MAIN assign
+- LEAD-2 เริ่มโฟกัส RATCHET แต่สลับไปอ่าน/เขียน BEELZEBUB หรือ AUTOBOTS ได้เมื่อ MAIN assign
+- LEAD-3 เริ่มโฟกัส AUTOBOTS แต่สลับไปอ่าน/เขียน BEELZEBUB หรือ RATCHET ได้เมื่อ MAIN assign
 - LEAD-4/5 หลับจน Main ขอเพิ่มกำลังหรือใช้แทนแชทที่เต็ม
 
 เมื่อโปรเจกต์จบ ให้ park Lead, ปล่อย lease/resource, เก็บ checkpoint แล้ว rebind slot เดิมกับโปรเจกต์ถัดไป
@@ -519,9 +521,9 @@ Gate: restart recovery, idempotency, inbox cursor และ no secret regression
 - existing writer-lease integration
 - resource scheduler
 - Main + Lead cards
-- pilot 3 active Leads และยืนยัน 3 concurrent writers บน 3 workspace ที่ต่างกัน
+- pilot 3 active Leads และยืนยัน 3 concurrent writers บน 3 workspace ที่ต่างกัน; MAIN ก็รับ READ_ONLY/WRITE task ได้ตั้งแต่ v4.11.3
 
-Gate: same-workspace collision ถูก block, 3 different-workspace writers ผ่านและ recover หลัง restart, MT5/VPS resource ไม่ชน
+Gate: same-workspace collision ถูก block, 3 different-workspace writers ผ่านและ recover หลัง restart, MAIN/LEAD ทุก slot รับงานข้ามโปรเจกต์ได้, MT5/VPS resource ไม่ชน
 
 ### Phase 3 — Extension identity/wake
 
@@ -620,10 +622,10 @@ Gate: ไม่มี wrong-tab wake, retry bounded, revoke/replace chat ทำ�
 
 เริ่มจากห้องเดียวชื่อ NAVA EA LAB:
 
-1. MAIN อยู่ในแชทที่ผู้ใช้ใช้คุมภาพรวม
-2. LEAD-1 = โปรเจกต์เขียนหลัก
-3. LEAD-2 = โปรเจกต์เขียนรอง
-4. LEAD-3 = โปรเจกต์เขียนลำดับสาม หรือสลับเป็นงานอ่าน/วิเคราะห์/review
+1. MAIN อยู่ในแชทที่ผู้ใช้ใช้คุมภาพรวม และรับ READ_ONLY/WRITE task เองได้เมื่อจำเป็น
+2. LEAD-1 = โฟกัสโปรเจกต์เขียนหลักเป็นค่าเริ่มต้น แต่ไม่ล็อกสิทธิ์
+3. LEAD-2 = โฟกัสโปรเจกต์เขียนรองเป็นค่าเริ่มต้น แต่ไม่ล็อกสิทธิ์
+4. LEAD-3 = โฟกัสโปรเจกต์ลำดับสามเป็นค่าเริ่มต้น แต่ไม่ล็อกสิทธิ์
 5. LEAD-4/5 sleeping
 6. ทดลอง manual mode หนึ่งสัปดาห์ก่อนเปิด extension
 7. เปิด Codex participant เฉพาะงานที่ผู้ใช้ต้องการใช้โควต้า Codex จริง

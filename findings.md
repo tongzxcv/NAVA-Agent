@@ -639,3 +639,11 @@
 - Interrupted acceptance exposed a real shared-resource lifecycle defect: queued requests without a granted lease were not closed by `releaseForTask/Agent/Room`, so an orphaned FIFO head could block future callers even when active resource leases were zero.
 - The minimal fix is storage-local and contract-preserving: scoped release now marks matching `state=QUEUED` requests `RELEASED` while still returning only the number of active leases removed. Broker lifecycle calls were already correct.
 - The two orphaned test queues were identified by exact task-owned acceptance room IDs/name prefix, backed up before mutation, then cleaned via the patched repository; no non-acceptance resource request was touched.
+
+
+## 2026-08-29 ALL-RW participant findings
+
+- Project names are routing/focus hints, not filesystem authorization boundaries. A Command Room participant can safely work across registered workspaces as long as task routing and workspace lease rules are respected.
+- The only code-level obstacle to literal "every participant can write" was the assign-time assigned-role LEAD check. Removing that check is sufficient because claim/start already authorize the task's assigned agent generically and WRITE start already acquires the same workspace lease for MAIN or LEAD.
+- MAIN remains the sole dispatcher/approver, so ALL-RW does not decentralize task creation or approval. It only lets MAIN also execute assigned work.
+- READ_ONLY work requires no writer lease and can proceed while another participant writes; WRITE on the same workspace remains serialized and returns WAITING on conflict.
