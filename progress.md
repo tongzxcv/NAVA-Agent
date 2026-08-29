@@ -654,3 +654,14 @@
 - Added per-room Delete and bulk Delete all archived controls with browser confirmation; overview limit increased from 20 to 100.
 - SQLite repository deletes only ARCHIVED rooms; existing FK cascades remove room-owned agent/task/message/resource rows. Focused storage regression 2/2, TypeScript build, renderer ESLint, and diff check pass.
 - Version synchronized to v4.11.4; installed gate and cleanup/persistent room bootstrap remain.
+
+### v4.11.4 installed cleanup rollout complete
+
+- Installed v4.11.4 from commit `c762e41`; production HTTP MCP reports 4.11.4 and installed EXE/app.asar/MCP/Node/launcher hashes match the verified unpacked package.
+- Rollback app backup: `E:\AI_CACHE\nava-agent-setup\20260829-v4.11.3-before-v4.11.4-room-cleanup`.
+- Consistent pre-delete SQLite backup: `E:\AI_CACHE\nava-agent-setup\20260829-before-command-room-cleanup-v4114.sqlite`.
+- Pre-delete audit found exactly 13 rooms, all archived Phase 1.5/Phase 2B/ALL-RW acceptance or isolation rooms, with zero Command Room writer leases, zero resource leases, and zero queued resources. All 13 were deleted transactionally; zero rooms remained before bootstrap.
+- Created persistent `NAVA EA LAB — ALL-RW` on installed v4.11.4. MAIN was bootstrapped; LEAD-1/2/3 join codes remain unconsumed. Three READ_ONLY initial-focus tasks and three HANDOFF messages route BEELZEBUB, RATCHET, and Autobots while explicitly preserving ALL-RW cross-project access.
+- Final room state: exactly one ACTIVE room, 3 queued READ_ONLY initial-focus tasks, 3 handoff messages, zero room writer leases, zero resource leases, zero resource queue.
+- Bootstrap credentials are outside Git at `E:\AI_CACHE\nava-agent-setup\nava-ea-lab-all-rw-bootstrap.json`; ACL inheritance is removed and full control is limited to `ISYOURGODZ\Endlessly` and SYSTEM. Credentials were not printed to chat/output.
+- Installed app.asar proof found Thai/English labels for per-room Delete and Delete all archived in the actual renderer bundle.

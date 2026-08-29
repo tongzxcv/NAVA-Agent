@@ -961,4 +961,4 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Add per-room Delete button plus bulk Delete all archived button with confirmation.
 - [x] Expand Desktop room overview from 20 to 100 rooms so old acceptance rooms remain manageable.
 - [x] Storage regression proves ACTIVE cannot be deleted and ARCHIVED cascades room-owned rows.
-- [ ] Install v4.11.4, delete the 13 archived acceptance/test rooms, create persistent NAVA EA LAB — ALL-RW, and verify UI/runtime.
+- [x] Install v4.11.4, delete the 13 archived acceptance/test rooms, create persistent NAVA EA LAB — ALL-RW, and verify UI/runtime.

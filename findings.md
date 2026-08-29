@@ -654,3 +654,10 @@
 - Requiring ARCHIVED state gives archive/release logic a chance to clear writer/resource ownership first; Desktop rechecks live lease/queue truth immediately before DELETE.
 - The schema already has room-rooted ON DELETE CASCADE relationships, so no new migration is needed for room cleanup.
 - Current live DB has 13 rooms and every one is an archived acceptance/isolation room created by NAVA validation work; no user production room exists yet.
+
+### v4.11.4 cleanup rollout findings
+
+- The live cleanup confirmed the delete safety model works with the real data shape: test rooms were archived and had no live ownership before deletion; the unrelated C: development writer lease was not treated as a room-owned lease.
+- A consistent SQLite backup exists independently of the application rollback backup, so room history can be recovered separately from executable rollback if ever needed.
+- The persistent room stores project routing durably through queued READ_ONLY tasks plus LEAD inbox handoffs without consuming LEAD join codes. This keeps all three participant slots ready for their actual chats.
+- The installed renderer bundle itself contains both individual and bulk delete controls in Thai and English, while remote Command Room MCP tools still do not expose permanent room deletion.
