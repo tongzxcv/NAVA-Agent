@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.11.0';
+export const APP_VERSION = '4.11.1';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -79,6 +79,29 @@ export interface CommandRoomTaskSummary {
   readonly updatedAt: string;
 }
 
+export interface CommandRoomWriterLeaseSummary {
+  readonly workspaceId: string;
+  readonly ownerSlotKey: string;
+  readonly taskId: string;
+  readonly expiresAt: string;
+}
+
+export interface CommandRoomResourceSummary {
+  readonly resourceKey: string;
+  readonly kind: 'MT5_TERMINAL' | 'CPU_HEAVY' | 'VPS_WRITER' | 'MANAGED_BROWSER_WRITER' | 'GPU_HEAVY';
+  readonly capacity: number;
+  readonly usedUnits: number;
+  readonly availableUnits: number;
+}
+
+export interface CommandRoomResourceLeaseSummary {
+  readonly resourceKey: string;
+  readonly ownerSlotKey: string;
+  readonly taskId: string;
+  readonly units: number;
+  readonly expiresAt: string;
+}
+
 export interface CommandRoomSummary {
   readonly id: string;
   readonly name: string;
@@ -88,6 +111,10 @@ export interface CommandRoomSummary {
   readonly updatedAt: string;
   readonly agents: readonly CommandRoomAgentSummary[];
   readonly tasks: readonly CommandRoomTaskSummary[];
+  readonly writerLeases: readonly CommandRoomWriterLeaseSummary[];
+  readonly resources: readonly CommandRoomResourceSummary[];
+  readonly resourceLeases: readonly CommandRoomResourceLeaseSummary[];
+  readonly resourceQueueDepth: number;
 }
 
 export interface CommandRoomOverview {

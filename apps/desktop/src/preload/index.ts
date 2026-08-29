@@ -1,3 +1,4 @@
+
 import { contextBridge, ipcRenderer } from 'electron';
 import {
   ipcChannels,
@@ -149,8 +150,40 @@ function commandRoomTaskSummary(value: unknown): CommandRoomTaskSummary {
   };
 }
 
+function commandRoomWriterLeaseSummary(value: unknown): CommandRoomSummary['writerLeases'][number] {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    workspaceId: stringField(value, 'workspaceId'),
+    ownerSlotKey: stringField(value, 'ownerSlotKey'),
+    taskId: stringField(value, 'taskId'),
+    expiresAt: stringField(value, 'expiresAt'),
+  };
+}
+
+function commandRoomResourceSummary(value: unknown): CommandRoomSummary['resources'][number] {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    resourceKey: stringField(value, 'resourceKey'),
+    kind: enumField(value, 'kind', ['MT5_TERMINAL', 'CPU_HEAVY', 'VPS_WRITER', 'MANAGED_BROWSER_WRITER', 'GPU_HEAVY']),
+    capacity: numberField(value, 'capacity'),
+    usedUnits: numberField(value, 'usedUnits'),
+    availableUnits: numberField(value, 'availableUnits'),
+  };
+}
+
+function commandRoomResourceLeaseSummary(value: unknown): CommandRoomSummary['resourceLeases'][number] {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    resourceKey: stringField(value, 'resourceKey'),
+    ownerSlotKey: stringField(value, 'ownerSlotKey'),
+    taskId: stringField(value, 'taskId'),
+    units: numberField(value, 'units'),
+    expiresAt: stringField(value, 'expiresAt'),
+  };
+}
+
 function commandRoomSummary(value: unknown): CommandRoomSummary {
-  if (!isRecord(value) || !Array.isArray(value.agents) || !Array.isArray(value.tasks)) throw new Error('Invalid IPC response');
+  if (!isRecord(value) || !Array.isArray(value.agents) || !Array.isArray(value.tasks) || !Array.isArray(value.writerLeases) || !Array.isArray(value.resources) || !Array.isArray(value.resourceLeases)) throw new Error('Invalid IPC response');
   return {
     id: stringField(value, 'id'),
     name: stringField(value, 'name'),
@@ -160,6 +193,10 @@ function commandRoomSummary(value: unknown): CommandRoomSummary {
     updatedAt: stringField(value, 'updatedAt'),
     agents: value.agents.map(commandRoomAgentSummary),
     tasks: value.tasks.map(commandRoomTaskSummary),
+    writerLeases: value.writerLeases.map(commandRoomWriterLeaseSummary),
+    resources: value.resources.map(commandRoomResourceSummary),
+    resourceLeases: value.resourceLeases.map(commandRoomResourceLeaseSummary),
+    resourceQueueDepth: numberField(value, 'resourceQueueDepth'),
   };
 }
 

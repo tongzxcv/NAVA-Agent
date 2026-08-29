@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import type { CommandRoomOverview, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
@@ -141,6 +142,31 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                       <small>{agent.projectKey ?? text(locale, 'ยังไม่ผูกโปรเจกต์', 'No project bound')}</small>
                     </div>
                   ))}
+                </div>
+                <div className="command-room-resource-board">
+                  <div className="command-room-resource-metrics">
+                    <span>{text(locale, 'Writer กำลังใช้', 'Active writers')} <strong>{room.writerLeases.length}</strong></span>
+                    <span>{text(locale, 'ทรัพยากรกำลังใช้', 'Active resources')} <strong>{room.resourceLeases.length}</strong></span>
+                    <span>{text(locale, 'คิวทรัพยากร', 'Resource queue')} <strong>{room.resourceQueueDepth}</strong></span>
+                  </div>
+                  {room.writerLeases.length === 0 && room.resourceLeases.length === 0 ? (
+                    <small>{text(locale, 'ไม่มี lease ที่กำลังใช้งาน', 'No active leases')}</small>
+                  ) : (
+                    <ul>
+                      {room.writerLeases.map((lease) => (
+                        <li key={`writer-${lease.workspaceId}`}>
+                          <span>WRITE · {lease.ownerSlotKey}</span>
+                          <small>{lease.workspaceId} · {text(locale, 'หมดอายุ', 'expires')} {formatDate(lease.expiresAt, locale)}</small>
+                        </li>
+                      ))}
+                      {room.resourceLeases.map((lease) => (
+                        <li key={`resource-${lease.resourceKey}-${lease.taskId}`}>
+                          <span>{lease.resourceKey} · {lease.ownerSlotKey}</span>
+                          <small>{lease.units} unit · {text(locale, 'หมดอายุ', 'expires')} {formatDate(lease.expiresAt, locale)}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="command-room-task-list">
                   <strong>{text(locale, 'งานล่าสุด', 'Recent tasks')} ({room.tasks.length})</strong>

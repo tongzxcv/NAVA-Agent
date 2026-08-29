@@ -24,6 +24,7 @@ agent_swarm_run ปัจจุบันเป็น planned capability ไม�
 - room identity แยกจาก ChatGPT Project จึงใช้ได้กับ normal chat
 - ใช้ existing workspace lease เป็น writer source of truth เดียว
 - เพิ่ม resource leases แยกสำหรับ MT5 terminal, VPS, browser, GPU
+- migration 006 เก็บ resource request queue แบบ durable ใน `command_room_resource_requests` เพราะสถานะ QUEUED, idempotency และลำดับ priority + aging ทุก 5 นาที + FIFO ไม่สามารถ reconstruct จาก active leases อย่างเดียวหลัง restart ได้; queue จะ promote เฉพาะเมื่อเจ้าของ request เรียกซ้ำหลัง capacity ว่าง และห้าม auto-retry mutation
 - ใช้ immutable messages + receipts/cursors, task state machine, idempotency และ optimistic versioning
 - อ้าง session checkpoints และ durable task IDs แทนการเก็บ raw logs/transcripts
 - เพิ่ม MCP tools คงที่ 8 tools และ typed Desktop IPC/UI

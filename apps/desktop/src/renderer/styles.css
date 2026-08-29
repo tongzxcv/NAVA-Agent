@@ -1,3 +1,4 @@
+
 @font-face {
   font-family: "Prompt";
   src: url("./fonts/prompt/Prompt-Regular.ttf") format("truetype");
@@ -2053,6 +2054,55 @@ h2 {
 }
 
 .command-room-agent small {
+  overflow-wrap: anywhere;
+}
+
+.command-room-resource-board {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid rgba(245, 190, 58, 0.22);
+  border-radius: 10px;
+  padding: 11px;
+  background: rgba(245, 190, 58, 0.04);
+}
+
+.command-room-resource-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.command-room-resource-metrics span {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.command-room-resource-metrics strong {
+  color: var(--gold-bright);
+}
+
+.command-room-resource-board ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-room-resource-board li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 6px;
+}
+
+.command-room-resource-board small {
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
 

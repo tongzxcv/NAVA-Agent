@@ -1,3 +1,4 @@
+
 import type { SQLInputValue } from 'node:sqlite';
 import type {
   CommandRoomAgentRecord,
@@ -598,9 +599,9 @@ function updateAssignedAgent(
   if (state === 'RUNNING') {
     connection.prepare("UPDATE command_room_agents SET state = 'WORKING', current_task_id = ?, updated_at = ? WHERE id = ?").run(taskId, updatedAt, assignedAgentId);
   } else if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(state)) {
-    connection.prepare("UPDATE command_room_agents SET state = 'ONLINE', current_task_id = NULL, updated_at = ? WHERE id = ?").run(updatedAt, assignedAgentId);
+    connection.prepare("UPDATE command_room_agents SET state = CASE WHEN state IN ('OFFLINE', 'SLEEPING') THEN state ELSE 'ONLINE' END, current_task_id = NULL, updated_at = ? WHERE id = ?").run(updatedAt, assignedAgentId);
   } else {
-    connection.prepare("UPDATE command_room_agents SET state = 'WAITING', current_task_id = ?, updated_at = ? WHERE id = ?").run(taskId, updatedAt, assignedAgentId);
+    connection.prepare("UPDATE command_room_agents SET state = CASE WHEN state IN ('OFFLINE', 'SLEEPING') THEN state ELSE 'WAITING' END, current_task_id = ?, updated_at = ? WHERE id = ?").run(taskId, updatedAt, assignedAgentId);
   }
 }
 

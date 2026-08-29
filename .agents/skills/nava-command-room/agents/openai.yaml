@@ -1,4 +1,4 @@
 interface:
   display_name: "NAVA Command Room"
   short_description: "Coordinate MAIN and LEAD chats safely"
-  default_prompt: "Use $nava-command-room to join or resume the local NAVA Command Room, process the inbox, and continue only the assigned Phase 1 read-only work."
+  default_prompt: "Use $nava-command-room to join or resume the local NAVA Command Room, process inbox work, and follow READ_ONLY or lease-backed WRITE/resource coordination safely."

@@ -106,11 +106,29 @@ const presenceSchema = z.object({
   lastCheckpointId: z.string().trim().min(1).max(128).optional(),
 }).strict();
 
-const resourceSchema = z.object({
-  action: z.literal('status'),
-  roomId,
-  agentSessionId: sessionId,
-}).strict();
+const resourceSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('status'),
+    roomId,
+    agentSessionId: sessionId,
+  }).strict(),
+  z.object({
+    action: z.literal('request'),
+    roomId,
+    agentSessionId: sessionId,
+    taskId: z.string().uuid(),
+    resourceKey: z.string().trim().min(1).max(128),
+    units: z.number().int().min(1).max(7).optional(),
+    priority: z.number().int().min(0).max(100).optional(),
+    idempotencyKey,
+  }).strict(),
+  ...(['renew', 'release'] as const).map((action) => z.object({
+    action: z.literal(action),
+    roomId,
+    agentSessionId: sessionId,
+    leaseId: z.string().uuid(),
+  }).strict()),
+]);
 
 const adminSchema = z.discriminatedUnion('action', [
   z.object({
@@ -150,7 +168,7 @@ export function commandRoomTools(context: McpToolContext): readonly McpToolDefin
     }),
     defineTool({
       name: 'command_room_status',
-      description: 'Read bounded room, agent, task, workspace-lease observability, and Phase 1 manual resource status.',
+      description: 'Read bounded room, agent, task, active writer-lease ownership, resource capacity, active resource leases, and queue depth.',
       ...readOnly,
       inputSchema: statusSchema,
       handler: async (input) => context.services.commandRoom?.status(input) ?? missingService(),
@@ -171,7 +189,7 @@ export function commandRoomTools(context: McpToolContext): readonly McpToolDefin
     }),
     defineTool({
       name: 'command_room_task',
-      description: 'Assign, claim, start, wait, submit, approve, reject, fail, or cancel a versioned Phase 1 READ_ONLY task. This tool never edits workspace files.',
+      description: 'Assign and transition versioned READ_ONLY or WRITE tasks. WRITE start acquires the existing workspace writer lease and returns an actionable WAITING result on collision.',
       ...write,
       inputSchema: taskSchema,
       handler: async (input) => context.services.commandRoom?.task(input) ?? missingService(),
@@ -185,8 +203,8 @@ export function commandRoomTools(context: McpToolContext): readonly McpToolDefin
     }),
     defineTool({
       name: 'command_room_resource',
-      description: 'Return Phase 1 manual shared-resource status. Automatic MT5, VPS, browser, GPU, and writer scheduling is not enabled.',
-      ...readOnly,
+      description: 'Read, request, renew, or release bounded MT5, CPU, VPS, browser, and GPU resource leases. Busy requests queue by priority, aging, then FIFO; mutations are never auto-retried.',
+      ...write,
       inputSchema: resourceSchema,
       handler: async (input) => context.services.commandRoom?.resource(input) ?? missingService(),
     }),

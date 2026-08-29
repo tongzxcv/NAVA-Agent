@@ -5,6 +5,8 @@ import {
   type CommandRoomMessageRecord,
   type CommandRoomProvider,
   type CommandRoomRecord,
+  type CommandRoomResourceLeaseRecord,
+  type CommandRoomResourceRecord,
   type CommandRoomTaskRecord,
 } from '@lnwjud/domain';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
@@ -154,6 +156,60 @@ export interface CommandRoomRepositoryPort {
   listTasks(roomId: string, limit: number): Promise<readonly CommandRoomTaskRecord[]>;
 }
 
+export interface CommandRoomWorkspaceLease {
+  readonly workspaceId: string;
+  readonly leaseId: string;
+  readonly owner: string;
+  readonly acquiredAt: string;
+  readonly heartbeatAt: string;
+  readonly expiresAt: string;
+}
+
+export interface CommandRoomWorkspaceLeasePort {
+  acquire(workspaceId: string, owner: string, ttlSeconds: number): Promise<Result<CommandRoomWorkspaceLease>>;
+  status(workspaceId?: string): Promise<Result<readonly CommandRoomWorkspaceLease[]>>;
+  renew(workspaceId: string, leaseId: string, ttlSeconds: number): Promise<Result<CommandRoomWorkspaceLease>>;
+  release(workspaceId: string, leaseId: string): Promise<Result<{ readonly released: boolean }>>;
+}
+
+export interface CommandRoomResourceStatusSnapshot {
+  readonly resources: readonly (CommandRoomResourceRecord & { readonly usedUnits: number; readonly availableUnits: number })[];
+  readonly leases: readonly CommandRoomResourceLeaseRecord[];
+  readonly queueDepth: number;
+}
+
+export interface CommandRoomResourcePort {
+  status(input: { readonly roomId?: string; readonly now: string }): Promise<CommandRoomResourceStatusSnapshot>;
+  request(input: {
+    readonly resourceKey: string;
+    readonly roomId: string;
+    readonly taskId: string;
+    readonly agentId: string;
+    readonly units: number;
+    readonly priority: number;
+    readonly idempotencyKey: string;
+    readonly requestedAt: string;
+    readonly ttlSeconds: number;
+  }): Promise<{
+    readonly state: 'QUEUED' | 'GRANTED';
+    readonly duplicate: boolean;
+    readonly requestId: string;
+    readonly queuePosition?: number;
+    readonly lease?: CommandRoomResourceLeaseRecord;
+  }>;
+  renew(input: { readonly leaseId: string; readonly agentId: string; readonly renewedAt: string; readonly ttlSeconds: number }): Promise<CommandRoomResourceLeaseRecord>;
+  release(input: { readonly leaseId: string; readonly agentId: string; readonly releasedAt: string }): Promise<{ readonly released: boolean }>;
+  releaseForTask(roomId: string, taskId: string, releasedAt: string): Promise<number>;
+  releaseForAgent(roomId: string, agentId: string, releasedAt: string): Promise<number>;
+  releaseForRoom(roomId: string, releasedAt: string): Promise<number>;
+}
+
+export interface CommandRoomBrokerDependencies {
+  readonly workspaceLeases?: CommandRoomWorkspaceLeasePort;
+  readonly resources?: CommandRoomResourcePort;
+  readonly workspaceExists?: (workspaceId: string) => Promise<boolean>;
+}
+
 export interface CommandRoomEnvelope {
   readonly manifestVersion: string;
   readonly roomVersion: number;
@@ -293,12 +349,15 @@ export interface CommandRoomStatusResponse extends CommandRoomEnvelope {
   readonly agents: readonly PublicCommandRoomAgent[];
   readonly tasks: readonly CommandRoomTaskRecord[];
   readonly workspaceLeases: {
-    readonly observable: false;
+    readonly observable: boolean;
     readonly sourceTool: 'workspace_lease_status';
+    readonly entries: readonly CommandRoomWorkspaceLease[];
   };
   readonly resources: {
-    readonly mode: 'PHASE_1_MANUAL';
-    readonly entries: readonly [];
+    readonly mode: 'SCHEDULED' | 'PHASE_1_MANUAL';
+    readonly entries: readonly (CommandRoomResourceRecord & { readonly usedUnits: number; readonly availableUnits: number })[];
+    readonly leases: readonly CommandRoomResourceLeaseRecord[];
+    readonly queueDepth: number;
   };
 }
 
@@ -316,17 +375,45 @@ export interface CommandRoomPresenceResponse extends CommandRoomEnvelope {
   readonly agent: PublicCommandRoomAgent;
 }
 
-export interface CommandRoomResourceInput {
-  readonly action: 'status';
-  readonly roomId: string;
-  readonly agentSessionId: string;
-}
+export type CommandRoomResourceInput =
+  | {
+    readonly action: 'status';
+    readonly roomId: string;
+    readonly agentSessionId: string;
+  }
+  | {
+    readonly action: 'request';
+    readonly roomId: string;
+    readonly agentSessionId: string;
+    readonly taskId: string;
+    readonly resourceKey: string;
+    readonly units?: number | undefined;
+    readonly priority?: number | undefined;
+    readonly idempotencyKey: string;
+  }
+  | {
+    readonly action: 'renew' | 'release';
+    readonly roomId: string;
+    readonly agentSessionId: string;
+    readonly leaseId: string;
+  };
 
 export interface CommandRoomResourceResponse extends CommandRoomEnvelope {
-  readonly mode: 'PHASE_1_MANUAL';
+  readonly action: CommandRoomResourceInput['action'];
+  readonly mode: 'SCHEDULED' | 'PHASE_1_MANUAL';
   readonly automaticScheduling: false;
-  readonly entries: readonly [];
-  readonly instruction: string;
+  readonly entries: readonly (CommandRoomResourceRecord & { readonly usedUnits: number; readonly availableUnits: number })[];
+  readonly leases: readonly CommandRoomResourceLeaseRecord[];
+  readonly queueDepth: number;
+  readonly request?: {
+    readonly state: 'QUEUED' | 'GRANTED';
+    readonly duplicate: boolean;
+    readonly requestId: string;
+    readonly queuePosition?: number;
+    readonly lease?: CommandRoomResourceLeaseRecord;
+  };
+  readonly released?: boolean;
+  readonly instruction?: string;
 }
 
 export type CommandRoomTaskInput =
@@ -382,12 +469,19 @@ export interface CommandRoomTaskResponse extends CommandRoomEnvelope {
   readonly action: CommandRoomTaskInput['action'];
   readonly duplicate: boolean;
   readonly task: CommandRoomTaskRecord;
+  readonly workspaceLease?: CommandRoomWorkspaceLease;
+  readonly leaseConflict?: {
+    readonly workspaceId: string;
+    readonly message: string;
+    readonly retryable: true;
+  };
 }
 
 export class CommandRoomBroker {
   public constructor(
     private readonly repository: CommandRoomRepositoryPort,
     private readonly now: () => Date = () => new Date(),
+    private readonly dependencies: CommandRoomBrokerDependencies = {},
   ) {}
 
   public async admin(input: CommandRoomAdminInput): Promise<Result<CommandRoomAdminResponse>> {
@@ -491,6 +585,9 @@ export class CommandRoomBroker {
       occurredAt,
     });
     if (changed.outcome !== 'updated') return adminMutationError(changed, input.expectedVersion);
+    if (!changed.duplicate && (input.action === 'pause' || input.action === 'archive')) {
+      await this.releaseRoomLeases(input.roomId, occurredAt);
+    }
     return ok({
       ...envelope(changed.room.version, this.now()),
       action: input.action,
@@ -610,19 +707,32 @@ export class CommandRoomBroker {
     if (!authenticated.ok) return authenticated;
     const taskLimit = input.taskLimit ?? 50;
     if (!Number.isInteger(taskLimit) || taskLimit < 1 || taskLimit > 100) return err(appError('INVALID_INPUT', 'taskLimit must be an integer from 1 to 100'));
-    const [room, agents, tasks] = await Promise.all([
+    const now = this.now();
+    const [room, agents, tasks, workspaceLeaseResult, resourceSnapshot] = await Promise.all([
       this.repository.getRoom(input.roomId),
       this.repository.listAgents(input.roomId),
       this.repository.listTasks(input.roomId, taskLimit),
+      this.dependencies.workspaceLeases?.status(),
+      this.dependencies.resources?.status({ roomId: input.roomId, now: now.toISOString() }),
     ]);
     if (room === null) return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));
+    const ownerPrefix = `command-room:${input.roomId}:`;
+    const workspaceEntries = workspaceLeaseResult?.ok === true
+      ? workspaceLeaseResult.value.filter((lease) => lease.owner.startsWith(ownerPrefix))
+      : [];
     return ok({
-      ...envelope(room.version, this.now()),
+      ...envelope(room.version, now),
       room,
       agents: agents.map(publicAgent),
       tasks,
-      workspaceLeases: { observable: false, sourceTool: 'workspace_lease_status' },
-      resources: { mode: 'PHASE_1_MANUAL', entries: [] },
+      workspaceLeases: {
+        observable: workspaceLeaseResult?.ok === true,
+        sourceTool: 'workspace_lease_status',
+        entries: workspaceEntries,
+      },
+      resources: resourceSnapshot === undefined
+        ? { mode: 'PHASE_1_MANUAL', entries: [], leases: [], queueDepth: 0 }
+        : { mode: 'SCHEDULED', entries: resourceSnapshot.resources, leases: resourceSnapshot.leases, queueDepth: resourceSnapshot.queueDepth },
     });
   }
 
@@ -642,23 +752,73 @@ export class CommandRoomBroker {
       ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId.trim() }),
       ...(input.lastCheckpointId === undefined ? {} : { lastCheckpointId: input.lastCheckpointId.trim() }),
     });
+    await this.reconcilePresenceLeases(input.action, authenticated.value.agent, this.now().toISOString());
+    const latestAgent = await this.repository.getAgentBySessionHash(input.roomId, hash(input.agentSessionId));
     return ok({
       ...envelope(updated.roomVersion, this.now()),
       action: input.action,
-      agent: publicAgent(updated.agent),
+      agent: publicAgent(latestAgent ?? updated.agent),
     });
   }
 
   public async resource(input: CommandRoomResourceInput): Promise<Result<CommandRoomResourceResponse>> {
     const authenticated = await this.authenticate(input.roomId, input.agentSessionId);
     if (!authenticated.ok) return authenticated;
-    return ok({
-      ...envelope(authenticated.value.room.version, this.now()),
-      mode: 'PHASE_1_MANUAL',
-      automaticScheduling: false,
-      entries: [],
-      instruction: 'Phase 1 does not schedule MT5, VPS, browser, GPU, or writer resources. Use workspace_lease_status for file writers and coordinate shared resources manually.',
-    });
+    const resources = this.dependencies.resources;
+    if (resources === undefined) {
+      if (input.action !== 'status') return err(appError('INTERNAL_ERROR', 'Command Room resource scheduler is unavailable', true));
+      return ok({
+        ...envelope(authenticated.value.room.version, this.now()),
+        action: 'status',
+        mode: 'PHASE_1_MANUAL',
+        automaticScheduling: false,
+        entries: [],
+        leases: [],
+        queueDepth: 0,
+        instruction: 'Resource scheduler is not wired into this runtime.',
+      });
+    }
+    const occurredAt = this.now().toISOString();
+    try {
+      let request: CommandRoomResourceResponse['request'];
+      let released: boolean | undefined;
+      if (input.action === 'request') {
+        if (!validKey(input.idempotencyKey)) return err(appError('INVALID_INPUT', 'idempotencyKey must contain 1 to 128 safe characters'));
+        const task = await this.repository.getTask(input.roomId, input.taskId);
+        if (task === null || task.assignedAgentId !== authenticated.value.agent.id) return err(appError('PERMISSION_DENIED', 'Resource requests require a task assigned to this agent'));
+        if (task.state !== 'RUNNING') return err(appError('INVALID_INPUT', 'Resource requests require a RUNNING task'));
+        request = await resources.request({
+          resourceKey: input.resourceKey.trim(),
+          roomId: input.roomId,
+          taskId: input.taskId,
+          agentId: authenticated.value.agent.id,
+          units: input.units ?? 1,
+          priority: input.priority ?? Math.max(0, task.priority),
+          idempotencyKey: input.idempotencyKey,
+          requestedAt: occurredAt,
+          ttlSeconds: 900,
+        });
+      } else if (input.action === 'renew') {
+        const lease = await resources.renew({ leaseId: input.leaseId, agentId: authenticated.value.agent.id, renewedAt: occurredAt, ttlSeconds: 900 });
+        request = { state: 'GRANTED', duplicate: false, requestId: lease.leaseId, lease };
+      } else if (input.action === 'release') {
+        released = (await resources.release({ leaseId: input.leaseId, agentId: authenticated.value.agent.id, releasedAt: occurredAt })).released;
+      }
+      const snapshot = await resources.status({ roomId: input.roomId, now: occurredAt });
+      return ok({
+        ...envelope(authenticated.value.room.version, this.now()),
+        action: input.action,
+        mode: 'SCHEDULED',
+        automaticScheduling: false,
+        entries: snapshot.resources,
+        leases: snapshot.leases,
+        queueDepth: snapshot.queueDepth,
+        ...(request === undefined ? {} : { request }),
+        ...(released === undefined ? {} : { released }),
+      });
+    } catch (error: unknown) {
+      return err(appError('PERMISSION_REQUIRED', error instanceof Error ? error.message : 'Command Room resource operation failed', true));
+    }
   }
 
   public async task(input: CommandRoomTaskInput): Promise<Result<CommandRoomTaskResponse>> {
@@ -669,7 +829,12 @@ export class CommandRoomBroker {
 
     if (input.action === 'assign') {
       if (actor.role !== 'MAIN') return err(appError('PERMISSION_DENIED', 'Only MAIN can assign Command Room tasks'));
-      if (input.mutationMode !== 'READ_ONLY') return err(appError('PERMISSION_REQUIRED', 'Phase 1 supports READ_ONLY tasks only; writer coordination is a later phase', true));
+      if (input.mutationMode === 'WRITE') {
+        if (input.workspaceId === undefined) return err(appError('INVALID_INPUT', 'WRITE tasks require workspaceId'));
+        if (this.dependencies.workspaceExists !== undefined && !(await this.dependencies.workspaceExists(input.workspaceId))) {
+          return err(appError('WORKSPACE_NOT_FOUND', 'WRITE tasks require a registered workspaceId'));
+        }
+      }
       const assigned = await this.repository.getAgentBySlot(input.roomId, input.assignedSlotKey.trim().toUpperCase());
       if (assigned === null || assigned.role !== 'LEAD') return err(appError('INVALID_INPUT', 'assignedSlotKey must identify a LEAD slot'));
       const valid = validateTaskBrief(input);
@@ -727,6 +892,31 @@ export class CommandRoomBroker {
     const payload = taskPayload(input);
     if (!payload.ok) return payload;
     const occurredAt = this.now().toISOString();
+    let workspaceLease: CommandRoomWorkspaceLease | undefined;
+    if (input.action === 'start' && task.mutationMode === 'WRITE') {
+      if (task.workspaceId === undefined) return err(appError('INVALID_INPUT', 'WRITE task has no workspaceId'));
+      const workspaceLeases = this.dependencies.workspaceLeases;
+      if (workspaceLeases === undefined) return err(appError('INTERNAL_ERROR', 'Workspace lease service is unavailable', true));
+      const acquired = await workspaceLeases.acquire(task.workspaceId, workspaceLeaseOwner(input.roomId, actor.slotKey, task.id), 900);
+      if (!acquired.ok) {
+        const waiting = await this.repository.transitionTask({
+          roomId: input.roomId,
+          taskId: task.id,
+          actorAgentId: actor.id,
+          expectedVersion: input.expectedVersion,
+          eventType: 'START',
+          nextState: 'WAITING',
+          payload: { reason: acquired.error.message, workspaceId: task.workspaceId },
+          idempotencyKey: input.idempotencyKey,
+          occurredAt,
+        });
+        const response = taskMutationResponse(waiting, input.action, input, this.now());
+        return response.ok
+          ? ok({ ...response.value, leaseConflict: { workspaceId: task.workspaceId, message: acquired.error.message, retryable: true } })
+          : response;
+      }
+      workspaceLease = acquired.value;
+    }
     const transitioned = await this.repository.transitionTask({
       roomId: input.roomId,
       taskId: task.id,
@@ -740,7 +930,98 @@ export class CommandRoomBroker {
       ...(input.action === 'submit' && input.result.checkpointId !== undefined ? { checkpointId: input.result.checkpointId } : {}),
       ...(input.action === 'submit' && input.result.durableTaskId !== undefined ? { durableTaskId: input.result.durableTaskId } : {}),
     });
-    return taskMutationResponse(transitioned, input.action, input, this.now());
+    if (transitioned.outcome !== 'updated' && workspaceLease !== undefined) {
+      await this.dependencies.workspaceLeases?.release(workspaceLease.workspaceId, workspaceLease.leaseId);
+    }
+    if (transitioned.outcome === 'updated' && !transitioned.duplicate && ['wait', 'submit', 'fail', 'cancel'].includes(input.action)) {
+      await this.releaseTaskLeases(task, occurredAt);
+    }
+    const response = taskMutationResponse(transitioned, input.action, input, this.now());
+    return response.ok && workspaceLease !== undefined ? ok({ ...response.value, workspaceLease }) : response;
+  }
+
+  private async reconcilePresenceLeases(action: CommandRoomPresenceInput['action'], agent: CommandRoomAgentRecord, occurredAt: string): Promise<void> {
+    if (action === 'park' || action === 'leave') {
+      if (agent.currentTaskId !== undefined) {
+        const task = await this.repository.getTask(agent.roomId, agent.currentTaskId);
+        if (task !== null) {
+          if (task.state === 'RUNNING') {
+            await this.repository.transitionTask({
+              roomId: task.roomId,
+              taskId: task.id,
+              actorAgentId: agent.id,
+              expectedVersion: task.version,
+              eventType: action.toUpperCase(),
+              nextState: 'WAITING',
+              payload: { reason: `Agent ${action} released active leases` },
+              idempotencyKey: `presence-${action}:${task.version}`,
+              occurredAt,
+            });
+          }
+          await this.releaseTaskLeases(task, occurredAt);
+        }
+      }
+      await this.dependencies.resources?.releaseForAgent(agent.roomId, agent.id, occurredAt);
+      return;
+    }
+    if (agent.currentTaskId === undefined) return;
+    const task = await this.repository.getTask(agent.roomId, agent.currentTaskId);
+    if (task === null || task.state !== 'RUNNING') return;
+    if (task.mutationMode === 'WRITE' && task.workspaceId !== undefined && this.dependencies.workspaceLeases !== undefined) {
+      const active = await this.dependencies.workspaceLeases.status(task.workspaceId);
+      const lease = active.ok
+        ? active.value.find((entry) => entry.owner === workspaceLeaseOwner(agent.roomId, agent.slotKey, task.id))
+        : undefined;
+      if (lease !== undefined) {
+        await this.dependencies.workspaceLeases.renew(task.workspaceId, lease.leaseId, 900);
+      } else {
+        await this.repository.transitionTask({
+          roomId: task.roomId,
+          taskId: task.id,
+          actorAgentId: agent.id,
+          expectedVersion: task.version,
+          eventType: 'LEASE_EXPIRED',
+          nextState: 'WAITING',
+          payload: { reason: 'Workspace writer lease expired; start the task again to reacquire it' },
+          idempotencyKey: `lease-expired:${task.version}`,
+          occurredAt,
+        });
+        await this.dependencies.resources?.releaseForTask(task.roomId, task.id, occurredAt);
+        return;
+      }
+    }
+    if (this.dependencies.resources !== undefined) {
+      const snapshot = await this.dependencies.resources.status({ roomId: agent.roomId, now: occurredAt });
+      for (const lease of snapshot.leases.filter((entry) => entry.owner.agentId === agent.id && entry.owner.taskId === task.id)) {
+        await this.dependencies.resources.renew({ leaseId: lease.leaseId, agentId: agent.id, renewedAt: occurredAt, ttlSeconds: 900 });
+      }
+    }
+  }
+
+  private async releaseTaskLeases(task: CommandRoomTaskRecord, occurredAt: string): Promise<void> {
+    if (task.workspaceId !== undefined && this.dependencies.workspaceLeases !== undefined) {
+      const active = await this.dependencies.workspaceLeases.status(task.workspaceId);
+      if (active.ok) {
+        const prefix = `command-room:${task.roomId}:`;
+        for (const lease of active.value.filter((entry) => entry.owner.startsWith(prefix) && entry.owner.endsWith(`:${task.id}`))) {
+          await this.dependencies.workspaceLeases.release(task.workspaceId, lease.leaseId);
+        }
+      }
+    }
+    await this.dependencies.resources?.releaseForTask(task.roomId, task.id, occurredAt);
+  }
+
+  private async releaseRoomLeases(roomId: string, occurredAt: string): Promise<void> {
+    if (this.dependencies.workspaceLeases !== undefined) {
+      const active = await this.dependencies.workspaceLeases.status();
+      if (active.ok) {
+        const prefix = `command-room:${roomId}:`;
+        for (const lease of active.value.filter((entry) => entry.owner.startsWith(prefix))) {
+          await this.dependencies.workspaceLeases.release(lease.workspaceId, lease.leaseId);
+        }
+      }
+    }
+    await this.dependencies.resources?.releaseForRoom(roomId, occurredAt);
   }
 
   private async authenticate(roomId: string, agentSessionId: string, allowInactive: boolean = false): Promise<Result<{ readonly room: CommandRoomRecord; readonly agent: CommandRoomAgentRecord }>> {
@@ -752,6 +1033,10 @@ export class CommandRoomBroker {
     if (agent === null || agent.state === 'OFFLINE') return err(appError('PERMISSION_DENIED', 'Command Room session is invalid or no longer active'));
     return ok({ room, agent });
   }
+}
+
+function workspaceLeaseOwner(roomId: string, slotKey: string, taskId: string): string {
+  return `command-room:${roomId}:${slotKey}:${taskId}`;
 }
 
 function envelope(roomVersion: number, now: Date): CommandRoomEnvelope {

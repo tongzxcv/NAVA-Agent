@@ -596,3 +596,14 @@
 - Prepared SCQA, twelve acceptance gates, four tracer slices, exact source seams, pilot boundaries, and release/rollback separation.
 - No application source, installed runtime, Tunnel profile, credentials, EA/MT5 project, VPS workload, or browser state was changed in this preparation step.
 - Next action when authorized: start Tracer 1 with failing migration-006/resource-capacity tests, then implement the minimum storage seam.
+## 2026-08-29 Command Room Phase 2B source gate resumed
+
+- Recovered the interrupted Phase 2B implementation from the shared prior chat and the actual dirty Git tree at HEAD e3f16b1; no prior work was discarded or rewritten.
+- The recovered source already contained migration 006, the durable resource scheduler/queue, writer-task lifecycle integration, fixed-eight-tool resource actions, Desktop lease/resource cards, v4.11.1 metadata, and an installed-runtime verifier.
+- Closed one acceptance gap: WRITE assignment now requires a registered workspaceId up front through the existing workspace repository in both CLI and Desktop runtimes; invalid workspace assignment returns WORKSPACE_NOT_FOUND before task creation.
+- Strengthened regression coverage for the exact seven MT5 resources, shared VPS/browser/GPU capacities, resource renew ownership, and invalid workspace assignment.
+- Recorded the durable command_room_resource_requests queue decision in ADR-0001 because queued idempotency and priority + 5-minute aging + FIFO cannot be reconstructed from active leases after restart; queue promotion still requires an explicit retry and never retries a mutation automatically.
+- Source gates pass on NAVA private Node 24: Command Room integration 10/10, storage backup/WAL/resource regression 8/8, packaging regression 4/4, TypeScript 6 build, focused ESLint, and git diff --check.
+- The first combined patch command returned a generic operation failure without an accepted mutation; the edits were then applied as small leased changes and verified by tests.
+- Installed NAVA remains v4.11.0 and was not restarted or replaced. Source is prepared as v4.11.1. Package/install/restart/push remain deliberately pending because the frozen Phase 2B plan requires separate authorization for the installed pilot/release gate.
+- Final task-owned guard covers 46 changed/untracked files: 0 artifact candidates, 0 files over 10 MB, and 0 secret-pattern files; git diff --check passes. This source checkpoint commit intentionally leaves the installed pilot/release gate open.

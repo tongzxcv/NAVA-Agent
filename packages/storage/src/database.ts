@@ -1,3 +1,4 @@
+
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createPreMigrationBackupSync } from './backup-service.js';
@@ -159,6 +160,60 @@ CREATE TABLE IF NOT EXISTS command_room_task_events (
 CREATE UNIQUE INDEX IF NOT EXISTS command_room_task_events_assign_idempotency_idx ON command_room_task_events(actor_agent_id, idempotency_key) WHERE event_type = 'ASSIGN';
 `;
 
+export const COMMAND_ROOM_RESOURCE_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS command_room_resources (
+  resource_key TEXT PRIMARY KEY NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('MT5_TERMINAL', 'CPU_HEAVY', 'VPS_WRITER', 'MANAGED_BROWSER_WRITER', 'GPU_HEAVY')),
+  capacity INTEGER NOT NULL CHECK (capacity >= 1),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  policy_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS command_room_resource_leases (
+  lease_id TEXT PRIMARY KEY NOT NULL,
+  resource_key TEXT NOT NULL REFERENCES command_room_resources(resource_key) ON DELETE CASCADE,
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES command_room_tasks(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES command_room_agents(id) ON DELETE CASCADE,
+  units INTEGER NOT NULL CHECK (units >= 1),
+  acquired_at TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS command_room_resource_leases_resource_idx ON command_room_resource_leases(resource_key, expires_at);
+CREATE INDEX IF NOT EXISTS command_room_resource_leases_owner_idx ON command_room_resource_leases(room_id, task_id, agent_id);
+
+CREATE TABLE IF NOT EXISTS command_room_resource_requests (
+  request_id TEXT PRIMARY KEY NOT NULL,
+  resource_key TEXT NOT NULL REFERENCES command_room_resources(resource_key) ON DELETE CASCADE,
+  room_id TEXT NOT NULL REFERENCES command_rooms(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES command_room_tasks(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES command_room_agents(id) ON DELETE CASCADE,
+  units INTEGER NOT NULL CHECK (units >= 1),
+  priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 100),
+  idempotency_key TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('QUEUED', 'GRANTED', 'RELEASED', 'CANCELLED')),
+  lease_id TEXT REFERENCES command_room_resource_leases(lease_id) ON DELETE SET NULL,
+  requested_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(agent_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS command_room_resource_requests_queue_idx ON command_room_resource_requests(resource_key, state, priority, requested_at);
+
+INSERT OR IGNORE INTO command_room_resources (resource_key, kind, capacity, enabled, policy_json) VALUES
+  ('mt5-terminal-1', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5\\\\terminal64.exe"}'),
+  ('mt5-terminal-2', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5 (2)\\\\terminal64.exe"}'),
+  ('mt5-terminal-3', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5 (3)\\\\terminal64.exe"}'),
+  ('mt5-terminal-4', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5 (4)\\\\terminal64.exe"}'),
+  ('mt5-terminal-5', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5 (5)\\\\terminal64.exe"}'),
+  ('mt5-terminal-6', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5 (6)\\\\terminal64.exe"}'),
+  ('mt5-terminal-7', 'MT5_TERMINAL', 1, 1, '{"path":"D:\\\\Programs\\\\MetaTrader 5 (7)\\\\terminal64.exe"}'),
+  ('cpu-heavy-project', 'CPU_HEAVY', 2, 1, '{"scope":"project"}'),
+  ('vps-nava-writer', 'VPS_WRITER', 1, 1, '{"target":"nava-vps"}'),
+  ('managed-browser-writer', 'MANAGED_BROWSER_WRITER', 1, 1, '{"scope":"managed-browser"}'),
+  ('gpu-heavy', 'GPU_HEAVY', 1, 1, '{"scope":"machine"}');
+`;
+
 export class SqliteDatabase {
   public readonly connection: DatabaseSync;
   private readonly existedBeforeOpen: boolean;
@@ -176,6 +231,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '003_checkpoints', sql: CHECKPOINT_MIGRATION_SQL });
     this.applyMigration({ id: '004_workspace_leases', sql: WORKSPACE_LEASE_MIGRATION_SQL });
     this.applyMigration({ id: '005_command_room_core', sql: COMMAND_ROOM_CORE_MIGRATION_SQL });
+    this.applyMigration({ id: '006_command_room_resources', sql: COMMAND_ROOM_RESOURCE_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

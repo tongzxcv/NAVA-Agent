@@ -95,3 +95,28 @@ export interface CommandRoomTaskRecord {
   readonly createdAt: string;
   readonly updatedAt: string;
 }
+
+export type CommandRoomResourceKind = 'MT5_TERMINAL' | 'CPU_HEAVY' | 'VPS_WRITER' | 'MANAGED_BROWSER_WRITER' | 'GPU_HEAVY';
+export type CommandRoomResourceRequestState = 'QUEUED' | 'GRANTED' | 'RELEASED' | 'CANCELLED';
+
+export interface CommandRoomResourceRecord {
+  readonly resourceKey: string;
+  readonly kind: CommandRoomResourceKind;
+  readonly capacity: number;
+  readonly enabled: boolean;
+  readonly policy: Readonly<Record<string, unknown>>;
+}
+
+export interface CommandRoomResourceLeaseRecord {
+  readonly leaseId: string;
+  readonly resourceKey: string;
+  readonly owner: {
+    readonly roomId: string;
+    readonly taskId: string;
+    readonly agentId: string;
+  };
+  readonly units: number;
+  readonly acquiredAt: string;
+  readonly heartbeatAt: string;
+  readonly expiresAt: string;
+}

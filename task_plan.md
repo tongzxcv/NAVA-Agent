@@ -869,25 +869,25 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 
 ## Acceptance criteria
 
-- [ ] Add transactional migration 006_command_room_resources with pre-migration backup and reopen/restart persistence proof.
-- [ ] Seed only the accepted resource catalog: seven explicit MT5 terminal paths, cpu-heavy-project capacity 2, vps-nava-writer, managed-browser-writer, and gpu-heavy.
-- [ ] Inject the existing workspace lease port into CommandRoomBroker; do not create a second writer lock or duplicate lease table.
-- [ ] Allow WRITE assignment only with a registered workspaceId; acquisition returns an actionable conflict and never grants filesystem authorization.
-- [ ] Bind workspace lease ownership to room/slot/task; renew only while the same task is RUNNING; release on submit, fail, cancel, park, leave, expiry, or verified stale recovery.
-- [ ] Extend the existing command_room_resource tool with bounded request, renew, and release actions while keeping the fixed eight-tool surface.
-- [ ] Enforce resource capacity atomically with idempotency, expiry cleanup, priority/FIFO evidence, and no automatic mutation retry.
-- [ ] Preserve workspace_lease_call, permission profiles, human confirmations, path roots, destructive-action blocks, and audit redaction unchanged.
-- [ ] Extend the Desktop overview/cards with source-of-truth workspace/resource lease status and actionable conflict text; never display opaque lease credentials after their required one-time response.
-- [ ] Pass same-workspace collision, different-workspace writers, seven-terminal uniqueness, VPS/browser/GPU capacity, restart recovery, stale lease cleanup, and bounded rendering tests.
+- [x] Add transactional migration 006_command_room_resources with pre-migration backup and reopen/restart persistence proof.
+- [x] Seed only the accepted resource catalog: seven explicit MT5 terminal paths, cpu-heavy-project capacity 2, vps-nava-writer, managed-browser-writer, and gpu-heavy.
+- [x] Inject the existing workspace lease port into CommandRoomBroker; do not create a second writer lock or duplicate lease table.
+- [x] Allow WRITE assignment only with a registered workspaceId; acquisition returns an actionable conflict and never grants filesystem authorization.
+- [x] Bind workspace lease ownership to room/slot/task; renew only while the same task is RUNNING; release on submit, fail, cancel, park, leave, expiry, or verified stale recovery.
+- [x] Extend the existing command_room_resource tool with bounded request, renew, and release actions while keeping the fixed eight-tool surface.
+- [x] Enforce resource capacity atomically with idempotency, expiry cleanup, priority/FIFO evidence, and no automatic mutation retry.
+- [x] Preserve workspace_lease_call, permission profiles, human confirmations, path roots, destructive-action blocks, and audit redaction unchanged.
+- [x] Extend the Desktop overview/cards with source-of-truth workspace/resource lease status and actionable conflict text; never display opaque lease credentials after their required one-time response.
+- [ ] Pass same-workspace collision, different-workspace writers, seven-terminal uniqueness, VPS/browser/GPU capacity, restart recovery, stale lease cleanup, and bounded rendering tests. Source/SQLite sub-gates pass; installed multi-session restart + visual bounded-rendering proof remains.
 - [ ] Run a task-owned installed pilot with Main + 3 Leads and at most 2 writers on different workspaces; do not use EA Live, production VPS mutation, or real MT5 orders.
-- [ ] Scan and commit only task-owned files. Package/install/push only after separate user authorization.
+- [x] Scan and commit only task-owned files. Package/install/push only after separate user authorization.
 
 ## Implementation slices
 
-- [ ] **Tracer 1 — storage/resource truth:** RED tests for migration 006, atomic capacity, expiry, idempotent replay, and restart persistence; then the minimum repository implementation.
-- [ ] **Tracer 2 — writer task lifecycle:** share the existing workspace lease instance with the broker, enable guarded WRITE tasks, and prove acquire/renew/release/conflict transitions.
-- [ ] **Tracer 3 — MCP and Desktop truth:** expand only the existing resource union and overview DTOs; render lease/resource state with no new framework.
-- [ ] **Tracer 4 — concurrency/recovery:** independent clients prove two different-workspace writers, same-workspace denial, resource non-overlap, stale/restart reconciliation, and no duplicate mutation.
+- [x] **Tracer 1 — storage/resource truth:** RED tests for migration 006, atomic capacity, expiry, idempotent replay, and restart persistence; then the minimum repository implementation.
+- [x] **Tracer 2 — writer task lifecycle:** share the existing workspace lease instance with the broker, enable guarded WRITE tasks, and prove acquire/renew/release/conflict transitions.
+- [x] **Tracer 3 — MCP and Desktop truth:** expand only the existing resource union and overview DTOs; render lease/resource state with no new framework.
+- [ ] **Tracer 4 — concurrency/recovery:** isolated broker/SQLite proof passes; independent installed MCP sessions plus controlled restart remain pending.
 - [ ] **Release gate:** build/package/backup/install and visually verify only after all source and isolated-runtime gates pass.
 
 ## Planned source seams
@@ -903,6 +903,15 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - apps/desktop/src/main/desktop-services.ts
 - existing Desktop IPC/preload/renderer Command Room files
 - a dependency-free installed-runtime Phase 2B acceptance script under scripts/
+
+## Source gate status — 2026-08-29
+
+- **PASS:** TypeScript 6 build, focused ESLint, Command Room integration 10/10, storage backup/WAL/resource regression 8/8, packaging regression 4/4, and git diff --check.
+- Source version is 4.11.1. WRITE assignment now rejects an unregistered workspace before task creation.
+- Migration 006 uses the existing pre-migration backup flow; resource state survives close/reopen, and the durable request queue preserves idempotency plus priority/aging/FIFO ordering.
+- The extra command_room_resource_requests queue table is justified and recorded in ADR-0001; no automatic mutation retry was added.
+- Installed NAVA remains 4.11.0. No package, install, NAVA restart, Tunnel restart, push, EA Live action, VPS mutation, or MT5 order was performed in this source gate.
+- The installed Phase 2B verifier is prepared at scripts/verify-command-room-phase2b.mjs and remains blocked on the separately authorized release/pilot gate.
 
 ## Design guardrails
 

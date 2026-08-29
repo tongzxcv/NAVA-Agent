@@ -1,11 +1,11 @@
 ---
 name: nava-command-room
-description: Coordinate one NAVA MAIN chat and up to five reusable LEAD chats through the local Command Room broker. Use when work must continue across full chats, multiple projects, ChatGPT Project or normal chats, or a Codex participant; covers manual join, inbox acknowledgement, read-only task flow, checkpoint references, takeover/rebind, and clean parking. Do not use it to bypass writer leases, schedule browser wake-ups, or switch provider quotas.
+description: Coordinate one NAVA MAIN chat and up to five reusable LEAD chats across normal chats, ChatGPT Projects, or a Codex participant. Use for multi-project handoff, chat-full takeover, versioned READ_ONLY or WRITE tasks, workspace writer-lease ownership, and bounded MT5/CPU/VPS/browser/GPU resource reservations. Never use it to bypass permissions, wake browser tabs, trade/deploy Live, or switch provider quotas.
 ---
 
 # NAVA Command Room
 
-Coordinate agents through bounded broker records. The Command Room stores summaries and references, not raw prompts, credentials, cookies, API keys, private keys, or large tool output.
+Coordinate agents through bounded local SQLite records. Store summaries and evidence references only; never store raw prompts, credentials, cookies, API keys, private keys, join codes, session IDs, lease IDs, or large tool output in durable notes.
 
 ## Preconditions
 
@@ -18,115 +18,107 @@ Coordinate agents through bounded broker records. The Command Room stores summar
    - `command_room_presence`
    - `command_room_resource`
    - `command_room_admin`
-2. If they are missing, enable the Command Room feature, refresh the NAVA connector, and retry in a new chat only if refresh does not update the manifest.
-3. Treat every `agentSessionId`, join code, room ID, task ID, and idempotency key as opaque. Never paste them into durable notes or public messages.
-4. Phase 1 is manual and local. It does not wake browser tabs, create 25-minute schedules, execute shared-resource queues, or change ChatGPT/Codex quota behavior.
+2. If tools or schemas are stale, refresh the NAVA connector. Open a new chat only if refresh does not update the manifest.
+3. Treat room, task, join-code, session, idempotency, writer-lease, and resource-lease values as opaque.
+4. Command Room does not grant permissions. Every mutation still obeys the active NAVA permission profile, workspace boundary, human confirmation, and destructive-action policy.
 
-## MAIN boot
+## Join and boot
 
-Use `command_room_admin` with `action: "create"`, a stable safe idempotency key, and `leadSlots` from 1 to 5. Save the returned room ID only in the active chat context. Deliver each one-time join code privately to the intended chat.
+MAIN creates a room with `command_room_admin`, a stable idempotency key, and one to five Lead slots. Deliver each one-time join code privately.
 
-Join the `MAIN` slot with `command_room_join`:
+Each chat joins its assigned slot with `command_room_join`:
 
 - provider is `CHATGPT`, `CODEX`, or `OTHER`
 - first `connectionEpoch` is 1
-- retain the returned `agentSessionId` only for the active session
+- keep the returned `agentSessionId` only in active chat context
 
-Immediately call `command_room_presence` with `action: "heartbeat"`. Add bounded `projectKey`, `workspaceId`, and `lastCheckpointId` only when known.
-
-## LEAD boot
-
-Join the assigned `LEAD-1` through `LEAD-5` slot with its one-time code and required connection epoch. A chat may be inside or outside a ChatGPT Project; room identity comes from the manual slot, not the ChatGPT Project container.
-
-After join:
-
-1. Heartbeat with the current project and workspace references.
-2. Read inbox from cursor 0 or the last acknowledged cursor, limit at most 50.
-3. Acknowledge only through the highest sequence actually processed.
-4. Read room status before claiming work.
-
-Never send directly from one LEAD to another. Send questions, updates, results, and handoffs to `MAIN`, which routes the work.
+Immediately send `command_room_presence` heartbeat with bounded project, workspace, and checkpoint references when known. Room identity comes from the slot and room ID, not from the ChatGPT Project container.
 
 ## Inbox loop
 
-At meaningful milestones and before parking:
+At bounded milestones, before waiting, and before parking:
 
-1. Call `command_room_inbox` with `action: "read"`.
-2. Process immutable messages in sequence order.
-3. Call `command_room_inbox` with `action: "ack"` and `ackThrough` equal to the last processed sequence.
-4. Use the returned cursor on the next read.
+1. Read `command_room_inbox` from the saved cursor, at most 50 messages.
+2. Process immutable messages in sequence.
+3. Acknowledge only through the highest sequence actually processed.
+4. Send questions, updates, results, and handoffs through MAIN. Lead-to-Lead delivery stays blocked.
 
-Do not tight-poll. Check after completing a bounded unit of work, when waiting for a decision, or when the user explicitly asks.
+Do not tight-poll. Recheck after completing a bounded work unit or when asked.
 
 ## Task flow
 
-Phase 1 Command Room tasks must use `mutationMode: "READ_ONLY"`.
-
 MAIN:
 
-1. Assign with project, optional workspace, bounded brief, acceptance criteria, expected room version, and a new idempotency key.
-2. Review submitted evidence.
-3. Approve, reject, cancel, or request a bounded follow-up.
+1. Assign a versioned task with project, workspace, brief, acceptance criteria, mutation mode, current room version, and a fresh idempotency key.
+2. Require `workspaceId` for every `WRITE` task.
+3. Review submitted evidence, then approve, reject, cancel, or issue bounded follow-up work.
 
 LEAD:
 
-1. Claim the assigned task with the current task version.
-2. Start it.
-3. Heartbeat or wait with a reason when blocked.
-4. Submit a bounded result with evidence references and optional checkpoint or durable-task ID.
-5. Never claim another LEAD's task.
+1. Read status and claim only its assigned task.
+2. Start with the current task version.
+3. For `READ_ONLY`, work without a writer lease.
+4. For `WRITE`, use the writer lease returned by start. If the workspace is already leased, accept the actionable `WAITING` result; never bypass it. Retry start with a new idempotency key only after status shows the conflict is clear.
+5. Heartbeat only while actively running. Wait, submit, fail, cancel, park, leave, or lease expiry releases task-owned leases.
+6. Submit bounded result evidence and optional checkpoint or durable-task references.
 
-On a version conflict, read status again. Do not guess the new version or retry a mutation with a different meaning under the same idempotency key.
+On a version conflict, read status again. Never guess a version or reuse an idempotency key for a different meaning.
 
-## Workspace writes and checkpoints
+## Workspace mutation and checkpoint
 
-Command Room coordination never grants file-write authority. Before any workspace mutation, follow `nava-multi-chat-coordinator` and acquire or verify the one active writer lease for that workspace.
+Command Room reuses NAVA's single authoritative writer lease per workspace. It does not create a second Git/file lock.
 
-When a writer lease is active, persist a workspace checkpoint only through this exact wrapper:
+For a running WRITE task, route every workspace mutation through `workspace_lease_call` with exactly these outer fields:
 
 ```json
 {
   "workspaceId": "<workspace-id>",
-  "leaseId": "<lease-id>",
-  "tool": "session_checkpoint",
+  "leaseId": "<writer-lease-id returned by Command Room>",
+  "tool": "<mutation tool>",
   "arguments": {
-    "projectKey": "<stable-project-key>",
-    "summary": "<bounded milestone>",
-    "boundaries": ["<preserved constraints>"],
-    "evidenceRefs": ["<file, commit, test, or task reference>"],
-    "nextAction": "<single concrete next action>"
+    "<child tool fields>": "<values>"
   }
 }
 ```
 
-Call `workspace_lease_call` with only the four outer fields shown. Put every checkpoint field inside `arguments`. A resumed checkpoint is evidence to verify against current Git, workspace, task, and Obsidian state; it is not permission to mutate.
+Route `session_checkpoint` through the same wrapper while the writer lease is active. A resumed checkpoint is evidence to verify against current Git, workspace, task, and Obsidian state; it is never mutation authority.
+
+If heartbeat reports lease expiry, the task becomes `WAITING`. Read status, verify current evidence, then start again to reacquire.
+
+## Shared resources
+
+Use `command_room_resource` only for a RUNNING task assigned to the current agent.
+
+- `status`: inspect capacities, active leases, and queue depth.
+- `request`: reserve `mt5-terminal-1` through `mt5-terminal-7`, `cpu-heavy-project`, `vps-nava-writer`, `managed-browser-writer`, or `gpu-heavy`.
+- `renew`: extend a lease only while its task remains RUNNING.
+- `release`: release early when the resource is no longer needed.
+
+Busy requests queue by priority, five-minute aging, then FIFO. Reusing the same request idempotency key may promote a still-queued request after capacity is released. A resource lease reserves capacity only; it does not execute a command, retry a mutation, place an MT5 order, or grant authorization.
 
 ## Chat-full takeover
 
-If a chat is full or lost:
+When a chat is full or lost:
 
-1. MAIN calls `command_room_admin` with `action: "rebind"`, the target slot, current room version, and a new idempotency key.
-2. Start a new chat and join with the new one-time code and returned required connection epoch.
-3. The old session is revoked. Do not reuse it.
-4. The new chat reads status and inbox, verifies checkpoint/Git/workspace evidence, acknowledges processed messages, and continues the assigned task.
+1. MAIN rebinds the target slot with the current room version and a new idempotency key.
+2. Start a new chat and join with the returned one-time code and required connection epoch.
+3. The old session is revoked.
+4. The new chat reads status and inbox, verifies checkpoint/Git/workspace evidence, acknowledges processed messages, and continues.
 
-If MAIN itself is replaced, use the same rebind flow for `MAIN`; do not create a duplicate room unless recovery of the existing room is impossible and the user explicitly chooses replacement.
+Use the same flow for MAIN replacement. Do not create a duplicate room unless recovery is impossible and the user explicitly chooses replacement.
 
-## Messages
+## Parking and lifecycle
 
-Use:
+A Lead that pauses calls `command_room_presence` with `park` and the latest checkpoint reference. Active WRITE work moves to WAITING and task-owned writer/resource leases are released. Use `leave` only when the session should become offline.
 
-- `QUESTION` for a decision or missing input
-- `UPDATE` for bounded progress
-- `RESULT` for verified completion or rejection evidence
-- `HANDOFF` for a precise continuation point
+MAIN may pause, resume, archive, or rebind a room. Before archive, ensure work is terminal or deliberately preserved and all active agents are parked or offline.
 
-Each message needs a short subject, bounded summary, evidence references, optional next action, target slot, and unique idempotency key. Never paste full source trees, raw logs, prompts, or secrets.
+## Non-goals
 
-## Parking and room lifecycle
+Never imply that Command Room:
 
-A LEAD that finishes or pauses calls `command_room_presence` with `park` and its latest checkpoint reference. Use `leave` only when the current session should become offline.
-
-MAIN may pause, resume, or archive the room with the current room version. Before archiving, ensure tasks are terminal or deliberately preserved and all active agents have parked or left.
-
-`command_room_resource` is status-only in Phase 1. Coordinate MT5, VPS, browser, GPU, and other shared resources manually; do not imply that NAVA scheduled or reserved them.
+- wakes ChatGPT tabs or creates sub-hour cloud schedules
+- switches ChatGPT/Codex/Claude quota or makes usage unlimited
+- bypasses permission, login, rate limit, writer lease, or confirmation
+- trades, deploys Live, or launches MT5/VPS/browser/GPU work merely because a resource is reserved
+- stores a shared-chat URL or transcript as continuity

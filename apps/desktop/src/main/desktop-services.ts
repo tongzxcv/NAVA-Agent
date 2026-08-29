@@ -1,3 +1,5 @@
+
+
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import path from 'node:path';
@@ -75,7 +77,7 @@ import {
   serializeStringRecordSetting,
   loadCheckpointEncryptionKey,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomRepository, SqliteCommandRoomResourceRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
@@ -259,7 +261,17 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   });
   const activityLogPath = mcpActivityLogPath(dataPath);
   const commandRoomRepository = new SqliteCommandRoomRepository(database);
-  const commandRoomBroker = new CommandRoomBroker(commandRoomRepository);
+  const workspaceLeases = new SqliteWorkspaceLeaseRepository(database);
+  const commandRoomResources = new SqliteCommandRoomResourceRepository(database);
+  const commandRoomBroker = new CommandRoomBroker(
+    commandRoomRepository,
+    () => new Date(),
+    {
+      workspaceLeases,
+      resources: commandRoomResources,
+      workspaceExists: async (workspaceId): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
+    },
+  );
   const mcpServices: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     activityLogPath,
@@ -273,7 +285,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     capabilities: capabilityRuntime.service,
     extensions: extensionsService,
     workspaceInfo: workspaceInfoService,
-    workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
+    workspaceLeases,
     commandRoom: commandRoomBroker,
     workspaceQuery: workspaceQueryService,
     projectSnapshot: projectSnapshotService,
@@ -407,10 +419,19 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     return workspace;
   }
 
+  function parseCommandRoomLeaseOwner(roomId: string, owner: string): { readonly slotKey: string; readonly taskId: string } | null {
+    const prefix = `command-room:${roomId}:`;
+    if (!owner.startsWith(prefix)) return null;
+    const [slotKey, taskId, ...extra] = owner.slice(prefix.length).split(':');
+    return slotKey === undefined || taskId === undefined || extra.length > 0 ? null : { slotKey, taskId };
+  }
+
   async function toCommandRoomSummary(room: CommandRoomRecord): Promise<CommandRoomSummary> {
-    const [agents, tasks] = await Promise.all([
+    const [agents, tasks, writerLeaseResult, resourceSnapshot] = await Promise.all([
       commandRoomRepository.listAgents(room.id),
       commandRoomRepository.listTasks(room.id, 100),
+      workspaceLeases.status(),
+      commandRoomResources.status({ roomId: room.id, now: new Date().toISOString() }),
     ]);
     const agentSlots = new Map(agents.map((agent) => [agent.id, agent.slotKey] as const));
     return {
@@ -430,6 +451,30 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         ...(agent.currentTaskId === undefined ? {} : { currentTaskId: agent.currentTaskId }),
         ...(agent.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: agent.lastHeartbeatAt }),
       })),
+      writerLeases: writerLeaseResult.ok
+        ? writerLeaseResult.value.flatMap((lease) => {
+          const owner = parseCommandRoomLeaseOwner(room.id, lease.owner);
+          return owner === null ? [] : [{ workspaceId: lease.workspaceId, ownerSlotKey: owner.slotKey, taskId: owner.taskId, expiresAt: lease.expiresAt }];
+        })
+        : [],
+      resources: resourceSnapshot.resources.map((resource) => ({
+        resourceKey: resource.resourceKey,
+        kind: resource.kind,
+        capacity: resource.capacity,
+        usedUnits: resource.usedUnits,
+        availableUnits: resource.availableUnits,
+      })),
+      resourceLeases: resourceSnapshot.leases.flatMap((lease) => {
+        const slotKey = agentSlots.get(lease.owner.agentId);
+        return slotKey === undefined ? [] : [{
+          resourceKey: lease.resourceKey,
+          ownerSlotKey: slotKey,
+          taskId: lease.owner.taskId,
+          units: lease.units,
+          expiresAt: lease.expiresAt,
+        }];
+      }),
+      resourceQueueDepth: resourceSnapshot.queueDepth,
       tasks: tasks.map((task) => {
         const assignedSlotKey = task.assignedAgentId === undefined ? undefined : agentSlots.get(task.assignedAgentId);
         return {

@@ -50,6 +50,7 @@ import {
   SqliteAuditRepository,
   SqliteCheckpointRepository,
   SqliteCommandRoomRepository,
+  SqliteCommandRoomResourceRepository,
   SqliteDatabase,
   SqliteSettingsRepository,
   SqliteWorkspaceLeaseRepository,
@@ -181,6 +182,17 @@ export function createStdioMcpRuntime(
         : [durableActivitySink, sharedActivitySink]).record(event);
     },
   }, undefined, 512, resolveWorkspaceLabel);
+  const workspaceLeases = new SqliteWorkspaceLeaseRepository(database);
+  const commandRoomResources = new SqliteCommandRoomResourceRepository(database);
+  const commandRoom = new CommandRoomBroker(
+    new SqliteCommandRoomRepository(database),
+    () => new Date(),
+    {
+      workspaceLeases,
+      resources: commandRoomResources,
+      workspaceExists: async (workspaceId): Promise<boolean> => (await workspaceRepository.get(workspaceId)) !== null,
+    },
+  );
   const services: McpApplicationServices = {
     runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
     activityLogPath: mcpActivityLogPath(dataPath),
@@ -191,8 +203,8 @@ export function createStdioMcpRuntime(
     capabilities: capabilityService,
     extensions,
     workspaceInfo: new WorkspaceInfoService(workspaceRepository, workspaceService, effectiveUnrestricted),
-    workspaceLeases: new SqliteWorkspaceLeaseRepository(database),
-    commandRoom: new CommandRoomBroker(new SqliteCommandRoomRepository(database)),
+    workspaceLeases,
+    commandRoom,
     workspaceQuery,
     projectSnapshot: new ProjectSnapshotService(workspaceRepository, {
       projectService,
