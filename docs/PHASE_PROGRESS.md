@@ -12,3 +12,5 @@
 - Release validation: public-repo hygiene 8/8 passed; desktop packaging 4/4 passed; release gate 5/5 passed.
 - Next phase plan: `docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md`.
 - Phase 3 target: v4.12.0; do not bump until implementation starts.
+- GitHub release upload task: `e951bdcb-e050-4e92-8a00-c8578cce1aaf`.
+- GitHub release published successfully: https://github.com/tongzxcv/NAVA-Agent/releases/tag/v4.11.4
