@@ -42,3 +42,15 @@
 - Focused reliability verification: shell backend + MCP Tasks + upgrade runtime = 50/50 tests passed. Full capabilities + MCP-server regression = 48 files / 261 tests passed. Root TypeScript `tsc --build` passed. Release/public hygiene/desktop packaging guards = 17/17 passed.
 - Full capabilities + MCP-server source regression ran as durable task `a318d067-eba2-4936-a12a-a2e298f8dc36` and passed: 48 files / 261 tests. This also proved the intended background-task verification pattern without a long synchronous wait.
 - Installed v4.11.4 remains untouched. No package/install/restart/tunnel restart/production DB migration/push was performed by this reliability slice.
+
+## 2026-08-30 — v4.12.0 installed reliability pilot
+
+- User opened an install/restart window after confirming NAVA was idle. A consistent SQLite backup was created before migration at `E:\AI_CACHE\nava-agent-setup\20260830-024827-before-v4120.sqlite` (SHA-256 `58E0038266B5212E41AD80A19A9FD6752298CC35C410807637C2A6B7324A7D44`).
+- Final v4.12.0 installer was packaged with bundled Node 24.19.0. Installer SHA-256: `3AEABBD4756EC9A05E898047E2F49DF124503814636DDC9CD5E69608744A8E21`; Authenticode status remains `NotSigned` for this development pilot.
+- The historical NSIS install target resolved to `D:\Program`; that staged payload was not treated as the active runtime. The verified final `win-unpacked` payload was synchronized into the actual active directory `D:\Program Files\NAVA Agent` while Desktop/stdio/tunnel were stopped, then NAVA was restarted.
+- Active payload hashes match the final build: MCP bundle `F6F94325E3EB5A3970ADB4C04ED77DD1953163E0B638C40D6A84DBFBAFAB01F6`, app.asar `23989B6EDDF4D5B12BD91C9B50ACA57F509F0FF158AA6769ED8D6BD5C0730D01`, bundled Node `3602F2BB1A10F2CBAB4C36886218A33C1AB3DB87290E73B033C46C77147D0237`.
+- Startup applied migration `007_command_room_bindings`; both `command_room_bindings` and `command_room_wake_deliveries` are present. Existing Command Room data survived the migration.
+- Installed-runtime probes passed: synchronous foreground work returns `RUNNING + task_id` at the 10s request budget and later completes; a two-stage durable workflow completed both stages; `live_logs_query` returned `source=persistent-mcp`.
+- A real 1,413-task history exposed one remaining bottleneck: bounded `shell list` initially took ~17.7s because every historical stdout/stderr file was still loaded. Source fix `3a7ebe1` made list metadata-only; after final reinstall the same limit=2 completed-task query returned in ~580ms with no output blobs.
+- Final source verification after the list optimization: root TypeScript build passed; capabilities + MCP-server regression = 48 files / 261 tests passed; release/public hygiene/desktop packaging guards = 17/17 passed.
+- NAVA Desktop and the lnwjud tunnel reconnected successfully after restart. Public GitHub release/tag remains v4.11.4; this is a local v4.12.0 Phase 3/reliability pilot, not a v4.12.0 public release.

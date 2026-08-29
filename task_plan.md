@@ -972,7 +972,7 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [ ] Implement storage/application/Desktop/extension vertical slice behind opt-in `extensionWakeEnabled` — storage + initial application service are in progress; Desktop/extension remain untouched.
 - [ ] Pass wrong-tab, revoke/replace, bounded retry, restart recovery, secret-redaction, and Phase 2B regression gates before installed pilot.
 
-Phase 3 source implementation is now active on `feature/command-room-phase3` targeting v4.12.0. Installed v4.11.4 remains untouched and continues as the runtime baseline until the user authorizes an install/restart gate.
+Phase 3 source implementation is active on `feature/command-room-phase3` targeting v4.12.0. The local development machine now runs the validated v4.12.0 reliability/identity-foundation pilot; the public release baseline remains v4.11.4 and the Phase 3 Desktop/extension wake slice is still pending.
 
 
 ## Runtime reliability hardening — 2026-08-30
@@ -984,4 +984,5 @@ Phase 3 source implementation is now active on `feature/command-room-phase3` tar
 - [x] Bound `shell list` to 100 items by default with `limit/offset/state`, and make MCP tasks/list page through the bounded shell surface instead of returning an oversized task history.
 - [x] Make `live_logs_query` read rotating persistent MCP activity logs when available, with bounded filtering by tool/result/call/workspace/time so timeout evidence survives runtime replacement.
 - [x] Update tool guidance: multi-stage research/MT5/ML and uncertain work expected to exceed ~30s should be submitted as durable workflow/background before the first heavy stage.
-- [ ] Installed-runtime pilot remains deferred: do not package/install/restart/push while v4.11.4 is actively being used. Run source gates only until the user authorizes the update window.
+- [x] Run the authorized v4.12.0 reliability installed-runtime pilot: pre-migration backup, package, active payload verification, migration 007, restart/tunnel reconnect, 10s wait probe, durable workflow probe, persistent log query, and bounded task-list performance validation all passed.
+- [ ] Phase 3 extension/wake installed pilot remains pending until Desktop + browser-extension implementation and wrong-tab/revoke/retry gates are complete.
