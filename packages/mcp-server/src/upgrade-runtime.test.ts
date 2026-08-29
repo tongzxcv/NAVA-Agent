@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ok } from '@lnwjud/domain';
@@ -32,6 +32,39 @@ describe('upgrade runtime', () => {
       expect(response.structuredContent).toBeDefined();
     }
   }, 20_000);
+
+  it('queries persisted rotating MCP activity instead of losing timeout evidence with the in-memory tracker', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-live-logs-'));
+    const activityLogPath = path.join(directory, 'mcp-activity.log');
+    const older = [
+      { callId: 'wait-old', toolName: 'shell', phase: 'started', resultCode: 'STARTED', durationMs: 0, timestamp: '2026-08-29T16:37:10.695Z' },
+      { callId: 'wait-old', toolName: 'shell', phase: 'completed', resultCode: 'SUCCESS', durationMs: 60017, timestamp: '2026-08-29T16:38:10.712Z' },
+    ];
+    const current = [
+      { callId: 'wait-unfinished', toolName: 'shell', phase: 'started', resultCode: 'STARTED', durationMs: 0, timestamp: '2026-08-29T18:00:00.000Z', targetSummary: 'shell:wait' },
+      { callId: 'other', toolName: 'read_file', phase: 'completed', resultCode: 'SUCCESS', durationMs: 4, timestamp: '2026-08-29T18:01:00.000Z' },
+    ];
+    await writeFile(`${activityLogPath}.1`, `${older.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    await writeFile(activityLogPath, `${current.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    const runtime = new UpgradeRuntimeService({ activityLogPath } as McpApplicationServices, actor);
+
+    await expect(runtime.execute('live_logs_query', { toolName: 'shell', limit: 10 })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        source: 'persistent-mcp',
+        bounded: true,
+        entries: [
+          expect.objectContaining({ callId: 'wait-old', phase: 'started' }),
+          expect.objectContaining({ callId: 'wait-old', phase: 'completed', durationMs: 60017 }),
+          expect.objectContaining({ callId: 'wait-unfinished', phase: 'started', targetSummary: 'shell:wait' }),
+        ],
+      },
+    });
+    await expect(runtime.execute('live_logs_query', { callId: 'wait-unfinished', limit: 10 })).resolves.toMatchObject({
+      ok: true,
+      value: { entries: [expect.objectContaining({ callId: 'wait-unfinished', phase: 'started' })] },
+    });
+  });
 
   it('routes prompts and searches capabilities without an LLM', async () => {
     const runtime = new UpgradeRuntimeService({}, actor);

@@ -973,3 +973,15 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [ ] Pass wrong-tab, revoke/replace, bounded retry, restart recovery, secret-redaction, and Phase 2B regression gates before installed pilot.
 
 Phase 3 source implementation is now active on `feature/command-room-phase3` targeting v4.12.0. Installed v4.11.4 remains untouched and continues as the runtime baseline until the user authorizes an install/restart gate.
+
+
+## Runtime reliability hardening — 2026-08-30
+
+- [x] Diagnose production MCP activity logs: long work survives as durable tasks, while synchronous `shell:wait` calls cluster at the 60-second transport boundary.
+- [x] Add `shell operation=workflow` for up to 32 prevalidated sequential stages under one durable task so a Chat/MCP turn ending after prereg cannot strand the remaining research stages.
+- [x] Add the V056-style regression: `prereg -> feature-cache -> adapter-fit -> july-validation -> economic -> parity` completes from a replacement backend without resubmitting later stages.
+- [x] Reduce the default synchronous wait ceiling from 60s to 10s and MCP `tasks/result` wait from 50s to 8s; returning `RUNNING` no longer implies the durable task stopped.
+- [x] Bound `shell list` to 100 items by default with `limit/offset/state`, and make MCP tasks/list page through the bounded shell surface instead of returning an oversized task history.
+- [x] Make `live_logs_query` read rotating persistent MCP activity logs when available, with bounded filtering by tool/result/call/workspace/time so timeout evidence survives runtime replacement.
+- [x] Update tool guidance: multi-stage research/MT5/ML and uncertain work expected to exceed ~30s should be submitted as durable workflow/background before the first heavy stage.
+- [ ] Installed-runtime pilot remains deferred: do not package/install/restart/push while v4.11.4 is actively being used. Run source gates only until the user authorizes the update window.

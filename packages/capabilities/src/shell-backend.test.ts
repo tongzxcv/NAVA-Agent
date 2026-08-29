@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -308,6 +308,61 @@ describe('ShellCapabilityBackend', () => {
     expect(Date.now() - waitStartedAt).toBeLessThan(200);
     expect(waited).toMatchObject({ ok: true, value: { state: 'running' } });
     await backend.execute({ operation: 'cancel', task_id: started.value.task_id });
+  });
+
+  it('keeps a staged research workflow durable after the submitting caller goes away', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-workflow-'));
+    temporaryRoots.push(root);
+    const taskStateDirectory = path.join(root, 'tasks');
+    const marker = path.join(root, 'V056-stages.txt');
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root], taskStateDirectory, autoWaitSeconds: 0.01 });
+    const stageScript = "const fs=require('fs');const p=process.argv[1],m=process.argv[2];fs.appendFileSync(p,m+'\\n');setTimeout(()=>{},40)";
+    const stageIds = ['prereg', 'feature-cache', 'adapter-fit', 'july-validation', 'economic', 'parity'];
+
+    const started = await backend.execute({
+      operation: 'workflow',
+      execution: 'background',
+      timeout_seconds: 10,
+      steps: stageIds.map((id) => ({ id, executable: process.execPath, arguments: ['-e', stageScript, marker, id], cwd: root })),
+    });
+    expect(started).toMatchObject({ ok: true, value: { state: 'running', durable: true, task_id: expect.any(String) } });
+    if (!started.ok) return;
+
+    // A replacement backend simulates a new MCP/Chat turn. The original caller
+    // does not submit any more stages, yet the durable worker must finish all of them.
+    const replacement = new ShellCapabilityBackend({ allowedRoots: [root], taskStateDirectory });
+    const finished = await replacement.execute({ operation: 'wait', task_id: started.value.task_id, timeout_seconds: 5 });
+    expect(finished).toMatchObject({
+      ok: true,
+      value: {
+        state: 'completed',
+        exit_code: 0,
+        workflow: { stages: stageIds.map((id) => expect.objectContaining({ id, state: 'completed', exit_code: 0 })) },
+      },
+    });
+    await expect(readFile(marker, 'utf8')).resolves.toBe(`${stageIds.join('\n')}\n`);
+  });
+
+  it('bounds shell task listings and paginates instead of overflowing MCP transport', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-list-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({ allowedRoots: [root], taskStateDirectory: path.join(root, 'tasks') });
+    const ids: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      const started = await backend.execute({
+        operation: 'run', executable: process.execPath, arguments: ['-e', 'setTimeout(()=>{}, 2000)'], cwd: root,
+        execution: 'background', timeout_seconds: 10,
+      });
+      expect(started.ok).toBe(true);
+      if (started.ok) ids.push(String(started.value.task_id));
+    }
+    const first = await backend.execute({ operation: 'list', limit: 2, offset: 0, state: 'running' });
+    expect(first).toMatchObject({ ok: true, value: { tasks: expect.any(Array), total: 5, offset: 0, limit: 2, next_offset: 2, bounded: true } });
+    if (first.ok) expect(first.value.tasks).toHaveLength(2);
+    const second = await backend.execute({ operation: 'list', limit: 2, offset: 2, state: 'running' });
+    expect(second).toMatchObject({ ok: true, value: { total: 5, offset: 2, limit: 2, next_offset: 4 } });
+    if (second.ok) expect(second.value.tasks).toHaveLength(2);
+    await Promise.all(ids.map((taskId) => backend.execute({ operation: 'cancel', task_id: taskId })));
   });
 
   it('runs a Windows .cmd shim whose path contains spaces', async () => {

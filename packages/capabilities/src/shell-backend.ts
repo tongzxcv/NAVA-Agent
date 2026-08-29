@@ -7,15 +7,23 @@ import { PathExecutableResolver, WindowsProcessTree, toWindowsSpawnInvocation, t
 import type { CapabilityBackend } from './local-capability-service.js';
 import { DurableShellTaskStore } from './durable-shell-task-store.js';
 
-type ShellOperation = 'run' | 'list' | 'status' | 'wait' | 'logs' | 'result' | 'cancel' | 'resume' | 'approve' | 'deny';
+type ShellOperation = 'run' | 'workflow' | 'list' | 'status' | 'wait' | 'logs' | 'result' | 'cancel' | 'resume' | 'approve' | 'deny';
 type ShellExecution = 'foreground' | 'background' | 'auto';
 type ShellPrivilege = 'user' | 'admin';
 type TaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'termination_unverified';
+
+interface ShellWorkflowStep {
+  readonly id: string;
+  readonly executable: string;
+  readonly arguments: readonly string[];
+  readonly cwd?: string;
+}
 
 interface ShellRequest {
   readonly operation: ShellOperation;
   readonly executable?: string;
   readonly arguments: readonly string[];
+  readonly steps: readonly ShellWorkflowStep[];
   readonly privilege: ShellPrivilege;
   readonly cwd?: string;
   readonly execution: ShellExecution;
@@ -23,6 +31,9 @@ interface ShellRequest {
   readonly timeoutSeconds: number;
   readonly maxOutputBytes: number;
   readonly tailLines?: number;
+  readonly listLimit: number;
+  readonly listOffset: number;
+  readonly listState?: TaskState;
   readonly includeStdout: boolean;
   readonly includeStderr: boolean;
   readonly dryRun: boolean;
@@ -69,11 +80,14 @@ interface ShellTaskRecord {
   terminationAttempt?: Promise<boolean>;
 }
 
-const SHELL_OPERATIONS: readonly ShellOperation[] = ['run', 'list', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny'];
+const SHELL_OPERATIONS: readonly ShellOperation[] = ['run', 'workflow', 'list', 'status', 'wait', 'logs', 'result', 'cancel', 'resume', 'approve', 'deny'];
 const DEFAULT_TIMEOUT_SECONDS = 3600;
 const DEFAULT_BACKGROUND_TIMEOUT_SECONDS = 86_400;
 const DEFAULT_AUTO_WAIT_SECONDS = 1;
-const DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS = 60;
+const DEFAULT_MAX_SYNCHRONOUS_WAIT_SECONDS = 10;
+const DEFAULT_LIST_LIMIT = 100;
+const MAX_LIST_LIMIT = 500;
+const MAX_WORKFLOW_STEPS = 32;
 const DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MAX_TIMEOUT_SECONDS = 604_800;
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -115,7 +129,8 @@ export class ShellCapabilityBackend implements CapabilityBackend {
 
     switch (parsed.value.operation) {
       case 'run': return this.run(parsed.value, signal);
-      case 'list': return this.listTasks();
+      case 'workflow': return this.runWorkflow(parsed.value, signal);
+      case 'list': return this.listTasks(parsed.value);
       case 'status': return this.taskSnapshot(parsed.value.taskId);
       case 'wait': return this.wait(parsed.value);
       case 'logs': return this.taskSnapshot(parsed.value.taskId, parsed.value.tailLines);
@@ -213,6 +228,51 @@ export class ShellCapabilityBackend implements CapabilityBackend {
       : Math.min(request.timeoutSeconds, this.maxSynchronousWaitSeconds);
     await this.waitForForeground(record, synchronousWait, signal);
     return ok(this.snapshot(record));
+  }
+
+  private async runWorkflow(request: ShellRequest, signal?: AbortSignal): Promise<Result<unknown>> {
+    if (this.durableStore === undefined) return err(appError('INTERNAL_ERROR', 'Durable task store is unavailable', true));
+    if (request.privilege === 'admin') return err(appError('PERMISSION_DENIED', 'Administrator access is not available to the local runner'));
+    if (request.execution === 'foreground') return err(appError('INVALID_INPUT', 'Workflow execution must be background or auto so it can survive the MCP turn'));
+    if (request.steps.length === 0) return err(appError('INVALID_INPUT', 'Workflow requires at least one step'));
+    const prepared: Array<{ id: string; executable: string; arguments: readonly string[]; cwd: string; windowsVerbatimArguments?: boolean }> = [];
+    for (const step of request.steps) {
+      if (isDeleteLikeShellCommand(step.executable, step.arguments) && !request.userConfirmed) {
+        return err(appError('PERMISSION_REQUIRED', 'Delete/remove workflow steps require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true'));
+      }
+      const cwd = await this.resolveCwd(step.cwd ?? request.cwd);
+      if (!cwd.ok) return cwd;
+      if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell workflow was cancelled before launch', true));
+      const executable = await this.executableResolver.resolve(step.executable);
+      if (!executable.ok) return executable;
+      const invocation = toWindowsSpawnInvocation(executable.value, step.arguments, { allowMetacharacters: this.unrestricted });
+      if (!invocation.ok) return invocation;
+      prepared.push({
+        id: step.id,
+        executable: invocation.value.executable,
+        arguments: invocation.value.args,
+        cwd: cwd.value,
+        ...(invocation.value.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: invocation.value.windowsVerbatimArguments }),
+      });
+    }
+    if (request.dryRun) return ok({ dry_run: true, durable: true, workflow: prepared });
+    if (signal?.aborted) return err(appError('PROCESS_TIMEOUT', 'Shell workflow was cancelled before launch', true));
+    const first = prepared[0]!;
+    const taskId = randomUUID();
+    const launched = await this.durableStore.launch({
+      taskId,
+      executable: first.executable,
+      arguments: first.arguments,
+      cwd: first.cwd,
+      ...(first.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: first.windowsVerbatimArguments }),
+      workflowSteps: prepared,
+      timeoutSeconds: request.timeoutSeconds,
+      maxOutputBytes: request.maxOutputBytes,
+      includeStdout: request.includeStdout,
+      includeStderr: request.includeStderr,
+    });
+    if (!launched.ok || request.execution === 'background') return launched;
+    return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds), request.tailLines);
   }
 
   private async wait(request: ShellRequest): Promise<Result<unknown>> {
@@ -356,12 +416,23 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     return this.durableStore.wait(taskId, Math.min(this.autoWaitSeconds, this.maxSynchronousWaitSeconds));
   }
 
-  private async listTasks(): Promise<Result<unknown>> {
+  private async listTasks(request: ShellRequest): Promise<Result<unknown>> {
     const inMemory = [...this.tasks.values()].map((record) => this.snapshot(record));
-    if (this.durableStore === undefined) return ok({ tasks: inMemory });
-    const durable = await this.durableStore.list();
+    const durable = this.durableStore === undefined ? [] : await this.durableStore.list();
     const durableIds = new Set(durable.map((task) => task.task_id).filter((value): value is string => typeof value === 'string'));
-    return ok({ tasks: [...durable, ...inMemory.filter((task) => !durableIds.has(String(task.task_id ?? '')))] });
+    const combined = [...durable, ...inMemory.filter((task) => !durableIds.has(String(task.task_id ?? '')))]
+      .filter((task) => request.listState === undefined || task.state === request.listState)
+      .sort((left, right) => String(right.started_at ?? '').localeCompare(String(left.started_at ?? '')));
+    const tasks = combined.slice(request.listOffset, request.listOffset + request.listLimit);
+    const nextOffset = request.listOffset + tasks.length;
+    return ok({
+      tasks,
+      total: combined.length,
+      offset: request.listOffset,
+      limit: request.listLimit,
+      bounded: true,
+      ...(nextOffset < combined.length ? { next_offset: nextOffset } : {}),
+    });
   }
 
   private async resolveCwd(requestedCwd: string | undefined): Promise<Result<string>> {
@@ -470,6 +541,23 @@ function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, defaul
   if (executable !== undefined && (typeof executable !== 'string' || executable.trim().length === 0)) return err(appError('INVALID_INPUT', 'Executable is invalid'));
   const rawArguments = value.arguments === undefined ? [] : value.arguments;
   if (!Array.isArray(rawArguments) || !rawArguments.every((item) => typeof item === 'string')) return err(appError('INVALID_INPUT', 'Arguments must be strings'));
+  const rawSteps = value.steps === undefined ? [] : value.steps;
+  if (!Array.isArray(rawSteps) || rawSteps.length > MAX_WORKFLOW_STEPS) return err(appError('INVALID_INPUT', 'Workflow steps are invalid'));
+  const steps: ShellWorkflowStep[] = [];
+  const stepIds = new Set<string>();
+  for (const item of rawSteps) {
+    if (!isRecord(item)) return err(appError('INVALID_INPUT', 'Workflow step must be an object'));
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+    const stepExecutable = typeof item.executable === 'string' ? item.executable.trim() : '';
+    const stepArguments = item.arguments === undefined ? [] : item.arguments;
+    const stepCwd = item.cwd === undefined ? undefined : item.cwd;
+    if (id.length === 0 || id.length > 64 || !/^[A-Za-z0-9._-]+$/.test(id) || stepIds.has(id)) return err(appError('INVALID_INPUT', 'Workflow step ID is invalid or duplicated'));
+    if (stepExecutable.length === 0 || stepExecutable.length > 1024) return err(appError('INVALID_INPUT', 'Workflow step executable is invalid'));
+    if (!Array.isArray(stepArguments) || stepArguments.length > 128 || !stepArguments.every((entry) => typeof entry === 'string' && entry.length <= 32_768)) return err(appError('INVALID_INPUT', 'Workflow step arguments are invalid'));
+    if (stepCwd !== undefined && (typeof stepCwd !== 'string' || stepCwd.includes('\0'))) return err(appError('INVALID_INPUT', 'Workflow step working directory is invalid'));
+    stepIds.add(id);
+    steps.push({ id, executable: stepExecutable, arguments: stepArguments, ...(stepCwd === undefined ? {} : { cwd: stepCwd }) });
+  }
   const privilege = value.privilege === undefined ? 'user' : value.privilege;
   if (privilege !== 'user' && privilege !== 'admin') return err(appError('INVALID_INPUT', 'Privilege is invalid'));
   const execution = value.execution === undefined ? 'auto' : value.execution;
@@ -486,12 +574,22 @@ function parseShellRequest(value: unknown, defaultTimeoutSeconds: number, defaul
   if (typeof requestedMaxBytes !== 'number' || !Number.isInteger(requestedMaxBytes) || requestedMaxBytes < 1 || requestedMaxBytes > MAX_OUTPUT_BYTES) return err(appError('INVALID_INPUT', 'Output limit is invalid'));
   const tailLines = value.tail_lines === undefined ? undefined : value.tail_lines;
   if (tailLines !== undefined && (typeof tailLines !== 'number' || !Number.isInteger(tailLines) || tailLines < 0 || tailLines > 10_000)) return err(appError('INVALID_INPUT', 'Tail limit is invalid'));
+  const listLimit = value.limit === undefined ? DEFAULT_LIST_LIMIT : value.limit;
+  if (typeof listLimit !== 'number' || !Number.isInteger(listLimit) || listLimit < 1 || listLimit > MAX_LIST_LIMIT) return err(appError('INVALID_INPUT', 'List limit is invalid'));
+  const listOffset = value.offset === undefined ? 0 : value.offset;
+  if (typeof listOffset !== 'number' || !Number.isInteger(listOffset) || listOffset < 0 || listOffset > 1_000_000) return err(appError('INVALID_INPUT', 'List offset is invalid'));
+  const listState = value.state === undefined ? undefined : value.state;
+  if (listState !== undefined && !isTaskState(listState)) return err(appError('INVALID_INPUT', 'Task state filter is invalid'));
   const includeStdout = value.include_stdout === undefined ? true : value.include_stdout;
   const includeStderr = value.include_stderr === undefined ? true : value.include_stderr;
   const dryRun = value.dry_run === undefined ? false : value.dry_run;
   const userConfirmed = value.userConfirmed === true;
   if (typeof includeStdout !== 'boolean' || typeof includeStderr !== 'boolean' || typeof dryRun !== 'boolean') return err(appError('INVALID_INPUT', 'Shell flags are invalid'));
-  return ok({ operation, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, privilege, ...(cwd === undefined ? {} : { cwd }), execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), includeStdout, includeStderr, dryRun, userConfirmed });
+  return ok({ operation, ...(executable === undefined ? {} : { executable: executable.trim() }), arguments: rawArguments, steps, privilege, ...(cwd === undefined ? {} : { cwd }), execution, ...(taskId === undefined ? {} : { taskId }), timeoutSeconds, maxOutputBytes: requestedMaxBytes, ...(tailLines === undefined ? {} : { tailLines }), listLimit, listOffset, ...(listState === undefined ? {} : { listState }), includeStdout, includeStderr, dryRun, userConfirmed });
+}
+
+function isTaskState(value: unknown): value is TaskState {
+  return value === 'running' || value === 'completed' || value === 'failed' || value === 'timed_out' || value === 'cancelled' || value === 'termination_unverified';
 }
 
 function isShellOperation(value: unknown): value is ShellOperation {

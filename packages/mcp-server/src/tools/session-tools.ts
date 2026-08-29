@@ -33,7 +33,7 @@ export function sessionTools(context: McpToolContext, verifier: IncrementalVerif
     }),
     defineTool({
       name: 'verify_incremental',
-      description: 'Run the detected project typecheck only when the current git status/diff fingerprint changed. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging expected to exceed ~5 minutes, launch a durable shell background task and record its task_id in the tracker.',
+      description: 'Run the detected project typecheck only when the current git status/diff fingerprint changed. Returns cache=hit when unchanged and cache=miss after a new verification. Prefer this during iterative edits; use project_test/project_lint/project_build only when that specific verification is needed. For full suites or packaging likely to exceed ~30 seconds or with uncertain duration, launch a durable shell background task and record its task_id in the tracker.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: verifyIncrementalSchema,
@@ -127,7 +127,7 @@ async function createSessionHandoff(
 
 async function readBackgroundTasks(context: McpToolContext, signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
   if (context.services.capabilities === undefined || signal.aborted) return [];
-  const listed = await context.services.capabilities.execute('shell', { operation: 'list' }, signal);
+  const listed = await context.services.capabilities.execute('shell', { operation: 'list', state: 'running', limit: 100 }, signal);
   if (!listed.ok || typeof listed.value !== 'object' || listed.value === null || Array.isArray(listed.value)) return [];
   const tasks = (listed.value as { tasks?: unknown }).tasks;
   if (!Array.isArray(tasks)) return [];
@@ -192,7 +192,7 @@ function buildHandoffPrompt(input: {
     '3. Inspect git status/diff only as needed for the current phase.',
     '4. Work one phase only and use search_text/read_file_page instead of re-reading large files.',
     '5. Use verify_incremental for repeated typecheck; use targeted project_* verification as needed.',
-    '6. Before ending, update the tracker. Jobs expected to exceed ~5 minutes should run as durable shell background tasks and their task_id must be written to the tracker.',
+    '6. Before ending, update the tracker. Multi-stage jobs and jobs likely to exceed ~30 seconds should run as durable shell workflow/background tasks and their task_id must be written to the tracker.',
     '',
     'Do not redo completed phases unless verification proves a regression. If tool schema looks stale, Refresh connector first; open a new chat only if Refresh connector does not fix it.',
   ].join('\n');

@@ -6,6 +6,14 @@ import { appError, err, ok, type Result } from '@lnwjud/domain';
 
 export type DurableShellTaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'termination_unverified';
 
+export interface DurableShellWorkflowStep {
+  readonly id: string;
+  readonly executable: string;
+  readonly arguments: readonly string[];
+  readonly cwd: string;
+  readonly windowsVerbatimArguments?: boolean;
+}
+
 export interface DurableShellLaunchRequest {
   readonly taskId: string;
   readonly executable: string;
@@ -16,6 +24,7 @@ export interface DurableShellLaunchRequest {
   readonly maxOutputBytes: number;
   readonly includeStdout: boolean;
   readonly includeStderr: boolean;
+  readonly workflowSteps?: readonly DurableShellWorkflowStep[];
 }
 
 interface DurableTaskMetadata {
@@ -34,6 +43,10 @@ interface DurableTaskMetadata {
   child_pid?: number;
   stdout_truncated?: boolean;
   stderr_truncated?: boolean;
+  workflow?: {
+    current_step?: string;
+    stages: Array<{ id: string; state: 'queued' | 'running' | 'completed' | 'failed'; started_at?: string; finished_at?: string; exit_code?: number }>;
+  };
 }
 
 interface DurableWorkerSpec {
@@ -52,6 +65,7 @@ interface DurableWorkerSpec {
   readonly metadataPath: string;
   readonly stdoutPath: string;
   readonly stderrPath: string;
+  readonly workflowSteps?: readonly DurableShellWorkflowStep[];
 }
 
 const METADATA_FILENAME = 'task.json';
@@ -85,6 +99,7 @@ export class DurableShellTaskStore {
       include_stderr: request.includeStderr,
       max_output_bytes: request.maxOutputBytes,
       deadline_at: deadlineAt,
+      ...(request.workflowSteps === undefined ? {} : { workflow: { stages: request.workflowSteps.map((step) => ({ id: step.id, state: 'queued' as const })) } }),
     };
     const spec: DurableWorkerSpec = {
       version: 1,
@@ -102,6 +117,7 @@ export class DurableShellTaskStore {
       metadataPath,
       stdoutPath,
       stderrPath,
+      ...(request.workflowSteps === undefined ? {} : { workflowSteps: request.workflowSteps.map((step) => ({ ...step, arguments: [...step.arguments] })) }),
     };
     try {
       await writeFile(metadataPath, JSON.stringify(metadata), 'utf8');
@@ -243,6 +259,7 @@ export class DurableShellTaskStore {
       ...(metadata.worker_pid === undefined ? {} : { worker_pid: metadata.worker_pid }),
       ...(metadata.child_pid === undefined ? {} : { child_pid: metadata.child_pid }),
       truncated: metadata.stdout_truncated === true || metadata.stderr_truncated === true,
+      ...(metadata.workflow === undefined ? {} : { workflow: metadata.workflow }),
     };
   }
 
@@ -472,27 +489,95 @@ async function finish(state, exitCode, error) {
 try {
   const childEnvironment = { ...process.env };
   delete childEnvironment.ELECTRON_RUN_AS_NODE;
-  child = spawn(spec.executable, [...spec.arguments], {
-    cwd: spec.cwd,
-    env: childEnvironment,
-    shell: false,
-    windowsHide: true,
-    ...(spec.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: spec.windowsVerbatimArguments }),
-  });
-  metadata.child_pid = child.pid;
-  await persist();
-  child.stdout?.on('data', (chunk) => { appendBounded(stdoutHandle, chunk, 'stdout'); });
-  child.stderr?.on('data', (chunk) => { appendBounded(stderrHandle, chunk, 'stderr'); });
-  child.once('error', (error) => { void finish('failed', -1, 'Local task failed to start: ' + error.message); });
-  child.once('close', (code) => { if (!stopTarget) void finish(code === 0 ? 'completed' : 'failed', code ?? -1); });
+
+  async function runChild(step) {
+    return new Promise((resolve, reject) => {
+      let childSettled = false;
+      child = spawn(step.executable, [...step.arguments], {
+        cwd: step.cwd,
+        env: childEnvironment,
+        shell: false,
+        windowsHide: true,
+        ...(step.windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments: step.windowsVerbatimArguments }),
+      });
+      metadata.child_pid = child.pid;
+      void persist();
+      child.stdout?.on('data', (chunk) => { appendBounded(stdoutHandle, chunk, 'stdout'); });
+      child.stderr?.on('data', (chunk) => { appendBounded(stderrHandle, chunk, 'stderr'); });
+      child.once('error', (error) => {
+        if (childSettled) return;
+        childSettled = true;
+        reject(error);
+      });
+      child.once('close', (code) => {
+        if (childSettled) return;
+        childSettled = true;
+        resolve(code ?? -1);
+      });
+    });
+  }
+
   timer = setTimeout(() => {
     void (async () => {
-      if (settled || !child?.pid) return;
+      if (settled) return;
       stopTarget = 'timed_out';
+      if (!child?.pid) {
+        await finish('timed_out', -1, 'Local task timed out');
+        return;
+      }
       const stopped = await stopTree(child.pid);
       await finish(stopped ? 'timed_out' : 'termination_unverified', -1, stopped ? 'Local task timed out' : 'Local task timed out, but process termination could not be verified');
     })();
   }, spec.timeoutMs);
+
+  if (Array.isArray(spec.workflowSteps)) {
+    for (let index = 0; index < spec.workflowSteps.length; index += 1) {
+      if (settled) break;
+      const step = spec.workflowSteps[index];
+      const stage = metadata.workflow?.stages?.[index];
+      if (metadata.workflow) metadata.workflow.current_step = step.id;
+      if (stage) {
+        stage.state = 'running';
+        stage.started_at = new Date().toISOString();
+      }
+      appendBounded(stdoutHandle, '[NAVA_WORKFLOW] START ' + step.id + '\n', 'stdout');
+      await persist();
+      let code;
+      try {
+        code = await runChild(step);
+      } catch (error) {
+        if (stage) {
+          stage.state = 'failed';
+          stage.exit_code = -1;
+          stage.finished_at = new Date().toISOString();
+        }
+        await persist();
+        await finish('failed', -1, 'Workflow step ' + step.id + ' failed to start: ' + (error instanceof Error ? error.message : String(error)));
+        break;
+      }
+      if (settled) break;
+      if (stage) {
+        stage.exit_code = code;
+        stage.finished_at = new Date().toISOString();
+        stage.state = code === 0 ? 'completed' : 'failed';
+      }
+      appendBounded(stdoutHandle, '[NAVA_WORKFLOW] ' + (code === 0 ? 'DONE ' : 'FAILED ') + step.id + ' exit=' + String(code) + '\n', 'stdout');
+      await persist();
+      if (code !== 0) {
+        await finish('failed', code, 'Workflow step ' + step.id + ' failed with exit code ' + String(code));
+        break;
+      }
+      child = undefined;
+      delete metadata.child_pid;
+    }
+    if (!settled) {
+      if (metadata.workflow) delete metadata.workflow.current_step;
+      await finish('completed', 0);
+    }
+  } else {
+    const code = await runChild(spec);
+    if (!settled && !stopTarget) await finish(code === 0 ? 'completed' : 'failed', code);
+  }
 } catch (error) {
   await finish('failed', -1, 'Local task failed to start: ' + (error instanceof Error ? error.message : String(error)));
 }

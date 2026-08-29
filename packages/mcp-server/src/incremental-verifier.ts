@@ -59,7 +59,7 @@ export class IncrementalVerifier {
       if (this.now() >= deadline) {
         return err(appError(
           'PROCESS_TIMEOUT',
-          'Incremental typecheck is still running after 5 minutes. For longer verification, launch it as a durable background shell task and record the task_id in the tracker.',
+          'Incremental typecheck is still running. Long or uncertain verification should be launched as a durable background shell task before the synchronous wait boundary and its task_id recorded in the tracker.',
           true,
         ));
       }

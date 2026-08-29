@@ -36,7 +36,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'shell',
-      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. If a build, full test suite, installer/package job, or other command may exceed ~5 minutes, use execution=background immediately: it returns a durable task_id and the machine keeps working even after the AI run ends. Record that task_id in docs/PHASE_PROGRESS.md, then recover it in the next run with status/logs/result. Do not tight-poll; check only when useful. Auto mode also promotes unfinished work to a durable task.',
+      description: 'Default tool for system operations and CLI tasks. Destructive shell commands require explicit chat confirmation and userConfirmed: true. For multi-stage research/MT5/ML workflows, or any work likely to run longer than ~30 seconds or whose duration is uncertain, prefer operation=workflow with all remaining stages or execution=background before the first heavy stage. Durable work survives the MCP/Chat turn and returns a task_id; record it in the phase tracker and recover with status/logs/result. wait is intentionally short and may return RUNNING without stopping the task. Do not tight-poll.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: shellCapabilitySchema,
@@ -180,7 +180,7 @@ export function capabilityTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'wsl_exec',
-      description: 'Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings. For work expected to exceed ~5 minutes use background, record the durable task_id in the tracker, and retrieve status/logs/result in a later run instead of tight-polling.',
+      description: 'Scoped WSL2 developer runner. Executes one Linux executable with argv, an explicit distribution, and a registered Windows workspace cwd. It never accepts shell command strings. For work likely to exceed ~30 seconds or whose duration is uncertain use background, record the durable task_id in the tracker, and retrieve status/logs/result in a later run instead of tight-polling.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: true },
       inputSchema: wslCapabilitySchema,

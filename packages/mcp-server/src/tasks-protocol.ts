@@ -39,7 +39,7 @@ type TaskIdParams = { readonly taskId: string };
 type ListParams = { readonly cursor?: string | undefined };
 
 const DEFAULT_PAGE_SIZE = 50;
-const DEFAULT_MAX_RESULT_WAIT_MS = 50_000;
+const DEFAULT_MAX_RESULT_WAIT_MS = 8_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_POLL_TICK_MS = 200;
 const CURSOR_PREFIX = 'lnwjud-tasks:';
@@ -126,13 +126,11 @@ export class TasksProtocol {
 
   public async listTasks(params: ListParams): Promise<{ tasks: ProtocolTask[]; nextCursor?: string }> {
     const offset = params.cursor === undefined ? 0 : decodeCursor(params.cursor);
-    const snapshots = await this.listSnapshots();
-    const mapped = snapshots
+    const page = await this.listSnapshots(offset, this.pageSize);
+    const tasks = page.snapshots
       .map((snapshot) => toProtocolTask(snapshot, this.pollIntervalMs))
       .filter((task): task is ProtocolTask => task !== undefined);
-    const tasks = mapped.slice(offset, offset + this.pageSize);
-    const nextOffset = offset + tasks.length;
-    return { tasks, ...(nextOffset < mapped.length ? { nextCursor: encodeCursor(nextOffset) } : {}) };
+    return { tasks, ...(page.nextOffset === undefined ? {} : { nextCursor: encodeCursor(page.nextOffset) }) };
   }
 
   public async cancelTask(params: TaskIdParams): Promise<ProtocolTask> {
@@ -185,22 +183,26 @@ export class TasksProtocol {
     return task;
   }
 
-  private async listSnapshots(): Promise<ShellSnapshot[]> {
-    const result = await this.executeShell('list');
+  private async listSnapshots(offset: number, limit: number): Promise<{ snapshots: ShellSnapshot[]; nextOffset?: number }> {
+    const result = await this.executeShell('list', undefined, { offset, limit });
     if (!result.ok) throw this.shellError(result.error);
     const value = this.snapshot(result.value);
-    if (!Array.isArray(value.tasks)) return [];
-    return value.tasks.filter((task): task is ShellSnapshot => typeof task === 'object' && task !== null);
+    const snapshots = Array.isArray(value.tasks)
+      ? value.tasks.filter((task): task is ShellSnapshot => typeof task === 'object' && task !== null)
+      : [];
+    const nextOffset = typeof value.next_offset === 'number' && Number.isInteger(value.next_offset) ? value.next_offset : undefined;
+    return { snapshots, ...(nextOffset === undefined ? {} : { nextOffset }) };
   }
 
-  private async executeShell(operation: 'list'): Promise<Result<unknown>>;
-  private async executeShell(operation: 'status' | 'cancel', taskId: string): Promise<Result<unknown>>;
-  private async executeShell(operation: 'list' | 'status' | 'cancel', taskId?: string): Promise<Result<unknown>> {
+  private async executeShell(operation: 'list', taskId?: undefined, extra?: Record<string, unknown>): Promise<Result<unknown>>;
+  private async executeShell(operation: 'status' | 'cancel', taskId: string, extra?: undefined): Promise<Result<unknown>>;
+  private async executeShell(operation: 'list' | 'status' | 'cancel', taskId?: string, extra: Record<string, unknown> = {}): Promise<Result<unknown>> {
     const capabilities = this.services.capabilities;
     if (capabilities === undefined) throw internalError('Capability service is unavailable');
     return capabilities.execute('shell', {
       operation,
       ...(taskId === undefined ? {} : { task_id: taskId }),
+      ...extra,
       include_stdout: true,
       include_stderr: true,
     });

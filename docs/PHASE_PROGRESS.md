@@ -1,6 +1,6 @@
-﻿# NAVA Phase Progress
+# NAVA Phase Progress
 
-## 2026-08-29 โ€” v4.11.4 Phase 2B release / Phase 3 preparation
+## 2026-08-29 — v4.11.4 Phase 2B release / Phase 3 preparation
 
 - Phase 2B baseline commit before release docs: `beb496f`.
 - Phase 3 preparation commit: `04f6e52`.
@@ -15,7 +15,7 @@
 - GitHub release upload task: `e951bdcb-e050-4e92-8a00-c8578cce1aaf`.
 - GitHub release published successfully: https://github.com/tongzxcv/NAVA-Agent/releases/tag/v4.11.4
 
-## 2026-08-30 โ€” Phase 3 source-only implementation started
+## 2026-08-30 — Phase 3 source-only implementation started
 
 - Work moved to `feature/command-room-phase3`; installed NAVA v4.11.4 remains the active MCP runtime.
 - Hardened `NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md` with a transport-neutral boundary, narrow Extension Bridge, random installation identity, hashed one-time pairing challenges, explicit `DELIVERED / SUBMITTED / TASK_CLAIMED` separation, wake allowlist, coalescing/budget/circuit-breaker requirements, composer/SPA fail-closed checks, and a strict no-install/restart rule while v4.11.4 is in use.
@@ -24,6 +24,21 @@
 - Added `SqliteCommandRoomBindingRepository` for challenge creation, hashed challenge confirmation, epoch authority, revoke/replace, idempotent wake enqueue, explicit wake delivery/submission transitions, attempt limits, dead-letter/manual fallback, and recoverable wake lookup.
 - Added application `CommandRoomExtensionService` that generates raw one-time challenges only for the caller, sends only SHA-256 challenge hashes to storage, bounds pairing TTL, validates opaque installation/conversation material, and queues only allowlisted wake reasons against the exact active epoch.
 - Phase 3 targeted tests currently pass: storage migration/repository + Phase 2B command-room/resource regressions = 9/9; application pairing/wake service = 4/4.
-- TypeScript build checks pass for domain/storage/application and the full root `tsc --build` succeeds.`r`n- Source guard tests also pass: public-repo hygiene 8/8, desktop packaging contract 4/4, release gate 5/5. No installer was built.
+- TypeScript build checks pass for domain/storage/application and the full root `tsc --build` succeeds.
+- Source guard tests also pass: public-repo hygiene 8/8, desktop packaging contract 4/4, release gate 5/5. No installer was built.
 - No installer/package job has been run; no NAVA Desktop/tunnel/stdio process has been restarted; production SQLite has not been migrated.
 - Next source task: add persistent wake coalescing/hourly budget/circuit-breaker state and then define the authenticated loopback Extension Bridge contract before any Desktop/extension UI work.
+
+
+## 2026-08-30 — Runtime reliability hardening before Phase 3 UI
+
+- Production-log review found the recurrent failure mode: durable workers continue, but synchronous `shell:wait` / MCP request boundaries frequently terminate the caller around 60 seconds, creating the false impression that the research job stopped.
+- Added source-only `shell operation=workflow`: one durable task can own up to 32 validated sequential executable stages and persists per-stage `queued/running/completed/failed` state in `task.json`.
+- Added a V056-shaped acceptance regression with six stages (`prereg`, `feature-cache`, `adapter-fit`, `july-validation`, `economic`, `parity`). A replacement backend recovers the task and observes all six stages complete without resubmission, proving the post-prereg turn-loss case is covered.
+- Synchronous wait ceiling is now 10 seconds; MCP `tasks/result` waits at most 8 seconds before directing the caller back to status polling. The process/workflow deadline remains independent and can still be minutes or hours.
+- `shell list` is now bounded/paged (`limit`, `offset`, optional `state`) so years of durable task history cannot overflow the MCP response. MCP Tasks pagination now delegates to that bounded surface.
+- `live_logs_query` now prefers rotating persistent `mcp-activity.log(.1/.2)` evidence and supports bounded filters for `toolName`, `resultCode`, `callId`, `workspaceId`, `phase`, and `since`; in-memory activity remains the fallback.
+- Tool descriptions now tell agents to submit multi-stage research/MT5/ML or uncertain >~30s work as a durable workflow/background job before the first heavy stage, rather than waiting until a five-minute threshold.
+- Focused reliability verification: shell backend + MCP Tasks + upgrade runtime = 50/50 tests passed. Full capabilities + MCP-server regression = 48 files / 261 tests passed. Root TypeScript `tsc --build` passed. Release/public hygiene/desktop packaging guards = 17/17 passed.
+- Full capabilities + MCP-server source regression ran as durable task `a318d067-eba2-4936-a12a-a2e298f8dc36` and passed: 48 files / 261 tests. This also proved the intended background-task verification pattern without a long synchronous wait.
+- Installed v4.11.4 remains untouched. No package/install/restart/tunnel restart/production DB migration/push was performed by this reliability slice.

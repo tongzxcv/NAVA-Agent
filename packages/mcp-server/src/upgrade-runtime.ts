@@ -364,9 +364,13 @@ export class UpgradeRuntimeService {
       case 'live_logs_status':
         return ok({ healthy: true, sources: ['mcp', 'tunnel', 'process'], correlationIds: true, redaction: 'secrets-not-retained', bounded: true, persistence: 'rotating-file-sink' });
       case 'live_logs_query': {
-        const entries = activityEntries(this.activity, input);
         const limit = boundedInteger(input.limit, 100, 1, 200);
-        return ok({ entries, source: 'mcp', continuation: null, queryApplied: true, bounded: true, truncated: entries.length >= limit });
+        if (this.services.activityLogPath !== undefined) {
+          const persisted = await persistedActivityEntries(this.services.activityLogPath, input, limit);
+          return ok({ entries: persisted.entries, source: 'persistent-mcp', continuation: null, queryApplied: true, bounded: true, truncated: persisted.truncated });
+        }
+        const entries = activityEntries(this.activity, input);
+        return ok({ entries, source: 'mcp-memory', continuation: null, queryApplied: true, bounded: true, truncated: entries.length >= limit });
       }
       case 'telemetry_dashboard':
         return ok({ ...activityMetrics(this.activity?.listRecent() ?? []), internalOperations: 0, cacheHitRate: hitRate(this.cache), contextBytes: this.contextEconomy.snapshot().contextSentBytes, streamedBytes: 0, filesScanned: this.contextEconomy.snapshot().filesDiscovered, filesDelivered: this.contextEconomy.snapshot().filesDelivered, retries: 0, contextEconomy: this.contextEconomy.snapshot() });
@@ -657,7 +661,7 @@ export class UpgradeRuntimeService {
     }
 
     if (this.services.capabilities !== undefined) {
-      const list = await this.services.capabilities.execute('shell', { operation: 'list' });
+      const list = await this.services.capabilities.execute('shell', { operation: 'list', state: 'running', limit: 500 });
       if (list.ok && typeof list.value === 'object' && list.value !== null && Array.isArray((list.value as { tasks?: unknown }).tasks)) {
         const tasks = (list.value as { tasks: Record<string, unknown>[] }).tasks;
         const cutoff = Date.now() - 24 * 60 * 60 * 1_000;
@@ -1449,6 +1453,49 @@ function activityEntries(activity: ActivityTracker | undefined, input: Record<st
     .filter((event) => phase === undefined || event.phase === phase)
     .slice(-limit)
     .map((event) => ({ callId: event.callId, toolName: event.toolName, phase: event.phase, resultCode: event.resultCode, durationMs: event.durationMs, timestamp: event.timestamp, ...(event.workspaceId === undefined ? {} : { workspaceId: event.workspaceId }) }));
+}
+
+async function persistedActivityEntries(filePath: string, input: Record<string, unknown>, limit: number): Promise<{ entries: readonly Record<string, unknown>[]; truncated: boolean }> {
+  const phase = readString(input, 'phase');
+  const toolName = readString(input, 'toolName') ?? readString(input, 'tool');
+  const resultCode = readString(input, 'resultCode');
+  const callId = readString(input, 'callId');
+  const workspaceId = readString(input, 'workspaceId');
+  const since = readString(input, 'since');
+  const sinceMs = since === undefined ? undefined : Date.parse(since);
+  const matches: Record<string, unknown>[] = [];
+  for (const candidate of [`${filePath}.2`, `${filePath}.1`, filePath]) {
+    let text: string;
+    try { text = await readFile(candidate, 'utf8'); } catch { continue; }
+    for (const line of text.split(/\r?\n/)) {
+      if (line.trim().length === 0) continue;
+      let parsed: unknown;
+      try { parsed = JSON.parse(line); } catch { continue; }
+      if (!isRecord(parsed)) continue;
+      if (phase !== undefined && parsed.phase !== phase) continue;
+      if (toolName !== undefined && parsed.toolName !== toolName) continue;
+      if (resultCode !== undefined && parsed.resultCode !== resultCode) continue;
+      if (callId !== undefined && parsed.callId !== callId) continue;
+      if (workspaceId !== undefined && parsed.workspaceId !== workspaceId) continue;
+      if (sinceMs !== undefined && Number.isFinite(sinceMs)) {
+        const timestampMs = typeof parsed.timestamp === 'string' ? Date.parse(parsed.timestamp) : Number.NaN;
+        if (!Number.isFinite(timestampMs) || timestampMs < sinceMs) continue;
+      }
+      matches.push({
+        callId: parsed.callId,
+        toolName: parsed.toolName,
+        phase: parsed.phase,
+        resultCode: parsed.resultCode,
+        durationMs: parsed.durationMs,
+        timestamp: parsed.timestamp,
+        ...(typeof parsed.workspaceId === 'string' ? { workspaceId: parsed.workspaceId } : {}),
+        ...(typeof parsed.targetSummary === 'string' ? { targetSummary: parsed.targetSummary } : {}),
+        ...(typeof parsed.resultMessage === 'string' ? { resultMessage: parsed.resultMessage } : {}),
+      });
+    }
+  }
+  const truncated = matches.length > limit;
+  return { entries: matches.slice(-limit), truncated };
 }
 
 function activityMetrics(events: readonly ActivitySinkEvent[]): Record<string, unknown> {

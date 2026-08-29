@@ -7,7 +7,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
   return [
     defineTool({
       name: 'process_start',
-      description: 'Start one policy-checked executable with separate arguments. Use for bounded interactive work. If the command may exceed ~5 minutes or must survive the AI run, use shell execution=background instead and record its durable task_id in the tracker.',
+      description: 'Start one policy-checked executable with separate arguments. Use for bounded interactive work. If the command may exceed ~30 seconds, has uncertain duration, or must survive the AI run, use shell operation=workflow/background instead and record its durable task_id in the tracker.',
       permission: 'EXECUTE',
       annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: processStartSchema,
@@ -32,7 +32,7 @@ export function processTools(context: McpToolContext): McpToolDefinition[] {
     }),
     defineTool({
       name: 'process_status',
-      description: 'Read one status snapshot for an owned process handle. Do not tight-poll this tool; use project_* for normal project verification, or shell background + durable task_id for work expected to exceed ~5 minutes.',
+      description: 'Read one status snapshot for an owned process handle. Do not tight-poll this tool; use project_* for normal project verification, or shell workflow/background + durable task_id for work likely to exceed ~30 seconds or whose duration is uncertain.',
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: processHandleSchema,
@@ -77,7 +77,7 @@ function projectCommandTools(context: McpToolContext): McpToolDefinition[] {
   ];
   return definitions.map(({ name, kind }) => defineTool({
     name,
-    description: `Run the detected project ${kind} command for normal targeted verification. Prefer project_* over manually discovering package scripts. If a full suite/package/install is expected to exceed ~5 minutes, launch the equivalent command with shell execution=background, record the durable task_id in docs/PHASE_PROGRESS.md, and retrieve it in a later run.`,
+    description: `Run the detected project ${kind} command for normal targeted verification. Prefer project_* over manually discovering package scripts. If a full suite/package/install may exceed ~30 seconds or has uncertain duration, launch the equivalent command with shell execution=background, record the durable task_id in docs/PHASE_PROGRESS.md, and retrieve it in a later run.`,
     permission: 'EXECUTE',
     annotations: { readOnlyHint: false, destructiveHint: false },
     inputSchema: processHandleSchema.pick({ workspaceId: true }),
