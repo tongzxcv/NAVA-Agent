@@ -358,7 +358,10 @@ describe('ShellCapabilityBackend', () => {
     }
     const first = await backend.execute({ operation: 'list', limit: 2, offset: 0, state: 'running' });
     expect(first).toMatchObject({ ok: true, value: { tasks: expect.any(Array), total: 5, offset: 0, limit: 2, next_offset: 2, bounded: true } });
-    if (first.ok) expect(first.value.tasks).toHaveLength(2);
+    if (first.ok) {
+      expect(first.value.tasks).toHaveLength(2);
+      expect(first.value.tasks.every((task: Record<string, unknown>) => !('stdout' in task) && !('stderr' in task))).toBe(true);
+    }
     const second = await backend.execute({ operation: 'list', limit: 2, offset: 2, state: 'running' });
     expect(second).toMatchObject({ ok: true, value: { total: 5, offset: 2, limit: 2, next_offset: 4 } });
     if (second.ok) expect(second.value.tasks).toHaveLength(2);

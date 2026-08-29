@@ -157,8 +157,10 @@ export class DurableShellTaskStore {
     const snapshots: Record<string, unknown>[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const snapshot = await this.snapshot(entry.name);
-      if (snapshot.ok) snapshots.push(snapshot.value);
+      const metadata = await this.readMetadata(entry.name);
+      if (!metadata.ok) continue;
+      const reconciled = await this.reconcile(metadata.value);
+      snapshots.push(await this.snapshotFromMetadata(reconciled, undefined, false));
     }
     return snapshots.sort((left, right) => String(right.started_at ?? '').localeCompare(String(left.started_at ?? '')));
   }
@@ -241,10 +243,10 @@ export class DurableShellTaskStore {
     return current;
   }
 
-  private async snapshotFromMetadata(metadata: DurableTaskMetadata, tailLines?: number): Promise<Record<string, unknown>> {
+  private async snapshotFromMetadata(metadata: DurableTaskMetadata, tailLines?: number, includeOutput = true): Promise<Record<string, unknown>> {
     const taskDirectory = this.taskDirectory(metadata.task_id);
-    const stdout = metadata.include_stdout ? await readBoundedText(path.join(taskDirectory, STDOUT_FILENAME), metadata.max_output_bytes, tailLines) : undefined;
-    const stderr = metadata.include_stderr ? await readBoundedText(path.join(taskDirectory, STDERR_FILENAME), metadata.max_output_bytes, tailLines) : undefined;
+    const stdout = includeOutput && metadata.include_stdout ? await readBoundedText(path.join(taskDirectory, STDOUT_FILENAME), metadata.max_output_bytes, tailLines) : undefined;
+    const stderr = includeOutput && metadata.include_stderr ? await readBoundedText(path.join(taskDirectory, STDERR_FILENAME), metadata.max_output_bytes, tailLines) : undefined;
     return {
       task_id: metadata.task_id,
       state: metadata.state,

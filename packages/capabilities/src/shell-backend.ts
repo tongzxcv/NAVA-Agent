@@ -417,7 +417,7 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   }
 
   private async listTasks(request: ShellRequest): Promise<Result<unknown>> {
-    const inMemory = [...this.tasks.values()].map((record) => this.snapshot(record));
+    const inMemory = [...this.tasks.values()].map((record) => withoutTaskOutput(this.snapshot(record)));
     const durable = this.durableStore === undefined ? [] : await this.durableStore.list();
     const durableIds = new Set(durable.map((task) => task.task_id).filter((value): value is string => typeof value === 'string'));
     const combined = [...durable, ...inMemory.filter((task) => !durableIds.has(String(task.task_id ?? '')))]
@@ -618,6 +618,13 @@ function redactText(value: string): string {
   return value
     .replace(/(\bauthorization\s*:\s*bearer\s+)[^\s]+/gi, '$1[redacted]')
     .replace(/\b(token|secret|password|api[_-]?key|private[_-]?key)\s*[:=]\s*[^\s]+/gi, '$1=[redacted]');
+}
+
+function withoutTaskOutput(task: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...task };
+  delete result.stdout;
+  delete result.stderr;
+  return result;
 }
 
 function clampNumber(value: number, minimum: number, maximum: number): number {
