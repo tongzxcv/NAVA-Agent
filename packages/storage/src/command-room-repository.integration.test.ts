@@ -80,4 +80,25 @@ describe('SqliteCommandRoomRepository', () => {
     ]);
     secondDatabase.close();
   });
+
+  it('deletes archived rooms only and cascades room-owned rows', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-delete-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    const repository = new SqliteCommandRoomRepository(database);
+    const createdAt = '2026-08-29T10:00:00.000Z';
+    await repository.createRoom({
+      room: { id: 'room-delete', name: 'Delete me', status: 'ACTIVE', policy: { directLeadMessaging: false }, version: 1, creationKey: 'delete-room', createdAt, updatedAt: createdAt },
+      agents: [{ id: 'delete-main', roomId: 'room-delete', slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'AVAILABLE', connectionEpoch: 0, capabilities: [], joinCodeHash: 'delete-hash', createdAt, updatedAt: createdAt }],
+    });
+
+    await expect(repository.deleteArchivedRoom('room-delete')).resolves.toEqual({ deleted: false, reason: 'not_archived' });
+    expect(await repository.getRoom('room-delete')).not.toBeNull();
+
+    database.connection.prepare("UPDATE command_rooms SET status = 'ARCHIVED', archived_at = ?, updated_at = ? WHERE id = ?").run(createdAt, createdAt, 'room-delete');
+    await expect(repository.deleteArchivedRoom('room-delete')).resolves.toEqual({ deleted: true });
+    await expect(repository.getRoom('room-delete')).resolves.toBeNull();
+    await expect(repository.listAgents('room-delete')).resolves.toEqual([]);
+    database.close();
+  });
 });

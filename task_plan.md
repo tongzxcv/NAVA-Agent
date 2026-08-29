@@ -953,3 +953,12 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Prove MAIN WRITE, LEAD cross-project WRITE, same-workspace WAITING collision, and READ_ONLY without a writer lease; focused Phase2B suite passes 4/4.
 - [x] Validate installed v4.11.2 three-writer restart recovery on the real BEELZEBUB, RATCHET, and AUTOBOTS workspaces before extending permissions.
 - [ ] Build/install v4.11.3 and create the persistent NAVA EA LAB ALL-RW room for BEELZEBUB, RATCHET, and AUTOBOTS.
+
+## Command Room cleanup/delete extension — 2026-08-29
+
+- [x] Add Desktop-only room deletion; remote MCP Command Room admin remains unchanged.
+- [x] Allow deletion only for ARCHIVED rooms with zero writer leases, zero resource leases, and zero queued resources.
+- [x] Add per-room Delete button plus bulk Delete all archived button with confirmation.
+- [x] Expand Desktop room overview from 20 to 100 rooms so old acceptance rooms remain manageable.
+- [x] Storage regression proves ACTIVE cannot be deleted and ARCHIVED cascades room-owned rows.
+- [ ] Install v4.11.4, delete the 13 archived acceptance/test rooms, create persistent NAVA EA LAB — ALL-RW, and verify UI/runtime.

@@ -28,6 +28,50 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
     void refresh();
   }, [refresh]);
 
+  async function deleteRoom(roomId: string, roomName: string): Promise<void> {
+    const confirmed = window.confirm(text(locale, `ลบห้อง “${roomName}” ถาวรหรือไม่? ข้อมูล tasks/messages ของห้องนี้จะถูกลบด้วย`, `Permanently delete “${roomName}”? Its tasks and messages will also be deleted.`));
+    if (!confirmed) return;
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.deleteCommandRoom({ roomId });
+      if (!result.deleted) throw new Error(text(locale, 'ไม่พบห้องหรือห้องถูกลบไปแล้ว', 'Room was not found or was already deleted'));
+      if (created?.room.id === roomId) setCreated(null);
+      setNotice(text(locale, `ลบห้อง “${roomName}” แล้ว`, `Deleted “${roomName}”.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ลบ Command Room ไม่สำเร็จ', 'Could not delete Command Room')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteArchivedRooms(): Promise<void> {
+    const deletable = overview.rooms.filter((room) => room.status === 'ARCHIVED' && room.writerLeases.length === 0 && room.resourceLeases.length === 0 && room.resourceQueueDepth === 0);
+    if (deletable.length === 0) return;
+    const confirmed = window.confirm(text(locale, `ลบห้อง Archived ที่ไม่ใช้งานทั้ง ${deletable.length} ห้องถาวรหรือไม่?`, `Permanently delete all ${deletable.length} unused archived rooms?`));
+    if (!confirmed) return;
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      let deleted = 0;
+      for (const room of deletable) {
+        const result = await window.lnwjud.deleteCommandRoom({ roomId: room.id });
+        if (result.deleted) deleted += 1;
+      }
+      if (created !== null && deletable.some((room) => room.id === created.room.id)) setCreated(null);
+      setNotice(text(locale, `ลบห้อง Archived แล้ว ${deleted} ห้อง`, `Deleted ${deleted} archived rooms.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ลบห้อง Archived ไม่สำเร็จครบทุกห้อง', 'Could not delete all archived rooms')));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createRoom(): Promise<void> {
     const name = roomName.trim();
     if (name.length === 0) return;
@@ -119,7 +163,17 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
             <h2>{text(locale, 'ห้องทั้งหมด', 'Rooms')}</h2>
             <p className="hint">{text(locale, 'หน้า overview ไม่มี join code หรือ session secret', 'Overview never contains join codes or session secrets.')}</p>
           </div>
-          <span className="command-room-count">{overview.rooms.length}</span>
+          <div className="command-room-room-actions">
+            <span className="command-room-count">{overview.rooms.length}</span>
+            <button
+              type="button"
+              className="danger-soft-button"
+              disabled={busy || overview.rooms.every((room) => room.status !== 'ARCHIVED' || room.writerLeases.length > 0 || room.resourceLeases.length > 0 || room.resourceQueueDepth > 0)}
+              onClick={() => { void deleteArchivedRooms(); }}
+            >
+              {text(locale, 'ลบ Archived ทั้งหมด', 'Delete all archived')}
+            </button>
+          </div>
         </div>
         {overview.rooms.length === 0 ? (
           <p className="empty-state">{text(locale, 'ยังไม่มี Command Room', 'No Command Rooms yet.')}</p>
@@ -132,7 +186,18 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                     <h3>{room.name}</h3>
                     <p>{text(locale, 'อัปเดต', 'Updated')} {formatDate(room.updatedAt, locale)}</p>
                   </div>
-                  <span className={`command-room-status status-${room.status.toLowerCase()}`}>{room.status}</span>
+                  <div className="command-room-room-actions">
+                    <span className={`command-room-status status-${room.status.toLowerCase()}`}>{room.status}</span>
+                    <button
+                      type="button"
+                      className="danger-soft-button"
+                      disabled={busy || room.status !== 'ARCHIVED' || room.writerLeases.length > 0 || room.resourceLeases.length > 0 || room.resourceQueueDepth > 0}
+                      title={room.status === 'ARCHIVED' ? text(locale, 'ลบห้องถาวร', 'Delete room permanently') : text(locale, 'Archive ห้องก่อนจึงจะลบได้', 'Archive the room before deleting it')}
+                      onClick={() => { void deleteRoom(room.id, room.name); }}
+                    >
+                      {text(locale, 'ลบห้อง', 'Delete room')}
+                    </button>
+                  </div>
                 </header>
                 <div className="command-room-agent-grid">
                   {room.agents.map((agent) => (

@@ -2144,3 +2144,16 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+.command-room-room-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.command-room-room-actions .danger-soft-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

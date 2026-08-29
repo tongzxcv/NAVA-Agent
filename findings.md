@@ -647,3 +647,10 @@
 - The only code-level obstacle to literal "every participant can write" was the assign-time assigned-role LEAD check. Removing that check is sufficient because claim/start already authorize the task's assigned agent generically and WRITE start already acquires the same workspace lease for MAIN or LEAD.
 - MAIN remains the sole dispatcher/approver, so ALL-RW does not decentralize task creation or approval. It only lets MAIN also execute assigned work.
 - READ_ONLY work requires no writer lease and can proceed while another participant writes; WRITE on the same workspace remains serialized and returns WAITING on conflict.
+
+## 2026-08-29 Command Room deletion findings
+
+- Room deletion is intentionally a local Desktop administrative capability, not an eighth-tool Command Room remote mutation. This keeps an agent with a room session from permanently erasing room history.
+- Requiring ARCHIVED state gives archive/release logic a chance to clear writer/resource ownership first; Desktop rechecks live lease/queue truth immediately before DELETE.
+- The schema already has room-rooted ON DELETE CASCADE relationships, so no new migration is needed for room cleanup.
+- Current live DB has 13 rooms and every one is an archived acceptance/isolation room created by NAVA validation work; no user production room exists yet.

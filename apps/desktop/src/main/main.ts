@@ -13,6 +13,7 @@ import {
   type CommandRoomOverview,
   type CreateCommandRoomRequest,
   type CreateCommandRoomResult,
+  type DeleteCommandRoomRequest,
   type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
   type DoctorReport,
@@ -65,6 +66,7 @@ export interface DesktopIpcServices {
   getDashboard(): Promise<DashboardSnapshot>;
   getCommandRoomOverview(): Promise<CommandRoomOverview>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<CreateCommandRoomResult>;
+  deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }>;
   setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }>;
@@ -167,6 +169,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   }),
   getCommandRoomOverview: async (): Promise<CommandRoomOverview> => ({ rooms: [] }),
   createCommandRoom: async (): Promise<CreateCommandRoomResult> => { throw new Error('Command Room service is not configured'); },
+  deleteCommandRoom: async (): Promise<{ readonly deleted: boolean }> => ({ deleted: false }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
   setUnrestrictedMode: async (request): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }> => ({
     unrestricted: request.enabled,
@@ -265,6 +268,10 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.createCommandRoom, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.createCommandRoom(parseCreateCommandRoomRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.deleteCommandRoom, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.deleteCommandRoom(parseDeleteCommandRoomRequest(payload));
   });
   ipcMain.handle(ipcChannels.setPermissionProfile, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -442,6 +449,11 @@ function parseCreateCommandRoomRequest(payload: unknown): CreateCommandRoomReque
   const name = nonEmptyString(payload.name, 'name').trim();
   if (name.length > 120) throw new Error('Invalid IPC payload: name');
   return { name };
+}
+
+function parseDeleteCommandRoomRequest(payload: unknown): DeleteCommandRoomRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  return { roomId: nonEmptyString(payload.roomId, 'roomId') };
 }
 
 function parseSelectWorkspaceRequest(payload: unknown): SelectWorkspaceRequest {

@@ -646,3 +646,11 @@
 - Broker assignment now accepts any Command Room participant slot while keeping MAIN as the only dispatcher. WRITE still requires a registered workspace and acquires the existing workspace lease; no collision/authorization bypass was added.
 - New regression proves MAIN WRITE, LEAD same-workspace WAITING collision, concurrent writes on other workspaces, then READ_ONLY access without a writer lease. Focused Phase2B suite passes 4/4 and focused ESLint passes.
 - Version synchronized to v4.11.3; source/package/install gate is next.
+
+## 2026-08-29 Command Room cleanup/delete UI
+
+- User requested a delete button because acceptance work left many unused rooms. Live inventory found exactly 13 rooms; all 13 are clearly named Phase 1.5/Phase 2B/ALL-RW acceptance or isolation rooms and all are ARCHIVED.
+- Implemented Desktop-local delete IPC instead of exposing destructive room deletion through remote MCP. Deletion refuses ACTIVE/PAUSED rooms and checks writer/resource leases plus resource queue before repository deletion.
+- Added per-room Delete and bulk Delete all archived controls with browser confirmation; overview limit increased from 20 to 100.
+- SQLite repository deletes only ARCHIVED rooms; existing FK cascades remove room-owned agent/task/message/resource rows. Focused storage regression 2/2, TypeScript build, renderer ESLint, and diff check pass.
+- Version synchronized to v4.11.4; installed gate and cleanup/persistent room bootstrap remain.

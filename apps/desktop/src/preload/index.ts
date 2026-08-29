@@ -18,6 +18,7 @@ import {
   type CommandRoomTaskSummary,
   type ConfigureTunnelProfileRequest,
   type CreateCommandRoomResult,
+  type DeleteCommandRoomRequest,
   type DashboardSnapshot,
   type DoctorCheck,
   type DoctorReport,
@@ -811,6 +812,10 @@ const api: LnwjudApi = {
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),
   getCommandRoomOverview: () => invoke(ipcChannels.getCommandRoomOverview).then(commandRoomOverview),
   createCommandRoom: (request) => invoke(ipcChannels.createCommandRoom, { name: request.name }).then(createCommandRoomResult),
+  deleteCommandRoom: (request: DeleteCommandRoomRequest) => invoke(ipcChannels.deleteCommandRoom, { roomId: request.roomId }).then((value) => {
+    if (!isRecord(value)) throw new Error('Invalid IPC response');
+    return { deleted: booleanField(value, 'deleted') };
+  }),
   setPermissionProfile,
   setUnrestrictedMode,
   setAiDeletePolicy,

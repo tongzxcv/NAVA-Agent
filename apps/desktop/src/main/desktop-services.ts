@@ -90,6 +90,7 @@ import {
   type CommandRoomSummary,
   type CreateCommandRoomRequest,
   type CreateCommandRoomResult,
+  type DeleteCommandRoomRequest,
   type ConfigureTunnelProfileRequest,
   type ConnectionModes,
   type DashboardSnapshot,
@@ -595,7 +596,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       };
     },
     getCommandRoomOverview: async (): Promise<CommandRoomOverview> => ({
-      rooms: await Promise.all((await commandRoomRepository.listRooms(20)).map(toCommandRoomSummary)),
+      rooms: await Promise.all((await commandRoomRepository.listRooms(100)).map(toCommandRoomSummary)),
     }),
     createCommandRoom: async (request: CreateCommandRoomRequest): Promise<CreateCommandRoomResult> => {
       const created = unwrap(await commandRoomBroker.admin({
@@ -610,6 +611,18 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         room: await toCommandRoomSummary(created.room),
         joinCodes: created.joinCodes,
       };
+    },
+    deleteCommandRoom: async (request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }> => {
+      const room = await commandRoomRepository.getRoom(request.roomId);
+      if (room === null) return { deleted: false };
+      if (room.status !== 'ARCHIVED') throw new Error('Archive the Command Room before deleting it');
+      const summary = await toCommandRoomSummary(room);
+      if (summary.writerLeases.length > 0 || summary.resourceLeases.length > 0 || summary.resourceQueueDepth > 0) {
+        throw new Error('Command Room still owns an active writer/resource lease or queued resource request');
+      }
+      const result = await commandRoomRepository.deleteArchivedRoom(request.roomId);
+      if (!result.deleted && result.reason === 'not_archived') throw new Error('Archive the Command Room before deleting it');
+      return { deleted: result.deleted };
     },
     setPermissionProfile: async (request: SetPermissionProfileRequest): Promise<{ readonly profile: IpcPermissionProfileName }> => {
       profileName = request.profile;

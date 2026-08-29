@@ -199,6 +199,23 @@ export class SqliteCommandRoomRepository {
     return toRoom(this.database.connection.prepare(roomSelect('WHERE id = ?')).get(id));
   }
 
+  public async deleteArchivedRoom(roomId: string): Promise<{ readonly deleted: boolean; readonly reason?: 'not_found' | 'not_archived' }> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const room = toRoom(connection.prepare(roomSelect('WHERE id = ?')).get(roomId));
+      if (room === null) return rollbackResult(connection, { deleted: false, reason: 'not_found' as const });
+      if (room.status !== 'ARCHIVED') return rollbackResult(connection, { deleted: false, reason: 'not_archived' as const });
+      const deleted = connection.prepare("DELETE FROM command_rooms WHERE id = ? AND status = 'ARCHIVED'").run(roomId);
+      if (deleted.changes !== 1) return rollbackResult(connection, { deleted: false, reason: 'not_found' as const });
+      connection.exec('COMMIT;');
+      return { deleted: true };
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
+  }
+
   public async findRoomByCreationKey(creationKey: string): Promise<CommandRoomRecord | null> {
     return toRoom(this.database.connection.prepare(roomSelect('WHERE creation_key = ?')).get(creationKey));
   }

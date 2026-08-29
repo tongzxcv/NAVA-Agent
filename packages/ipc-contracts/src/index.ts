@@ -1,5 +1,5 @@
 export const APP_NAME = 'lnwjud';
-export const APP_VERSION = '4.11.3';
+export const APP_VERSION = '4.11.4';
 
 export const ipcChannels = {
   listWorkspaces: 'lnwjud:list-workspaces',
@@ -40,6 +40,7 @@ export const ipcChannels = {
   installUpdate: 'lnwjud:install-update',
   getCommandRoomOverview: 'lnwjud:get-command-room-overview',
   createCommandRoom: 'lnwjud:create-command-room',
+  deleteCommandRoom: 'lnwjud:delete-command-room',
 } as const;
 
 export const pushChannels = {
@@ -130,6 +131,10 @@ export interface CreateCommandRoomResult {
   readonly room: CommandRoomSummary;
   /** One-time join codes. Empty on duplicate creation and never returned by overview. */
   readonly joinCodes: Readonly<Record<string, string>>;
+}
+
+export interface DeleteCommandRoomRequest {
+  readonly roomId: string;
 }
 export type AgentState = 'stopped' | 'idle' | 'busy';
 export type TunnelRunState = 'stopped' | 'starting' | 'running' | 'error';
@@ -512,6 +517,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.installUpdate]: undefined;
   readonly [ipcChannels.getCommandRoomOverview]: undefined;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomRequest;
+  readonly [ipcChannels.deleteCommandRoom]: DeleteCommandRoomRequest;
 }
 
 export interface IpcResponseMap {
@@ -553,6 +559,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.installUpdate]: { readonly accepted: boolean; readonly status: UpdateStatus };
   readonly [ipcChannels.getCommandRoomOverview]: CommandRoomOverview;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomResult;
+  readonly [ipcChannels.deleteCommandRoom]: { readonly deleted: boolean };
 }
 
 export interface LnwjudApi {
@@ -594,6 +601,7 @@ export interface LnwjudApi {
   installUpdate(): Promise<IpcResponseMap[typeof ipcChannels.installUpdate]>;
   getCommandRoomOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomOverview]>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.createCommandRoom]>;
+  deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.deleteCommandRoom]>;
   onLogEvent(callback: (line: LogLine) => void): () => void;
   onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
 }
