@@ -10,6 +10,33 @@ import { CODEX_TOOL_NAMES } from './tools/codex-tools.js';
 import { UPGRADE_TOOL_CATALOG } from './upgrade-catalog.js';
 
 const actor = { clientId: 'client-1', clientName: 'test' };
+const COMMAND_ROOM_TOOL_NAMES = [
+  'command_room_admin',
+  'command_room_inbox',
+  'command_room_join',
+  'command_room_presence',
+  'command_room_resource',
+  'command_room_send',
+  'command_room_status',
+  'command_room_task',
+] as const;
+const COMMAND_ROOM_TEST_ROOM_ID = '11111111-1111-4111-8111-111111111111';
+const COMMAND_ROOM_TEST_SESSION_ID = 'session-authority-001';
+const DIRECT_COMMAND_ROOM_CASES = [
+  { tool: 'command_room_admin', method: 'admin', input: { action: 'create', name: 'direct-test-room', idempotencyKey: 'direct-admin-1' } },
+  { tool: 'command_room_inbox', method: 'inbox', input: { action: 'read', roomId: COMMAND_ROOM_TEST_ROOM_ID, agentSessionId: COMMAND_ROOM_TEST_SESSION_ID, cursor: 0, limit: 1 } },
+  { tool: 'command_room_join', method: 'join', input: { roomId: COMMAND_ROOM_TEST_ROOM_ID, slotKey: 'LEAD-1', joinCode: 'join-code-opaque', provider: 'CHATGPT', connectionEpoch: 1 } },
+  { tool: 'command_room_presence', method: 'presence', input: { action: 'heartbeat', roomId: COMMAND_ROOM_TEST_ROOM_ID, agentSessionId: COMMAND_ROOM_TEST_SESSION_ID, projectKey: 'direct-test' } },
+  { tool: 'command_room_resource', method: 'resource', input: { action: 'status', roomId: COMMAND_ROOM_TEST_ROOM_ID, agentSessionId: COMMAND_ROOM_TEST_SESSION_ID } },
+  { tool: 'command_room_send', method: 'send', input: { roomId: COMMAND_ROOM_TEST_ROOM_ID, agentSessionId: COMMAND_ROOM_TEST_SESSION_ID, targetSlotKey: 'MAIN', kind: 'UPDATE', subject: 'direct test', summary: 'direct test', idempotencyKey: 'direct-send-1' } },
+  { tool: 'command_room_status', method: 'status', input: { action: 'resume_check', roomId: COMMAND_ROOM_TEST_ROOM_ID, slotKey: 'LEAD-1', connectionEpoch: 0 } },
+  { tool: 'command_room_task', method: 'task', input: {
+    action: 'assign', roomId: COMMAND_ROOM_TEST_ROOM_ID, agentSessionId: COMMAND_ROOM_TEST_SESSION_ID,
+    assignedSlotKey: 'LEAD-1', projectKey: 'direct-test', title: 'direct test',
+    brief: { summary: 'direct test', acceptanceCriteria: ['direct broker call'], evidenceRefs: [] },
+    mutationMode: 'READ_ONLY', expectedVersion: 1, idempotencyKey: 'direct-task-1',
+  } },
+] as const;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -339,22 +366,13 @@ describe('MCP tool registry', () => {
     ]);
   });
 
-  it('requires Command Room session and join authority tools to be called directly', async () => {
+  it.each(COMMAND_ROOM_TOOL_NAMES)('rejects %s in tool_batch.calls[] because Command Room tools are direct-only', async (toolName) => {
     const registry = new ToolRegistry({}, actor, { commandRoomEnabled: true });
-    const commandRoomDefinitions = registry.list().filter((tool) => tool.name.startsWith('command_room_'));
-    expect(commandRoomDefinitions).toHaveLength(8);
-    expect(commandRoomDefinitions.every((tool) => tool.description.startsWith('Use this directly'))).toBe(true);
-    expect(registry.list().find((tool) => tool.name === 'tool_batch')?.description).toContain('Command Room tools must be called directly');
-
     const response = await registry.invoke('tool_batch', {
       parallel: false,
       calls: [{
-        tool: 'command_room_presence',
-        arguments: {
-          action: 'heartbeat',
-          roomId: '11111111-1111-4111-8111-111111111111',
-          agentSessionId: 'opaque-session-authority',
-        },
+        tool: toolName,
+        arguments: { marker: 'direct-call-only' },
       }],
     });
 
@@ -362,9 +380,110 @@ describe('MCP tool registry', () => {
       isError: true,
       structuredContent: { error: { code: 'INVALID_INPUT' } },
     });
-    expect(response.content[0]?.text).toContain('call command_room_presence directly');
+    expect(response.content[0]?.text).toContain(`call ${toolName} directly`);
     expect(response.content[0]?.text).toContain('Refresh connector');
-    expect(response.content[0]?.text).not.toContain('opaque-session-authority');
+  });
+
+  it.each(COMMAND_ROOM_TOOL_NAMES)('rejects %s in tool_batch.groups[].calls[] because Command Room tools are direct-only', async (toolName) => {
+    const registry = new ToolRegistry({}, actor, { commandRoomEnabled: true });
+    const response = await registry.invoke('tool_batch', {
+      parallel: true,
+      groups: [{
+        parallel: false,
+        calls: [{ tool: toolName, arguments: { marker: 'direct-call-only' } }],
+      }],
+    });
+
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'INVALID_INPUT' } },
+    });
+    expect(response.content[0]?.text).toContain(`call ${toolName} directly`);
+    expect(response.content[0]?.text).toContain('Refresh connector');
+  });
+
+  it('keeps the complete Command Room registry direct-call surface', () => {
+    const registry = new ToolRegistry({}, actor, { commandRoomEnabled: true });
+    const commandRoomDefinitions = registry.list().filter((tool) => tool.name.startsWith('command_room_'));
+
+    expect(commandRoomDefinitions.map((tool) => tool.name).sort()).toEqual([...COMMAND_ROOM_TOOL_NAMES].sort());
+    expect(commandRoomDefinitions.every((tool) => tool.description.startsWith('Use this directly'))).toBe(true);
+    expect(registry.list().find((tool) => tool.name === 'tool_batch')?.description).toContain('Command Room tools must be called directly');
+  });
+
+  it.each(DIRECT_COMMAND_ROOM_CASES)('invokes direct $tool through its broker method', async ({ tool, method, input }) => {
+    const called: string[] = [];
+    const commandRoom = {
+      join: vi.fn(async () => { called.push('join'); return ok({ called: 'join' }); }),
+      status: vi.fn(async () => { called.push('status'); return ok({ called: 'status' }); }),
+      inbox: vi.fn(async () => { called.push('inbox'); return ok({ called: 'inbox' }); }),
+      send: vi.fn(async () => { called.push('send'); return ok({ called: 'send' }); }),
+      task: vi.fn(async () => { called.push('task'); return ok({ called: 'task' }); }),
+      presence: vi.fn(async () => { called.push('presence'); return ok({ called: 'presence' }); }),
+      resource: vi.fn(async () => { called.push('resource'); return ok({ called: 'resource' }); }),
+      admin: vi.fn(async () => { called.push('admin'); return ok({ called: 'admin' }); }),
+    } as unknown as NonNullable<McpApplicationServices['commandRoom']>;
+    const registry = new ToolRegistry({ commandRoom }, actor, { commandRoomEnabled: true });
+
+    const response = await registry.invoke(tool, input);
+
+    expect(response.isError).not.toBe(true);
+    expect(called).toEqual([method]);
+  });
+
+  it.each(['calls[]', 'groups[].calls[]'] as const)('rejects recursively nested authority keys in tool_batch %s without echoing values', async (layout) => {
+    const registry = new ToolRegistry({}, actor);
+    const secret = 'do-not-echo-authority-token';
+    const child = {
+      id: 'safe-child',
+      tool: 'read_file',
+      arguments: { metadata: { items: [{ agentSessionId: secret }, { nested: { joinCode: secret } }] } },
+    };
+    const input = layout === 'calls[]'
+      ? { parallel: true, calls: [child] }
+      : { parallel: true, groups: [{ parallel: true, calls: [child] }] };
+
+    const response = await registry.invoke('tool_batch', input);
+    const serialized = JSON.stringify(response);
+
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'INVALID_INPUT' } },
+    });
+    expect(serialized).toContain('Sensitive Command Room authority keys');
+    expect(serialized).not.toContain(secret);
+  });
+
+  it('preserves non-Command-Room grouped batch execution after authority-key validation', async () => {
+    const registry = new ToolRegistry({
+      file: {
+        async readFile(input): Promise<ReturnType<typeof ok>> {
+          return ok({ path: input.path, content: `content:${input.path}`, truncated: false });
+        },
+      },
+    }, actor);
+
+    const response = await registry.invoke('tool_batch', {
+      parallel: true,
+      groups: [
+        {
+          id: 'inspect',
+          parallel: true,
+          calls: [
+            { id: 'read-a', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'a.txt' } },
+            { id: 'read-b', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'b.txt' } },
+          ],
+        },
+        {
+          id: 'follow-up',
+          parallel: false,
+          calls: [{ id: 'read-c', tool: 'read_file', arguments: { workspaceId: 'workspace-1', path: 'c.txt' }, dependsOn: ['read-a'] }],
+        },
+      ],
+    });
+
+    expect(response.isError).not.toBe(true);
+    expect(response.structuredContent).toMatchObject({ summary: { total: 3, succeeded: 3, failed: 0, skipped: 0 } });
   });
 
   it('keeps successful batch siblings when one child returns an MCP error', async () => {

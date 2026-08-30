@@ -7,6 +7,16 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const fixturePath = fileURLToPath(new URL('../tests/fixtures/stdio-server.mjs', import.meta.url));
+const COMMAND_ROOM_TOOL_NAMES = [
+  'command_room_admin',
+  'command_room_inbox',
+  'command_room_join',
+  'command_room_presence',
+  'command_room_resource',
+  'command_room_send',
+  'command_room_status',
+  'command_room_task',
+] as const;
 
 describe('MCP stdio transport', () => {
   it('serves independent 2026-07-28 requests with protocol-only stdout', async () => {
@@ -32,9 +42,8 @@ describe('MCP stdio transport', () => {
       expect(client.getInstructions()).toContain('workspace_lease_call');
       expect(client.getInstructions()).toContain('Refresh connector');
       const instructionPrefix = client.getInstructions()?.slice(0, 512) ?? '';
-      expect(instructionPrefix).toContain('command_room_presence');
-      expect(instructionPrefix).toContain('command_room_status');
-      expect(instructionPrefix).toContain('directly');
+      for (const toolName of COMMAND_ROOM_TOOL_NAMES) expect(instructionPrefix).toContain(toolName);
+      expect(instructionPrefix).toContain('never through tool_batch');
       const first = await client.listTools();
       const second = await client.listTools();
 
