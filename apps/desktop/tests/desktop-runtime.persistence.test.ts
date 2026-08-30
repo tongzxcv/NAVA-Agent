@@ -334,8 +334,7 @@ describe('DesktopRuntime persistence', () => {
           bindingId: pairing.bindingId,
           challenge: pairing.challenge,
           extensionInstallationId: 'extension-installation-integration-1',
-          encryptedConversationRef: 'ciphertext:v1:integration-conversation',
-          conversationRefFingerprint: 'hmac:integration-conversation',
+          conversationRef: 'chatgpt:https://chatgpt.com/c/integration-conversation',
         }),
       });
       expect(pairedResponse.status).toBe(200);

@@ -12,6 +12,7 @@ const RAW_CHALLENGE = 'pairing-secret-that-is-long-enough-000000000001';
 const INSTALLATION_ID = 'extension-installation-random-1';
 const AUTH_KEY = Buffer.alloc(32, 7);
 const NOW = '2026-08-30T01:00:00.000Z';
+const CONVERSATION_REF = 'chatgpt:https://chatgpt.com/c/conversation-1';
 const handles: CommandRoomExtensionBridgeHandle[] = [];
 
 describe('Command Room Extension Bridge', () => {
@@ -38,8 +39,10 @@ describe('Command Room Extension Bridge', () => {
     const serialized = JSON.stringify(paired.body);
     expect(serialized).not.toContain(RAW_CHALLENGE);
     expect(serialized).not.toContain(INSTALLATION_ID);
-    expect(serialized).not.toContain('ciphertext:v1:conversation-ref');
-    expect(serialized).not.toContain('hmac:conversation-ref-1');
+    expect(serialized).not.toContain(CONVERSATION_REF);
+    expect(service.lastPairInput?.encryptedConversationRef).toMatch(/^aes256gcm:v1:/);
+    expect(service.lastPairInput?.encryptedConversationRef).not.toContain(CONVERSATION_REF);
+    expect(service.lastPairInput?.conversationRefFingerprint).toMatch(/^hmac-sha256:v1:/);
 
     const status = await fetch(`${handle.url}/v1/bindings/binding-1/status`, {
       headers: authHeaders(String(paired.body.authToken)),
@@ -98,6 +101,32 @@ describe('Command Room Extension Bridge', () => {
     expect(stale.status).toBe(401);
   });
 
+  it('reports bounded wake failures and dead-letters the third failed attempt', async () => {
+    const service = new FakeBridgeService();
+    const handle = await startBridge(service);
+    const paired = await pair(handle);
+    const token = String(paired.body.authToken);
+    service.wake = {
+      id: 'wake-retry', roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-1',
+      eventKey: 'TASK_ASSIGNED:retry', reason: 'TASK_ASSIGNED', state: 'QUEUED', attemptCount: 0,
+      nextEligibleAt: NOW, createdAt: NOW, updatedAt: NOW,
+    };
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await wakeTransition(handle, token, 'wake-retry', 'attempt');
+      await wakeTransition(handle, token, 'wake-retry', 'delivered');
+      const failed = await wakeFailed(handle, token, 'wake-retry', attempt === 1 ? 'DOM_MISMATCH' : 'SUBMIT_FAILED');
+      expect(failed).toMatchObject({
+        ok: true,
+        wake: {
+          id: 'wake-retry',
+          state: attempt === 3 ? 'DEAD_LETTER' : 'QUEUED',
+          attemptCount: attempt,
+        },
+      });
+    }
+  });
+
   it('fails closed while the feature flag is disabled', async () => {
     const service = new FakeBridgeService();
     const handle = await startCommandRoomExtensionBridge({
@@ -137,8 +166,7 @@ async function pair(handle: CommandRoomExtensionBridgeHandle): Promise<{ respons
       bindingId: 'binding-1',
       challenge: RAW_CHALLENGE,
       extensionInstallationId: INSTALLATION_ID,
-      encryptedConversationRef: 'ciphertext:v1:conversation-ref',
-      conversationRefFingerprint: 'hmac:conversation-ref-1',
+      conversationRef: CONVERSATION_REF,
     }),
   });
   return { response, body: await jsonObject(response) };
@@ -154,6 +182,21 @@ async function wakeTransition(
     method: 'POST',
     headers: authHeaders(token, true),
     body: JSON.stringify({ bindingId: 'binding-1' }),
+  });
+  expect(response.status).toBe(200);
+  return jsonObject(response);
+}
+
+async function wakeFailed(
+  handle: CommandRoomExtensionBridgeHandle,
+  token: string,
+  wakeId: string,
+  errorCode: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${handle.url}/v1/wakes/${wakeId}/failed`, {
+    method: 'POST',
+    headers: authHeaders(token, true),
+    body: JSON.stringify({ bindingId: 'binding-1', errorCode }),
   });
   expect(response.status).toBe(200);
   return jsonObject(response);
@@ -188,8 +231,10 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
     updatedAt: '2026-08-30T00:59:00.000Z',
   };
   public wake: CommandRoomWakeDeliveryRecord | null = null;
+  public lastPairInput?: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0];
 
   public async confirmPairingByBinding(input: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0]): ReturnType<CommandRoomExtensionBridgeService['confirmPairingByBinding']> {
+    this.lastPairInput = input;
     if (input.bindingId !== this.binding.id) return { outcome: 'not_found' };
     if (input.challenge !== RAW_CHALLENGE) return { outcome: 'challenge_mismatch' };
     if (this.binding.state !== 'CHALLENGED') return { outcome: 'invalid_state' };
@@ -249,6 +294,14 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
   public async markWakeSubmitted(input: Parameters<CommandRoomExtensionBridgeService['markWakeSubmitted']>[0]): ReturnType<CommandRoomExtensionBridgeService['markWakeSubmitted']> {
     if (this.wake === null || this.wake.id !== input.wakeId || this.wake.state !== 'DELIVERED') return null;
     this.wake = { ...this.wake, state: 'SUBMITTED', submittedAt: input.submittedAt, updatedAt: input.submittedAt };
+    return this.wake;
+  }
+
+  public async markWakeAttemptFailed(input: Parameters<CommandRoomExtensionBridgeService['markWakeAttemptFailed']>[0]): ReturnType<CommandRoomExtensionBridgeService['markWakeAttemptFailed']> {
+    if (this.wake === null || this.wake.id !== input.wakeId || !['ATTEMPTING', 'DELIVERED'].includes(this.wake.state)) return null;
+    this.wake = this.wake.attemptCount >= 3
+      ? { ...this.wake, state: 'DEAD_LETTER', lastErrorCode: input.errorCode, updatedAt: input.occurredAt }
+      : { ...this.wake, state: 'QUEUED', lastErrorCode: input.errorCode, nextEligibleAt: input.occurredAt, updatedAt: input.occurredAt };
     return this.wake;
   }
 

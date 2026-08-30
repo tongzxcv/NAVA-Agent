@@ -192,6 +192,22 @@ describe('SqliteCommandRoomBindingRepository', () => {
       .toEqual({ state: 'QUEUED' });
 
     await repository.enqueueWake({
+      id: 'wake-failed', roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-wake',
+      eventKey: 'USER_WAKE:failed', reason: 'USER_WAKE', nextEligibleAt: NOW, createdAt: NOW,
+    });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const attemptedAt = `2026-08-30T00:1${attempt}:00.000Z`;
+      const retryAt = `2026-08-30T00:1${attempt}:59.000Z`;
+      await repository.beginWakeAttempt('wake-failed', attemptedAt, retryAt);
+      await repository.markWakeDelivered('wake-failed', attemptedAt);
+      expect(await repository.markWakeAttemptFailed('wake-failed', attemptedAt, retryAt, 'DOM_MISMATCH')).toMatchObject({
+        state: attempt === 3 ? 'DEAD_LETTER' : 'QUEUED',
+        attemptCount: attempt,
+        lastErrorCode: 'DOM_MISMATCH',
+      });
+    }
+
+    await repository.enqueueWake({
       id: 'wake-budget', roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-wake',
       eventKey: 'USER_WAKE:budget', reason: 'USER_WAKE', nextEligibleAt: NOW, createdAt: NOW,
     });

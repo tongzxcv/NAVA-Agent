@@ -49,6 +49,7 @@ export interface CommandRoomExtensionRepositoryPort {
   beginWakeAttempt(id: string, attemptedAt: string, nextEligibleAt: string): Promise<CommandRoomWakeDeliveryRecord | null>;
   markWakeDelivered(id: string, deliveredAt: string): Promise<CommandRoomWakeDeliveryRecord | null>;
   markWakeSubmitted(id: string, submittedAt: string): Promise<CommandRoomWakeDeliveryRecord | null>;
+  markWakeAttemptFailed(id: string, occurredAt: string, nextEligibleAt: string, errorCode: string): Promise<CommandRoomWakeDeliveryRecord | null>;
   touch(bindingId: string, seenAt: string): Promise<CommandRoomBindingRecord | null>;
   getWakePolicySnapshot(input: {
     readonly roomId: string;
@@ -307,6 +308,23 @@ export class CommandRoomExtensionService {
     const binding = await this.requireActiveBinding(input.bindingId, input.extensionInstallationId);
     await this.requireOwnedWake(binding, input.wakeId);
     return this.repository.markWakeSubmitted(input.wakeId, input.submittedAt);
+  }
+
+  public async markWakeAttemptFailed(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly wakeId: string;
+    readonly occurredAt: string;
+    readonly errorCode: string;
+  }): Promise<CommandRoomWakeDeliveryRecord | null> {
+    const binding = await this.requireActiveBinding(input.bindingId, input.extensionInstallationId);
+    await this.requireOwnedWake(binding, input.wakeId);
+    return this.repository.markWakeAttemptFailed(
+      input.wakeId,
+      input.occurredAt,
+      addSeconds(input.occurredAt, this.wakeCooldownSeconds),
+      input.errorCode,
+    );
   }
 
   public async touchBinding(input: {

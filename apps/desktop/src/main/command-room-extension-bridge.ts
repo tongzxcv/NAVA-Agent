@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { CommandRoomBindingRecord, CommandRoomWakeDeliveryRecord } from '@lnwjud/domain';
@@ -18,6 +18,7 @@ export type CommandRoomExtensionBridgeService = Pick<CommandRoomExtensionService
   | 'beginWakeAttempt'
   | 'markWakeDelivered'
   | 'markWakeSubmitted'
+  | 'markWakeAttemptFailed'
   | 'touchBinding'
   | 'revoke'
 >;
@@ -102,8 +103,7 @@ async function handleRequest(
       bindingId: requiredOpaqueString(body, 'bindingId', 8, 512),
       challenge: requiredOpaqueString(body, 'challenge', 32, 512),
       extensionInstallationId: requiredOpaqueString(body, 'extensionInstallationId', 8, 512),
-      encryptedConversationRef: requiredOpaqueString(body, 'encryptedConversationRef', 16, 4_096),
-      conversationRefFingerprint: requiredOpaqueString(body, 'conversationRefFingerprint', 8, 512),
+      ...protectConversationRef(options.authKey, requiredOpaqueString(body, 'conversationRef', 8, 2_048)),
       confirmedAt: now().toISOString(),
     });
     if (result.outcome !== 'paired') {
@@ -171,7 +171,7 @@ async function handleRequest(
     return;
   }
 
-  const wakeMatch = /^\/v1\/wakes\/([^/]+)\/(attempt|delivered|submitted)$/.exec(url.pathname);
+  const wakeMatch = /^\/v1\/wakes\/([^/]+)\/(attempt|delivered|submitted|failed)$/.exec(url.pathname);
   if (wakeMatch !== null && request.method === 'POST') {
     const wakeId = decodePathSegment(wakeMatch[1]);
     const transition = wakeMatch[2];
@@ -188,7 +188,15 @@ async function handleRequest(
       ? await options.service.beginWakeAttempt({ bindingId, extensionInstallationId, wakeId, attemptedAt: occurredAt })
       : transition === 'delivered'
         ? await options.service.markWakeDelivered({ bindingId, extensionInstallationId, wakeId, deliveredAt: occurredAt })
-        : await options.service.markWakeSubmitted({ bindingId, extensionInstallationId, wakeId, submittedAt: occurredAt });
+        : transition === 'submitted'
+          ? await options.service.markWakeSubmitted({ bindingId, extensionInstallationId, wakeId, submittedAt: occurredAt })
+          : await options.service.markWakeAttemptFailed({
+            bindingId,
+            extensionInstallationId,
+            wakeId,
+            occurredAt,
+            errorCode: requiredWakeFailureCode(body),
+          });
     if (wake === null) {
       sendJson(response, 404, { ok: false, code: 'WAKE_NOT_FOUND' });
       return;
@@ -245,6 +253,28 @@ function safeWake(wake: CommandRoomWakeDeliveryRecord): Readonly<Record<string, 
     ...(wake.lastErrorCode === undefined ? {} : { lastErrorCode: wake.lastErrorCode }),
     updatedAt: wake.updatedAt,
   };
+}
+
+function protectConversationRef(key: Buffer, conversationRef: string): { readonly encryptedConversationRef: string; readonly conversationRefFingerprint: string } {
+  const encryptionKey = Buffer.from(hkdfSync('sha256', key, Buffer.alloc(0), 'nava-command-room-conversation-ref-encryption-v1', 32));
+  const fingerprintKey = Buffer.from(hkdfSync('sha256', key, Buffer.alloc(0), 'nava-command-room-conversation-ref-fingerprint-v1', 32));
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', encryptionKey, iv);
+  cipher.setAAD(Buffer.from('nava-command-room-conversation-ref-v1', 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(conversationRef, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const fingerprint = createHmac('sha256', fingerprintKey).update(conversationRef, 'utf8').digest('base64url');
+  return {
+    encryptedConversationRef: `aes256gcm:v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${ciphertext.toString('base64url')}`,
+    conversationRefFingerprint: `hmac-sha256:v1:${fingerprint}`,
+  };
+}
+
+export function protectCommandRoomConversationRefForTest(
+  key: Buffer,
+  conversationRef: string,
+): { readonly encryptedConversationRef: string; readonly conversationRefFingerprint: string } {
+  return protectConversationRef(key, conversationRef);
 }
 
 function deriveAuthToken(key: Buffer, bindingId: string, extensionInstallationId: string, connectionEpoch: number): string {
@@ -328,6 +358,26 @@ async function readJsonObject(request: IncomingMessage): Promise<Record<string, 
   } catch {
     throw new HttpInputError(400, 'INVALID_JSON', 'Request body must be a JSON object.');
   }
+}
+
+const WAKE_FAILURE_CODES = new Set([
+  'TAB_NOT_FOUND',
+  'AMBIGUOUS_TAB',
+  'CONVERSATION_MISMATCH',
+  'DOM_MISMATCH',
+  'COMPOSER_NOT_EMPTY',
+  'SUBMIT_FAILED',
+  'TAB_UNAVAILABLE',
+  'NAVIGATION_CHANGED',
+  'EXTENSION_INTERNAL',
+]);
+
+function requiredWakeFailureCode(value: Record<string, unknown>): string {
+  const code = value.errorCode;
+  if (typeof code !== 'string' || !WAKE_FAILURE_CODES.has(code)) {
+    throw new HttpInputError(400, 'INVALID_WAKE_FAILURE_CODE', 'Wake failure code is invalid.');
+  }
+  return code;
 }
 
 function requiredOpaqueString(value: Record<string, unknown>, field: string, min: number, max: number): string {

@@ -232,6 +232,14 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
     return null;
   }
 
+  public async markWakeAttemptFailed(_id: string, _occurredAt: string, _nextEligibleAt: string, _errorCode: string): Promise<CommandRoomWakeDeliveryRecord | null> {
+    void _id;
+    void _occurredAt;
+    void _nextEligibleAt;
+    void _errorCode;
+    return null;
+  }
+
   public async touch(bindingId: string, seenAt: string): Promise<CommandRoomBindingRecord | null> {
     if (this.activeBinding?.id !== bindingId) return null;
     this.activeBinding = { ...this.activeBinding, lastSeenAt: seenAt, updatedAt: seenAt };

@@ -332,6 +332,34 @@ export class SqliteCommandRoomBindingRepository {
     return this.getWake(id);
   }
 
+  public async markWakeAttemptFailed(
+    id: string,
+    occurredAt: string,
+    nextEligibleAt: string,
+    errorCode: string,
+  ): Promise<CommandRoomWakeDeliveryRecord | null> {
+    const connection = this.database.connection;
+    const current = await this.getWake(id);
+    if (current === null) return null;
+    if (!['ATTEMPTING', 'DELIVERED'].includes(current.state)) {
+      throw new Error(`Wake ${id} cannot fail an attempt from ${current.state}.`);
+    }
+    if (current.attemptCount >= 3) {
+      connection.prepare(`
+        UPDATE command_room_wake_deliveries
+        SET state = 'DEAD_LETTER', next_eligible_at = NULL, last_error_code = ?, updated_at = ?
+        WHERE id = ?
+      `).run(errorCode, occurredAt, id);
+    } else {
+      connection.prepare(`
+        UPDATE command_room_wake_deliveries
+        SET state = 'QUEUED', next_eligible_at = ?, last_error_code = ?, updated_at = ?
+        WHERE id = ?
+      `).run(nextEligibleAt, errorCode, occurredAt, id);
+    }
+    return this.getWake(id);
+  }
+
   public async markWakeManualFallback(id: string, occurredAt: string, errorCode?: string): Promise<CommandRoomWakeDeliveryRecord | null> {
     const connection = this.database.connection;
     const current = await this.getWake(id);
