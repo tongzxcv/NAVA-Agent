@@ -18,9 +18,10 @@ Coordinate agents through bounded local SQLite records. Store summaries and evid
    - `command_room_presence`
    - `command_room_resource`
    - `command_room_admin`
-2. If tools or schemas are stale, refresh the NAVA connector. Open a new chat only if refresh does not update the manifest.
-3. Treat room, task, join-code, session, idempotency, writer-lease, and resource-lease values as opaque.
-4. Command Room does not grant permissions. Every mutation still obeys the active NAVA permission profile, workspace boundary, human confirmation, and destructive-action policy.
+2. Call every `command_room_*` tool directly. Never place a Command Room call, join code, or `agentSessionId` inside `tool_batch`; NAVA rejects that nested route because ChatGPT may block the authority value before it reaches the server.
+3. If direct tools or schemas are stale, refresh the NAVA connector. If the current chat still lacks the direct tool, stop with `DIRECT_COMMAND_ROOM_TOOLS_UNAVAILABLE`; open or safely rebind a new chat only through the takeover flow below. Never use `tool_batch` as a fallback.
+4. Treat room, task, join-code, session, idempotency, writer-lease, and resource-lease values as opaque.
+5. Command Room does not grant permissions. Every mutation still obeys the active NAVA permission profile, workspace boundary, human confirmation, and destructive-action policy.
 
 ## Join and boot
 
@@ -28,13 +29,13 @@ MAIN creates a room with `command_room_admin`, a stable idempotency key, and one
 
 To expand an existing room, MAIN may call `command_room_admin` with `action=add_lead`, the current `expectedVersion`, and a stable idempotency key. NAVA adds only the next contiguous slot (`LEAD-2`, then `LEAD-3`, and so on through `LEAD-5`). The response returns a one-time join code only on the first successful mutation; an idempotent replay never reveals it again. Adding a slot creates `AVAILABLE` authority with epoch 0 only — it does **not** create an `agentSessionId`. The trusted Desktop **Add Lead** button uses the same broker/storage mutation without exposing a MAIN session to the renderer.
 
-Each chat joins its assigned slot with `command_room_join`:
+Each chat calls `command_room_join` directly for its assigned slot:
 
 - provider is `CHATGPT`, `CODEX`, or `OTHER`
 - first `connectionEpoch` is 1
 - keep the returned `agentSessionId` only in active chat context
 
-Immediately send `command_room_presence` heartbeat with bounded project, workspace, and checkpoint references when known. Then call `command_room_status` with `action=resume_check`, the exact `roomId`, `slotKey`, `connectionEpoch`, and active `agentSessionId`. Continue only when authority is `READY`; `HEARTBEAT_REQUIRED` means heartbeat/read-back is incomplete, and `CREATE_SESSION_REQUIRED` means the chat must join or be rebound first. Room identity comes from the slot and room ID, not from the ChatGPT Project container.
+Immediately call `command_room_presence` directly for heartbeat with bounded project, workspace, and checkpoint references when known. Then call `command_room_status` directly with `action=resume_check`, the exact `roomId`, `slotKey`, `connectionEpoch`, and active `agentSessionId`. Continue only when authority is `READY`; `HEARTBEAT_REQUIRED` means heartbeat/read-back is incomplete, and `CREATE_SESSION_REQUIRED` means the chat must join or be rebound first. Room identity comes from the slot and room ID, not from the ChatGPT Project container.
 
 Recovery/bootstrap material may contain only `roomId`, `slotKey`, and `connectionEpoch`. It is a locator, not session authority; never copy a raw join code or `agentSessionId` into Git, Obsidian, logs, or handoff notes.
 

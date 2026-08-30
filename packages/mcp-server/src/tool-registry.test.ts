@@ -339,6 +339,34 @@ describe('MCP tool registry', () => {
     ]);
   });
 
+  it('requires Command Room session and join authority tools to be called directly', async () => {
+    const registry = new ToolRegistry({}, actor, { commandRoomEnabled: true });
+    const commandRoomDefinitions = registry.list().filter((tool) => tool.name.startsWith('command_room_'));
+    expect(commandRoomDefinitions).toHaveLength(8);
+    expect(commandRoomDefinitions.every((tool) => tool.description.startsWith('Use this directly'))).toBe(true);
+    expect(registry.list().find((tool) => tool.name === 'tool_batch')?.description).toContain('Command Room tools must be called directly');
+
+    const response = await registry.invoke('tool_batch', {
+      parallel: false,
+      calls: [{
+        tool: 'command_room_presence',
+        arguments: {
+          action: 'heartbeat',
+          roomId: '11111111-1111-4111-8111-111111111111',
+          agentSessionId: 'opaque-session-authority',
+        },
+      }],
+    });
+
+    expect(response).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'INVALID_INPUT' } },
+    });
+    expect(response.content[0]?.text).toContain('call command_room_presence directly');
+    expect(response.content[0]?.text).toContain('Refresh connector');
+    expect(response.content[0]?.text).not.toContain('opaque-session-authority');
+  });
+
   it('keeps successful batch siblings when one child returns an MCP error', async () => {
     const registry = new ToolRegistry({
       file: {

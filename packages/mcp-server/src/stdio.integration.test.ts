@@ -31,6 +31,10 @@ describe('MCP stdio transport', () => {
       expect(client.getInstructions()).toContain('before a long operation');
       expect(client.getInstructions()).toContain('workspace_lease_call');
       expect(client.getInstructions()).toContain('Refresh connector');
+      const instructionPrefix = client.getInstructions()?.slice(0, 512) ?? '';
+      expect(instructionPrefix).toContain('command_room_presence');
+      expect(instructionPrefix).toContain('command_room_status');
+      expect(instructionPrefix).toContain('directly');
       const first = await client.listTools();
       const second = await client.listTools();
 

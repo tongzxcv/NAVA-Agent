@@ -39,7 +39,7 @@ class BatchChildError extends Error {
 export function batchTools(invoker: BatchToolInvoker): readonly McpToolDefinition[] {
   return [defineTool({
     name: 'tool_batch',
-    description: 'Execute multiple MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling.',
+    description: 'Execute multiple non-Command-Room MCP tools with parallel, dependency-aware, timeout, cancellation, and partial-result handling. Command Room tools must be called directly.',
     permission: 'DANGEROUS',
     annotations: { readOnlyHint: false, destructiveHint: true },
     inputSchema: toolBatchSchema,
@@ -68,6 +68,18 @@ export function batchTools(invoker: BatchToolInvoker): readonly McpToolDefinitio
 }
 
 function normalizePlan(input: ToolBatchInput, invoker: BatchToolInvoker): Result<BatchExecutionPlan> {
+  const directOnlyCall = [
+    ...(input.calls ?? []),
+    ...(input.groups ?? []).flatMap((group) => group.calls),
+  ].find((call) => call.tool.startsWith('command_room_'));
+  if (directOnlyCall !== undefined) {
+    return err({
+      code: 'INVALID_INPUT',
+      message: `Command Room authority cannot be nested in tool_batch; call ${directOnlyCall.tool} directly. Refresh connector if the direct tool is missing.`,
+      recoverable: true,
+    });
+  }
+
   let nextId = 1;
   const normalizeCall = (raw: BatchCallInput): BatchInvocation => {
     const id = raw.id ?? `call-${nextId}`;
