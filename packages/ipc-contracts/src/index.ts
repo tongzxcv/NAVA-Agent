@@ -41,6 +41,7 @@ export const ipcChannels = {
   getCommandRoomOverview: 'lnwjud:get-command-room-overview',
   createCommandRoom: 'lnwjud:create-command-room',
   addCommandRoomLead: 'lnwjud:add-command-room-lead',
+  reissueCommandRoomBootPrompt: 'lnwjud:reissue-command-room-boot-prompt',
   deleteCommandRoom: 'lnwjud:delete-command-room',
   getCommandRoomExtensionOverview: 'lnwjud:get-command-room-extension-overview',
   setCommandRoomExtensionConfig: 'lnwjud:set-command-room-extension-config',
@@ -68,6 +69,7 @@ export interface CommandRoomAgentSummary {
   readonly role: CommandRoomRole;
   readonly provider: CommandRoomProvider;
   readonly state: CommandRoomAgentState;
+  readonly connectionEpoch: number;
   readonly projectKey?: string;
   readonly workspaceId?: string;
   readonly currentTaskId?: string;
@@ -150,6 +152,21 @@ export interface AddCommandRoomLeadResult {
   readonly slotKey: string;
   readonly requiredConnectionEpoch: number;
   /** One-time join code. Omitted on idempotent replay and never returned by overview. */
+  readonly joinCode?: string;
+}
+
+export interface ReissueCommandRoomBootPromptRequest {
+  readonly roomId: string;
+  readonly slotKey: string;
+  readonly expectedVersion: number;
+}
+
+export interface ReissueCommandRoomBootPromptResult {
+  readonly duplicate: boolean;
+  readonly room: CommandRoomSummary;
+  readonly slotKey: string;
+  readonly requiredConnectionEpoch: number;
+  /** Newly generated one-time join code. Omitted on idempotent replay and never returned by overview. */
   readonly joinCode?: string;
 }
 
@@ -618,6 +635,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getCommandRoomOverview]: undefined;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomRequest;
   readonly [ipcChannels.addCommandRoomLead]: AddCommandRoomLeadRequest;
+  readonly [ipcChannels.reissueCommandRoomBootPrompt]: ReissueCommandRoomBootPromptRequest;
   readonly [ipcChannels.deleteCommandRoom]: DeleteCommandRoomRequest;
   readonly [ipcChannels.getCommandRoomExtensionOverview]: undefined;
   readonly [ipcChannels.setCommandRoomExtensionConfig]: SetCommandRoomExtensionConfigRequest;
@@ -666,6 +684,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getCommandRoomOverview]: CommandRoomOverview;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomResult;
   readonly [ipcChannels.addCommandRoomLead]: AddCommandRoomLeadResult;
+  readonly [ipcChannels.reissueCommandRoomBootPrompt]: ReissueCommandRoomBootPromptResult;
   readonly [ipcChannels.deleteCommandRoom]: { readonly deleted: boolean };
   readonly [ipcChannels.getCommandRoomExtensionOverview]: CommandRoomExtensionOverview;
   readonly [ipcChannels.setCommandRoomExtensionConfig]: CommandRoomExtensionBridgeStatus;
@@ -714,6 +733,7 @@ export interface LnwjudApi {
   getCommandRoomOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomOverview]>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.createCommandRoom]>;
   addCommandRoomLead(request: AddCommandRoomLeadRequest): Promise<IpcResponseMap[typeof ipcChannels.addCommandRoomLead]>;
+  reissueCommandRoomBootPrompt(request: ReissueCommandRoomBootPromptRequest): Promise<IpcResponseMap[typeof ipcChannels.reissueCommandRoomBootPrompt]>;
   deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.deleteCommandRoom]>;
   getCommandRoomExtensionOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomExtensionOverview]>;
   setCommandRoomExtensionConfig(request: SetCommandRoomExtensionConfigRequest): Promise<IpcResponseMap[typeof ipcChannels.setCommandRoomExtensionConfig]>;

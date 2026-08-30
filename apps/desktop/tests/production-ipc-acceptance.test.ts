@@ -117,9 +117,14 @@ describe('production desktop IPC acceptance', () => {
       slotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: 'one-time-lead-4',
     });
     await expect(requiredHandler(ipcChannels.addCommandRoomLead)(trusted, { roomId: 'room-1', expectedVersion: 0 })).rejects.toThrow('Invalid IPC payload: expectedVersion');
+    await expect(requiredHandler(ipcChannels.reissueCommandRoomBootPrompt)(trusted, { roomId: 'room-1', slotKey: 'lead-4', expectedVersion: 8 })).resolves.toMatchObject({
+      slotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: 'replacement-lead-4',
+    });
+    await expect(requiredHandler(ipcChannels.reissueCommandRoomBootPrompt)(trusted, { roomId: 'room-1', slotKey: 'MAIN', expectedVersion: 8 })).rejects.toThrow('Invalid IPC payload: slotKey');
 
     expect(services.createCommandRoom).toHaveBeenCalledWith({ name: 'EA Portfolio' });
     expect(services.addCommandRoomLead).toHaveBeenCalledWith({ roomId: 'room-1', expectedVersion: 7 });
+    expect(services.reissueCommandRoomBootPrompt).toHaveBeenCalledWith({ roomId: 'room-1', slotKey: 'LEAD-4', expectedVersion: 8 });
   });
 
   it('routes Command Room Extension opt-in, pairing, wake, and revoke through trusted IPC only', async () => {
@@ -215,7 +220,7 @@ function desktopServices(): DesktopIpcServices {
       room: {
         id: 'room-1', name: request.name, status: 'ACTIVE', version: 1,
         createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
-        agents: [{ slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'AVAILABLE' }],
+        agents: [{ slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'AVAILABLE', connectionEpoch: 0 }],
         tasks: [],
       },
       joinCodes: { MAIN: 'one-time-main' },
@@ -226,12 +231,25 @@ function desktopServices(): DesktopIpcServices {
         id: request.roomId, name: 'Existing Room', status: 'ACTIVE', version: request.expectedVersion + 1,
         createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
         agents: [
-          { slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'ONLINE' },
-          { slotKey: 'LEAD-4', role: 'LEAD', provider: 'CHATGPT', state: 'AVAILABLE' },
+          { slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'ONLINE', connectionEpoch: 1 },
+          { slotKey: 'LEAD-4', role: 'LEAD', provider: 'CHATGPT', state: 'AVAILABLE', connectionEpoch: 0 },
         ],
         tasks: [], writerLeases: [], resources: [], resourceLeases: [], resourceQueueDepth: 0,
       },
       slotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: 'one-time-lead-4',
+    })),
+    reissueCommandRoomBootPrompt: vi.fn(async (request) => ({
+      duplicate: false,
+      room: {
+        id: request.roomId, name: 'Existing Room', status: 'ACTIVE', version: request.expectedVersion + 1,
+        createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        agents: [
+          { slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'ONLINE', connectionEpoch: 1 },
+          { slotKey: request.slotKey, role: 'LEAD', provider: 'CHATGPT', state: 'AVAILABLE', connectionEpoch: 0 },
+        ],
+        tasks: [], writerLeases: [], resources: [], resourceLeases: [], resourceQueueDepth: 0,
+      },
+      slotKey: request.slotKey, requiredConnectionEpoch: 1, joinCode: 'replacement-lead-4',
     })),
     deleteCommandRoom: vi.fn(async () => ({ deleted: true })),
     getCommandRoomExtensionOverview: vi.fn(async () => ({

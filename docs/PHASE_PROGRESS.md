@@ -121,3 +121,12 @@
 - Recovery output is bounded to `roomId`, `slotKey`, and `connectionEpoch`; raw join codes and session IDs remain transient and are excluded from bootstrap material.
 - Rebind rotates the session hash/epoch. Regression coverage proves the old session fails closed across resume/legacy status, send, inbox, task, presence, resource, and admin paths.
 - No migration, dependency, ninth MCP tool, installed-app update, or production SQLite change is part of this source-only phase.
+
+## 2026-08-30 — Lost Boot Prompt recovery fix
+
+- User reproduced a real Phase 3C.5 UX gap: an added `LEAD-4` remained `AVAILABLE` at `connectionEpoch=0`, but its one-time raw join code disappeared after the transient Boot Prompt panel was lost. The hashed join authority cannot recover the original raw code by design.
+- Added a trusted Desktop-only **Reissue Boot Prompt** path. It is fail-closed to ACTIVE rooms and never-joined Project Leads only: `AVAILABLE`, epoch 0, no session hash, no heartbeat, no current task, and no active browser binding. It generates a fresh one-time join code without creating `LEAD-5` or exposing a secret through overview.
+- Command Room overview now carries the non-secret `connectionEpoch`; the Lead card shows session epoch separately from browser binding epoch and exposes **ออก Boot Prompt ใหม่ / Reissue Boot Prompt** only when recovery is safe.
+- A newly issued Boot Prompt is kept only in transient renderer state and the page auto-scrolls to the one-time code panel. Idempotent replay does not return the raw code again.
+- Local verification: root TypeScript build passed, changed-source ESLint passed, Command Room integration 8/8 passed, focused Desktop IPC/UI 9/9 passed, full Desktop suite 41 files / 242 tests passed, and `git diff --check` passed.
+- Installed runtime remains unchanged until this fix passes authoritative GitHub Windows CI and is merged.
