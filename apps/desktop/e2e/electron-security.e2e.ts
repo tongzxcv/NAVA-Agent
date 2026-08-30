@@ -18,6 +18,11 @@ test('renderer cannot access Node globals', async () => {
     cwd: desktopRoot,
     shell: false,
     windowsHide: true,
+    env: {
+      ...process.env,
+      LNWJUD_DATA_PATH: dataRoot,
+      LNWJUD_E2E_FIXTURE: '1',
+    },
   });
   const stderr: string[] = [];
   electronProcess.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
@@ -30,7 +35,7 @@ test('renderer cannot access Node globals', async () => {
     await expect.poll(() => context.pages().length).toBeGreaterThan(0);
     const page = context.pages()[0];
     if (page === undefined) throw new Error('Electron did not create a renderer page');
-    await expect(page.getByRole('banner').getByText('lnwjud', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('banner').getByText('NAVA Agent', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect.poll(async () => page.evaluate(() => ({
       process: typeof Reflect.get(window, 'process'),
       require: typeof Reflect.get(window, 'require'),

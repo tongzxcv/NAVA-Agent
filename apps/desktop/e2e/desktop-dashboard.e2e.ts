@@ -36,11 +36,12 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     },
   });
   const stderr: string[] = [];
+  let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
   electronProcess.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
 
   try {
     await waitForDevTools(devToolsPort, electronProcess, stderr);
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${devToolsPort}`);
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${devToolsPort}`);
     const context = browser.contexts()[0];
     if (context === undefined) throw new Error('Electron did not create a browser context');
     await expect.poll(() => context.pages().length).toBeGreaterThan(0);
@@ -50,13 +51,13 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('mcp-status')).toHaveText(/Agent พร้อมทำงาน|Agent ready/, { timeout: 30_000 });
     await expect(page.getByTestId('mcp-endpoint')).toContainText('http://127.0.0.1:', { timeout: 30_000 });
-     await page.setViewportSize({ width: 800, height: 600 });
-     await expectNoHorizontalOverflow(page);
-     for (const width of [640, 320]) {
-       await page.setViewportSize({ width, height: 600 });
-       await expectNoHorizontalOverflow(page);
-     }
-     await page.setViewportSize({ width: 800, height: 600 });
+    await page.setViewportSize({ width: 800, height: 600 });
+    await expectNoHorizontalOverflow(page);
+    for (const width of [640, 320]) {
+      await page.setViewportSize({ width, height: 600 });
+      await expectNoHorizontalOverflow(page);
+    }
+    await page.setViewportSize({ width: 800, height: 600 });
 
     await page.getByRole('button', { name: 'คัดลอก' }).first().click();
     await expect(page.getByTestId('mcp-copy-status')).toHaveText(/คัดลอกแล้ว|Copied/);
@@ -97,7 +98,9 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await expect(page.getByTestId('doctor-check-workspaces')).toBeVisible();
     await expect(page.locator('body')).not.toContainText('do-not-display');
     await browser.close();
+    browser = undefined;
   } finally {
+    if (browser !== undefined) await browser.close().catch(() => undefined);
     await terminateProcessTree(electronProcess);
     await Promise.all([
       removeTemporaryRoot(fixtureRoot),
@@ -136,21 +139,28 @@ async function waitForDevTools(port: number, child: ChildProcess, stderr: string
 }
 
 async function terminateProcessTree(child: ChildProcess): Promise<void> {
-  if (child.pid !== undefined) {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true });
-  }
+  if (child.exitCode !== null || child.pid === undefined) return;
   await new Promise<void>((resolve) => {
-    if (child.exitCode !== null) {
-      resolve();
-      return;
-    }
+    const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true });
+    killer.once('error', () => resolve());
+    killer.once('close', () => resolve());
+  });
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve) => {
     child.once('exit', () => resolve());
     setTimeout(() => resolve(), 5_000);
   });
 }
 
 async function removeTemporaryRoot(root: string): Promise<void> {
-  await rm(root, { recursive: true, force: true });
+  await expect.poll(async () => {
+    try {
+      await rm(root, { recursive: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }, { timeout: 10_000, intervals: [50, 100, 250, 500] }).toBe(true);
 }
 
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
