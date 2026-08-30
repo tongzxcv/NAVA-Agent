@@ -1,3 +1,52 @@
+# NAVA Command Room Phase 3C.6 — Session Authority Hardening
+
+## SCQA
+
+- **Situation:** GitHub `main` at `f9792d6` is green and Phase 3C.5 can add contiguous LEAD slots without creating sessions prematurely.
+- **Complication:** Bootstrap material and chat claims can still be mistaken for live authority unless every resume proves the current room slot, connection epoch, joined session, heartbeat, and status read-back. Stale sessions must fail closed across all broker actions.
+- **Question:** What is the smallest public-contract change that makes the Command Room database the sole session authority without changing installed NAVA or starting Phase 3C.7/3D?
+- **Answer:** Start from the public broker integration seam, add one RED resume-authority tracer, implement only the missing repository/broker validation and bounded bootstrap update behavior, then run focused and authoritative source gates.
+
+## Acceptance criteria
+
+- [x] `roomId + slotKey + connectionEpoch` resolve only through a real joined/rebound session.
+- [x] Missing slot returns `SLOT_NOT_FOUND`; an existing unjoined slot returns `CREATE_SESSION_REQUIRED`.
+- [x] Old session/epoch cannot use status, inbox, task, presence, resource, admin, or extension wake authority after rebind.
+- [x] Successful takeover is not reported ready until the new session heartbeats and status reads back the same slot/epoch.
+- [x] Bootstrap recovery output is derived from the authoritative DB row, bounded/redacted, and never persists raw join codes or session IDs in Git, Obsidian, audit, or logs.
+- [x] Existing room/message/task/writer/resource behavior and Phase 3C.5 dynamic Lead tests stay green.
+- [x] Installed NAVA/Tunnel/production SQLite remain untouched in this source-only phase.
+- [ ] Task-owned changes pass typecheck, lint, focused/full relevant tests, secret/artifact guard, and are committed/pushed without unrelated files.
+
+## Phases
+
+- [completed] Inspect current join/rebind/session/bootstrap contracts and freeze the first public RED tracer.
+- [completed] RED→GREEN missing-slot and unjoined-slot resume authority.
+- [completed] RED→GREEN stale session/epoch rejection through the shared authentication invariant.
+- [completed] RED→GREEN heartbeat plus status read-back takeover proof and bounded bootstrap recovery output.
+- [in_progress] Run regression/release gates, review scope, scan, commit, push, and prepare Phase 3C.7.
+
+## Safety boundaries
+
+- Source and tests only; do not package, install, restart, or migrate the active NAVA runtime.
+- Do not expose, log, commit, or copy raw join codes, session IDs, binding secrets, credentials, or private chat content.
+- Do not add a second lock/session store; SQLite Command Room records remain authoritative.
+- Do not implement Live State derivation or browser Extension wake UI in this phase.
+- Work on `feature/command-room-session-authority` from remote green `main`; fetch and reconcile remote drift before push.
+
+## Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Current Codex connector manifest exposes no `command_room_*` or writer-lease tools | 1 | Do not invent authority or restart the installed runtime; isolate work on a dedicated Git branch and re-check remote drift before push. |
+| NAVA Tunnel was initially offline and dynamic lease calls returned `Tunnel-client has not been seen for 300 seconds` | 1 | User opened NAVA; discovered lease tools dynamically and acquired the exact project lease before source mutation. |
+| First GREEN run exposed one old expectation that MAIN becomes ONLINE at join, then temp cleanup reported EBUSY because the assertion aborted before close | 1 | Updated the obsolete expectation to AVAILABLE; the full focused broker file passed 8/8 and cleanup completed normally. |
+| First expectation patch used a one-line shape while the test stored the agents across multiple lines | 1 | Read the exact bounded lines and applied the corrected one-line replacement without repeating the failed patch. |
+| Public MCP tracer initially reused the pre-heartbeat room version for `add_lead` | 1 | Use the room version returned by READY status after heartbeat; the public flow then passed 8/8. |
+| Filtered package typecheck read stale application declarations and reported both the new status union and pre-existing `add_lead` union as incompatible | 1 | Run the root project-reference build so dependency declarations regenerate in order before judging source types. |
+
+---
+
 # NAVA Command Room Phase 1 implementation
 
 ## SCQA

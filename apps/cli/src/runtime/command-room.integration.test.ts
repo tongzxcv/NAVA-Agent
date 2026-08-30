@@ -126,7 +126,7 @@ describe('CommandRoomBroker', () => {
       expect(stale).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('Room version conflict') } });
 
       const joined4 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-4', joinCode: added4.joinCode as string, provider: 'CHATGPT', connectionEpoch: added4.requiredConnectionEpoch }));
-      expect(joined4.agent).toMatchObject({ slotKey: 'LEAD-4', state: 'ONLINE', connectionEpoch: 1 });
+      expect(joined4.agent).toMatchObject({ slotKey: 'LEAD-4', state: 'AVAILABLE', connectionEpoch: 1 });
 
       now = new Date('2026-08-30T06:10:02.000Z');
       const added5 = value(await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: joined4.roomVersion, idempotencyKey: 'main-add-lead-5' }));
@@ -322,7 +322,7 @@ describe('CommandRoomBroker', () => {
       manifestVersion: '1.0.0',
       room: { id: created.room.id, status: 'ACTIVE' },
       agents: [
-        { slotKey: 'MAIN', state: 'ONLINE' },
+        { slotKey: 'MAIN', state: 'AVAILABLE' },
         { slotKey: 'LEAD-1', state: 'ONLINE', projectKey: 'AUTOBOTS' },
       ],
       tasks: [],
@@ -383,7 +383,7 @@ describe('CommandRoomBroker', () => {
         provider: 'CHATGPT',
         connectionEpoch: rebound.requiredConnectionEpoch,
       }));
-      expect(replacement.agent).toMatchObject({ slotKey: 'LEAD-1', connectionEpoch: 2, state: 'ONLINE' });
+      expect(replacement.agent).toMatchObject({ slotKey: 'LEAD-1', connectionEpoch: 2, state: 'AVAILABLE' });
 
       const paused = value(await broker.admin({
         action: 'pause',
@@ -429,7 +429,85 @@ describe('CommandRoomBroker', () => {
         provider: 'CHATGPT',
         connectionEpoch: mainRebound.requiredConnectionEpoch,
       }));
-      expect(replacementMain.agent).toMatchObject({ slotKey: 'MAIN', connectionEpoch: 2, state: 'ONLINE' });
+      expect(replacementMain.agent).toMatchObject({ slotKey: 'MAIN', connectionEpoch: 2, state: 'AVAILABLE' });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('requires a joined session heartbeat before resume authority becomes ready', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-resume-authority-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    const broker = new CommandRoomBroker(new SqliteCommandRoomRepository(database), () => new Date('2026-08-30T10:00:00.000Z'));
+
+    try {
+      const created = value(await broker.admin({ action: 'create', name: 'Resume Authority Room', idempotencyKey: 'create-resume-authority', leadSlots: 1 }));
+      const missing = value(await broker.status({
+        action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-2', connectionEpoch: 0,
+      }));
+      expect(missing).toMatchObject({ action: 'resume_check', authority: 'SLOT_NOT_FOUND' });
+
+      const unjoined = value(await broker.status({
+        action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 0,
+      }));
+      expect(unjoined).toMatchObject({
+        action: 'resume_check', authority: 'CREATE_SESSION_REQUIRED', requiredConnectionEpoch: 1,
+        bootstrap: { roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 0 },
+      });
+
+      const main = value(await broker.join({ roomId: created.room.id, slotKey: 'MAIN', joinCode: created.joinCodes.MAIN, provider: 'CHATGPT', connectionEpoch: 1 }));
+      const lead = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-1', joinCode: created.joinCodes['LEAD-1'], provider: 'CHATGPT', connectionEpoch: 1 }));
+      expect(lead.agent.state).toBe('AVAILABLE');
+
+      const beforeHeartbeat = value(await broker.status({
+        action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 1, agentSessionId: lead.agentSessionId,
+      }));
+      expect(beforeHeartbeat).toMatchObject({ action: 'resume_check', authority: 'HEARTBEAT_REQUIRED' });
+
+      const heartbeat = value(await broker.presence({
+        action: 'heartbeat', roomId: created.room.id, agentSessionId: lead.agentSessionId, projectKey: 'resume-authority',
+      }));
+      const ready = value(await broker.status({
+        action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 1, agentSessionId: lead.agentSessionId,
+      }));
+      expect(ready).toMatchObject({
+        action: 'resume_check', authority: 'READY',
+        agent: { slotKey: 'LEAD-1', connectionEpoch: 1, state: 'ONLINE', lastHeartbeatAt: expect.any(String) },
+        bootstrap: { roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 1 },
+      });
+      expect(JSON.stringify(ready.bootstrap)).not.toContain(lead.agentSessionId);
+      expect(JSON.stringify(ready.bootstrap)).not.toContain(created.joinCodes['LEAD-1']);
+
+      value(await broker.admin({
+        action: 'rebind', roomId: created.room.id, agentSessionId: main.agentSessionId, targetSlotKey: 'LEAD-1',
+        expectedVersion: heartbeat.roomVersion, idempotencyKey: 'rotate-resume-authority',
+      }));
+      const staleSessionCalls = await Promise.all([
+        broker.status({
+          action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 1, agentSessionId: lead.agentSessionId,
+        }),
+        broker.status({ roomId: created.room.id, agentSessionId: lead.agentSessionId }),
+        broker.send({
+          roomId: created.room.id, agentSessionId: lead.agentSessionId, targetSlotKey: 'MAIN', kind: 'UPDATE',
+          subject: 'stale session', summary: 'must fail before storage mutation', idempotencyKey: 'stale-session/send',
+        }),
+        broker.inbox({ action: 'read', roomId: created.room.id, agentSessionId: lead.agentSessionId }),
+        broker.task({
+          action: 'claim', roomId: created.room.id, agentSessionId: lead.agentSessionId,
+          taskId: '00000000-0000-4000-8000-000000000001', expectedVersion: 1, idempotencyKey: 'stale-session/task',
+        }),
+        broker.presence({ action: 'heartbeat', roomId: created.room.id, agentSessionId: lead.agentSessionId }),
+        broker.resource({ action: 'status', roomId: created.room.id, agentSessionId: lead.agentSessionId }),
+        broker.admin({
+          action: 'pause', roomId: created.room.id, agentSessionId: lead.agentSessionId,
+          expectedVersion: heartbeat.roomVersion + 1, idempotencyKey: 'stale-session/admin',
+        }),
+      ]);
+      expect(staleSessionCalls).toHaveLength(8);
+      for (const result of staleSessionCalls) {
+        expect(result).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+      }
     } finally {
       database.close();
     }
@@ -491,11 +569,24 @@ describe('CommandRoomBroker', () => {
         provider: 'CHATGPT',
         connectionEpoch: 1,
       }));
+      const heartbeatRequired = responseRecord(await enabled.invoke('command_room_status', {
+        action: 'resume_check', roomId, slotKey: 'LEAD-1', connectionEpoch: 1,
+        agentSessionId: stringField(lead, 'agentSessionId'),
+      }));
+      expect(heartbeatRequired).toMatchObject({ action: 'resume_check', authority: 'HEARTBEAT_REQUIRED' });
+      responseRecord(await enabled.invoke('command_room_presence', {
+        action: 'heartbeat', roomId, agentSessionId: stringField(lead, 'agentSessionId'), projectKey: 'mcp-room',
+      }));
+      const resumeReady = responseRecord(await enabled.invoke('command_room_status', {
+        action: 'resume_check', roomId, slotKey: 'LEAD-1', connectionEpoch: 1,
+        agentSessionId: stringField(lead, 'agentSessionId'),
+      }));
+      expect(resumeReady).toMatchObject({ action: 'resume_check', authority: 'READY' });
       const addedLead = responseRecord(await enabled.invoke('command_room_admin', {
         action: 'add_lead',
         roomId,
         agentSessionId: stringField(main, 'agentSessionId'),
-        expectedVersion: numberField(lead, 'roomVersion'),
+        expectedVersion: numberField(resumeReady, 'roomVersion'),
         idempotencyKey: 'main/manual/add-lead-2',
       }));
       expect(addedLead).toMatchObject({ action: 'add_lead', targetSlotKey: 'LEAD-2', requiredConnectionEpoch: 1, joinCode: expect.any(String) });

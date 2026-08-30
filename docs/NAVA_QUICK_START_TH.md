@@ -103,6 +103,17 @@ NAVA เก็บ Rolling Checkpoint นอกโฟลเดอร์โปร�
 รายงานจุดที่ทำเสร็จ จุดที่ค้าง และ nextAction แล้วทำต่อจากจุดนั้น
 ```
 
+ถ้าโปรเจกต์ใช้ **NAVA Command Room** ให้ตรวจ session เพิ่มอีกชั้น ห้ามถือว่า checkpoint หรือข้อความ bootstrap คือ session ที่ใช้งานได้:
+
+```text
+เข้าห้องเดิมด้วย roomId และ slotKey ที่กำหนด
+ถ้ายังไม่มี session ให้ MAIN rebind แล้ว join ด้วย connectionEpoch ใหม่
+ส่ง heartbeat จาก session ใหม่ แล้วตรวจ command_room_status resume_check
+ทำงานต่อเมื่อ authority เป็น READY เท่านั้น
+```
+
+ผล `SLOT_NOT_FOUND` แปลว่ายังไม่มี slot จริง, `CREATE_SESSION_REQUIRED` แปลว่าต้อง join/rebind, และ `HEARTBEAT_REQUIRED` แปลว่าต้อง heartbeat แล้วอ่านสถานะกลับอีกครั้ง ข้อมูลส่งต่อข้ามแชทเก็บได้เฉพาะ `roomId`, `slotKey`, `connectionEpoch`; ห้ามบันทึก join code หรือ `agentSessionId` ลง Git/Obsidian/log
+
 Checkpoint ไม่ใช่หลักฐานสุดท้าย จึงต้องตรวจ Git, durable task และ Obsidian/tracker ก่อนแก้ไฟล์ต่อ และจะไม่เก็บ prompt, ข้อความแชท, API key, private key หรือ log ขนาดใหญ่
 
 ## เก็บหลักฐานเมื่อ NAVA มีปัญหา

@@ -365,11 +365,19 @@ export interface CommandRoomInboxAckResponse extends CommandRoomEnvelope {
   readonly cursor: number;
 }
 
-export interface CommandRoomStatusInput {
-  readonly roomId: string;
-  readonly agentSessionId: string;
-  readonly taskLimit?: number | undefined;
-}
+export type CommandRoomStatusInput =
+  | {
+    readonly roomId: string;
+    readonly agentSessionId: string;
+    readonly taskLimit?: number | undefined;
+  }
+  | {
+    readonly action: 'resume_check';
+    readonly roomId: string;
+    readonly slotKey: string;
+    readonly connectionEpoch: number;
+    readonly agentSessionId?: string | undefined;
+  };
 
 export interface CommandRoomStatusResponse extends CommandRoomEnvelope {
   readonly room: CommandRoomRecord;
@@ -386,6 +394,18 @@ export interface CommandRoomStatusResponse extends CommandRoomEnvelope {
     readonly leases: readonly CommandRoomResourceLeaseRecord[];
     readonly queueDepth: number;
   };
+}
+
+export interface CommandRoomResumeCheckResponse extends CommandRoomEnvelope {
+  readonly action: 'resume_check';
+  readonly authority: 'SLOT_NOT_FOUND' | 'CREATE_SESSION_REQUIRED' | 'HEARTBEAT_REQUIRED' | 'READY';
+  readonly bootstrap?: {
+    readonly roomId: string;
+    readonly slotKey: string;
+    readonly connectionEpoch: number;
+  };
+  readonly requiredConnectionEpoch?: number;
+  readonly agent?: PublicCommandRoomAgent;
 }
 
 export interface CommandRoomPresenceInput {
@@ -749,7 +769,8 @@ export class CommandRoomBroker {
     });
   }
 
-  public async status(input: CommandRoomStatusInput): Promise<Result<CommandRoomStatusResponse>> {
+  public async status(input: CommandRoomStatusInput): Promise<Result<CommandRoomStatusResponse | CommandRoomResumeCheckResponse>> {
+    if ('action' in input) return this.resumeCheck(input);
     const authenticated = await this.authenticate(input.roomId, input.agentSessionId, true);
     if (!authenticated.ok) return authenticated;
     const taskLimit = input.taskLimit ?? 50;
@@ -780,6 +801,41 @@ export class CommandRoomBroker {
       resources: resourceSnapshot === undefined
         ? { mode: 'PHASE_1_MANUAL', entries: [], leases: [], queueDepth: 0 }
         : { mode: 'SCHEDULED', entries: resourceSnapshot.resources, leases: resourceSnapshot.leases, queueDepth: resourceSnapshot.queueDepth },
+    });
+  }
+
+  private async resumeCheck(input: Extract<CommandRoomStatusInput, { readonly action: 'resume_check' }>): Promise<Result<CommandRoomResumeCheckResponse>> {
+    if (!Number.isInteger(input.connectionEpoch) || input.connectionEpoch < 0) {
+      return err(appError('INVALID_INPUT', 'connectionEpoch must be a non-negative integer'));
+    }
+    const room = await this.repository.getRoom(input.roomId);
+    if (room === null) return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));
+    const slotKey = input.slotKey.trim().toUpperCase();
+    const agent = await this.repository.getAgentBySlot(input.roomId, slotKey);
+    if (agent === null) {
+      return ok({ ...envelope(room.version, this.now()), action: 'resume_check', authority: 'SLOT_NOT_FOUND' });
+    }
+    const bootstrap = { roomId: room.id, slotKey: agent.slotKey, connectionEpoch: agent.connectionEpoch };
+    if (input.agentSessionId === undefined) {
+      return ok({
+        ...envelope(room.version, this.now()),
+        action: 'resume_check',
+        authority: 'CREATE_SESSION_REQUIRED',
+        bootstrap,
+        requiredConnectionEpoch: agent.connectionEpoch + 1,
+      });
+    }
+    if (input.agentSessionId.length < 16 || input.agentSessionId.length > 256
+      || agent.sessionHash !== hash(input.agentSessionId) || agent.connectionEpoch !== input.connectionEpoch) {
+      return err(appError('PERMISSION_DENIED', 'Command Room session is invalid or no longer active'));
+    }
+    const ready = agent.lastHeartbeatAt !== undefined && (agent.state === 'ONLINE' || agent.state === 'WORKING');
+    return ok({
+      ...envelope(room.version, this.now()),
+      action: 'resume_check',
+      authority: ready ? 'READY' : 'HEARTBEAT_REQUIRED',
+      bootstrap,
+      agent: publicAgent(agent),
     });
   }
 

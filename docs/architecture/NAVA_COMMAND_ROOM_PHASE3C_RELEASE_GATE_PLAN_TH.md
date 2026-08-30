@@ -144,7 +144,8 @@ Gate:
 - resume ตรวจ `roomId + slotKey + connectionEpoch` และต้องพิสูจน์ session ผ่าน join/rebind flow จริง
 - slot ไม่มีต้องตอบ `SLOT_NOT_FOUND`; slot มีแต่ยังไม่ join ต้องตอบ `CREATE_SESSION_REQUIRED`
 - join/rebind สำเร็จแล้วต้อง heartbeat จาก session ใหม่และอ่าน status กลับก่อนรายงานว่า ONLINE/resumed
-- old session/epoch ต้องใช้ status, inbox, task หรือ wake authority ต่อไม่ได้
+- `command_room_status action=resume_check` ต้องคืน authority แบบชัดเจน: `SLOT_NOT_FOUND`, `CREATE_SESSION_REQUIRED`, `HEARTBEAT_REQUIRED` หรือ `READY`
+- old session/epoch ต้องใช้ status, send, inbox, task, presence, resource, admin หรือ wake authority ต่อไม่ได้
 - bootstrap update ต้อง atomic, bounded, redacted และไม่เก็บ raw session/join code ใน Git/Obsidian/log
 
 ## Phase 3C.7 — Command Room Live State

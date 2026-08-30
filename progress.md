@@ -1,3 +1,20 @@
+# 2026-08-30 NAVA Command Room Phase 3C.6 started
+
+- Read the `nava-command-room`, `scqa-task-brief`, `planning-with-files`, `tdd`, and `ponytail` instructions.
+- Verified remote `main` at `f9792d6` and created `feature/command-room-session-authority` from that green baseline.
+- Froze the Session Authority SCQA, acceptance criteria, safety boundaries, and vertical TDD phases.
+- Confirmed installed runtime changes are excluded and the active connector does not expose Command Room/writer-lease tools; no lease or runtime authority is being claimed.
+- Inspected the repository/broker/continuity seams. Existing session hashes and epochs already fail stale sessions closed; the next tracer will target the missing pre-session resume classification and post-join readiness proof rather than duplicating authentication.
+- Read the exact join/rebind transactions and current takeover regression. Rebind clears session authority atomically; join currently reports ONLINE immediately, so the next RED tracer will require explicit heartbeat plus status verification before readiness.
+- Inspected MCP schemas and shared error contracts. Chose not to add global error codes or overload the write-only join schema; the candidate is a read-only broker preflight/readiness method exposed through the existing status tool only if the public contract stays concise.
+- Confirmed there is no bootstrap persistence code to extend. The minimal design will keep SQLite agent records authoritative and expose only bounded room/slot/epoch recovery material; it will not create a second bootstrap store.
+- NAVA Tunnel reconnected. Workspace `NAVA Agent Dev` had no active writer; lease `8d1b5c5b-98ec-4af2-98bc-f8207bad75c2` was acquired for this Phase 3C.6 branch.
+- Added one vertical broker tracer. RED reproduced the pre-session status gap with 7/8 existing tests green; GREEN now passes all 8/8.
+- Implemented resume authority through the existing `command_room_status` tool shape: anonymous bounded preflight, explicit heartbeat readiness, and fail-closed stale session/epoch validation.
+- Extended the existing ToolRegistry flow through real MCP schemas/handlers; after correcting its optimistic room version, the full broker + public tool file passes 8/8.
+
+---
+
 # 2026-08-28 NAVA Command Room Phase 1 deployment
 
 - Authorized deployment started from clean commit `290b795`; installed runtime is still the prior build at `D:\Program Files\NAVA Agent`.
@@ -692,3 +709,14 @@
 - No installed NAVA, Tunnel, production database, Command Room slot, HERMES workspace, or browser extension was changed in this source/CI slice.
 - First PR run `33291460552` reproduced the GitHub failure with phase evidence. Dashboard reached MCP-ready at 71.6s but exceeded the 90s total budget; MCP-client and security also failed renderer readiness paths.
 - The initial isolated jobs stopped at missing workspace type outputs, so CI now runs root typecheck before each filtered E2E. A second PR run is required for valid isolation evidence.
+# 2026-08-30 Phase 3C.6 continuation
+
+- Renewed NAVA workspace writer lease through 2026-08-30T11:10:06.225Z.
+- Verified Extension wake lookup is already exact-epoch authority; no parallel bootstrap store is needed.
+- Added stale-session regression matrix for all shared broker actions.
+- CLI package test gate passed: 9 files, 31 tests, including Command Room 8/8.
+- Updated Command Room skill and roadmap/progress docs to require heartbeat plus `resume_check=READY` before takeover.
+- Storage passed 25/25, application 68/68, MCP server 177/177, and Desktop 242/242.
+- Root project-reference typecheck, changed-source ESLint, synchronized 227-tool catalog check, Git diff check, and skill validation passed.
+- Secret/artifact guard completed. It reported only pre-existing ignored build/install/dependency artifacts; the 11 task-owned changed files contain no file over 10 MB and no recognized secret value pattern.
+- Fetched `nava/main`; branch and remote baseline remain aligned at `f9792d6` before commit.
