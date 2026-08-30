@@ -9,6 +9,12 @@ import {
   type ClearLogBufferRequest,
   type CommandRoomAgentState,
   type CommandRoomAgentSummary,
+  type CommandRoomExtensionAgentSummary,
+  type CommandRoomExtensionBindingState,
+  type CommandRoomExtensionBridgeStatus,
+  type CommandRoomExtensionOverview,
+  type CommandRoomExtensionWakeState,
+  type CommandRoomExtensionWakeSummary,
   type CommandRoomOverview,
   type CommandRoomProvider,
   type CommandRoomRole,
@@ -18,7 +24,9 @@ import {
   type CommandRoomTaskSummary,
   type ConfigureTunnelProfileRequest,
   type CreateCommandRoomResult,
+  type CreateCommandRoomPairingResult,
   type DeleteCommandRoomRequest,
+  type RevokeCommandRoomExtensionBindingResult,
   type DashboardSnapshot,
   type DoctorCheck,
   type DoctorReport,
@@ -50,6 +58,7 @@ import {
   type UiLocale,
   type UpdateStatus,
   type UserSettings,
+  type WakeCommandRoomAgentResult,
   type WorkLogEntry,
   type WorkspaceSummary,
 } from '@lnwjud/ipc-contracts';
@@ -204,6 +213,91 @@ function commandRoomSummary(value: unknown): CommandRoomSummary {
 function commandRoomOverview(value: unknown): CommandRoomOverview {
   if (!isRecord(value) || !Array.isArray(value.rooms)) throw new Error('Invalid IPC response');
   return { rooms: value.rooms.map(commandRoomSummary) };
+}
+
+function commandRoomExtensionWakeSummary(value: unknown): CommandRoomExtensionWakeSummary {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const taskId = optionalStringField(value, 'taskId');
+  const nextEligibleAt = optionalStringField(value, 'nextEligibleAt');
+  const lastErrorCode = optionalStringField(value, 'lastErrorCode');
+  return {
+    id: stringField(value, 'id'),
+    reason: enumField(value, 'reason', ['TASK_ASSIGNED', 'HANDOFF_READY', 'USER_WAKE']),
+    state: enumField<CommandRoomExtensionWakeState>(value, 'state', ['QUEUED', 'ATTEMPTING', 'DELIVERED', 'SUBMITTED', 'MANUAL_FALLBACK', 'DEAD_LETTER', 'CANCELLED']),
+    attemptCount: numberField(value, 'attemptCount'),
+    ...(taskId === undefined ? {} : { taskId }),
+    ...(nextEligibleAt === undefined ? {} : { nextEligibleAt }),
+    ...(lastErrorCode === undefined ? {} : { lastErrorCode }),
+    updatedAt: stringField(value, 'updatedAt'),
+  };
+}
+
+function commandRoomExtensionAgentSummary(value: unknown): CommandRoomExtensionAgentSummary {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const bindingId = optionalStringField(value, 'bindingId');
+  const pairedAt = optionalStringField(value, 'pairedAt');
+  const lastSeenAt = optionalStringField(value, 'lastSeenAt');
+  const updatedAt = optionalStringField(value, 'updatedAt');
+  const lastWake = value.lastWake === undefined ? undefined : commandRoomExtensionWakeSummary(value.lastWake);
+  return {
+    roomId: stringField(value, 'roomId'),
+    slotKey: stringField(value, 'slotKey'),
+    connectionEpoch: numberField(value, 'connectionEpoch'),
+    bindingState: enumField<CommandRoomExtensionBindingState>(value, 'bindingState', ['UNPAIRED', 'CHALLENGED', 'PAIRED', 'STALE', 'REVOKED', 'REPLACED']),
+    ...(bindingId === undefined ? {} : { bindingId }),
+    ...(pairedAt === undefined ? {} : { pairedAt }),
+    ...(lastSeenAt === undefined ? {} : { lastSeenAt }),
+    ...(updatedAt === undefined ? {} : { updatedAt }),
+    ...(lastWake === undefined ? {} : { lastWake }),
+  };
+}
+
+function commandRoomExtensionBridgeStatus(value: unknown): CommandRoomExtensionBridgeStatus {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    enabled: booleanField(value, 'enabled'),
+    running: booleanField(value, 'running'),
+    url: nullableString(value.url),
+    allowedOrigins: stringList(value.allowedOrigins),
+    message: nullableString(value.message),
+  };
+}
+
+function commandRoomExtensionOverview(value: unknown): CommandRoomExtensionOverview {
+  if (!isRecord(value) || !Array.isArray(value.agents)) throw new Error('Invalid IPC response');
+  return {
+    bridge: commandRoomExtensionBridgeStatus(value.bridge),
+    agents: value.agents.map(commandRoomExtensionAgentSummary),
+  };
+}
+
+function createCommandRoomPairingResult(value: unknown): CreateCommandRoomPairingResult {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  return {
+    roomId: stringField(value, 'roomId'),
+    slotKey: stringField(value, 'slotKey'),
+    bindingId: stringField(value, 'bindingId'),
+    challenge: stringField(value, 'challenge'),
+    expiresAt: stringField(value, 'expiresAt'),
+    connectionEpoch: numberField(value, 'connectionEpoch'),
+    bridgeUrl: stringField(value, 'bridgeUrl'),
+    allowedOrigins: stringList(value.allowedOrigins),
+  };
+}
+
+function wakeCommandRoomAgentResult(value: unknown): WakeCommandRoomAgentResult {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const outcome = enumField(value, 'outcome', ['queued', 'coalesced', 'unpaired', 'binding_not_active', 'stale_epoch', 'not_found', 'binding_budget_exhausted', 'room_budget_exhausted', 'circuit_open'] as const);
+  if (outcome === 'queued') return { outcome, duplicate: booleanField(value, 'duplicate'), wake: commandRoomExtensionWakeSummary(value.wake) };
+  if (outcome === 'coalesced') return { outcome, wake: commandRoomExtensionWakeSummary(value.wake) };
+  return { outcome };
+}
+
+function revokeCommandRoomExtensionBindingResult(value: unknown): RevokeCommandRoomExtensionBindingResult {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const revoked = booleanField(value, 'revoked');
+  const binding = value.binding === undefined ? undefined : commandRoomExtensionAgentSummary(value.binding);
+  return { revoked, ...(binding === undefined ? {} : { binding }) };
 }
 
 function createCommandRoomResult(value: unknown): CreateCommandRoomResult {
@@ -816,6 +910,14 @@ const api: LnwjudApi = {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { deleted: booleanField(value, 'deleted') };
   }),
+  getCommandRoomExtensionOverview: () => invoke(ipcChannels.getCommandRoomExtensionOverview).then(commandRoomExtensionOverview),
+  setCommandRoomExtensionConfig: (request) => invoke(ipcChannels.setCommandRoomExtensionConfig, {
+    enabled: request.enabled,
+    allowedOrigins: [...request.allowedOrigins],
+  }).then(commandRoomExtensionBridgeStatus),
+  createCommandRoomPairing: (request) => invoke(ipcChannels.createCommandRoomPairing, { roomId: request.roomId, slotKey: request.slotKey }).then(createCommandRoomPairingResult),
+  wakeCommandRoomAgent: (request) => invoke(ipcChannels.wakeCommandRoomAgent, { roomId: request.roomId, slotKey: request.slotKey }).then(wakeCommandRoomAgentResult),
+  revokeCommandRoomExtensionBinding: (request) => invoke(ipcChannels.revokeCommandRoomExtensionBinding, { roomId: request.roomId, slotKey: request.slotKey }).then(revokeCommandRoomExtensionBindingResult),
   setPermissionProfile,
   setUnrestrictedMode,
   setAiDeletePolicy,

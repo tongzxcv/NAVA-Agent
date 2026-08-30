@@ -286,10 +286,10 @@ function constantTimeTextEqual(left: string, right: string): boolean {
 }
 
 function allowedOrigin(allowlist: readonly string[], origin: string): boolean {
-  return allowlist.some((entry) => isExtensionOrigin(entry) && entry === origin);
+  return allowlist.some((entry) => isCommandRoomExtensionOrigin(entry) && entry === origin);
 }
 
-function isExtensionOrigin(value: string): boolean {
+export function isCommandRoomExtensionOrigin(value: string): boolean {
   return /^chrome-extension:\/\/[a-z]{32}$/.test(value) || /^moz-extension:\/\/[0-9a-f-]{16,64}$/i.test(value);
 }
 

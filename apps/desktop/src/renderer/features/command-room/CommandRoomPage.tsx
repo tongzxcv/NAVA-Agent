@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import type { CommandRoomOverview, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
+import type { CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 
 interface CommandRoomPageProps {
@@ -9,6 +9,12 @@ interface CommandRoomPageProps {
 
 export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement {
   const [overview, setOverview] = useState<CommandRoomOverview>({ rooms: [] });
+  const [extensionOverview, setExtensionOverview] = useState<CommandRoomExtensionOverview>({
+    bridge: { enabled: false, running: false, url: null, allowedOrigins: [], message: null },
+    agents: [],
+  });
+  const [extensionOrigin, setExtensionOrigin] = useState('');
+  const [pairing, setPairing] = useState<CreateCommandRoomPairingResult | null>(null);
   const [roomName, setRoomName] = useState('NAVA Command Room');
   const [created, setCreated] = useState<CreateCommandRoomResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -17,7 +23,13 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      setOverview(await window.lnwjud.getCommandRoomOverview());
+      const [rooms, extension] = await Promise.all([
+        window.lnwjud.getCommandRoomOverview(),
+        window.lnwjud.getCommandRoomExtensionOverview(),
+      ]);
+      setOverview(rooms);
+      setExtensionOverview(extension);
+      setExtensionOrigin((current) => current.trim().length > 0 ? current : extension.bridge.allowedOrigins[0] ?? '');
       setError(null);
     } catch (cause: unknown) {
       setError(message(cause, text(locale, 'โหลด Command Room ไม่สำเร็จ', 'Could not load Command Rooms')));
@@ -67,6 +79,83 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
     } catch (cause: unknown) {
       setError(message(cause, text(locale, 'ลบห้อง Archived ไม่สำเร็จครบทุกห้อง', 'Could not delete all archived rooms')));
       await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setExtensionConfig(enabled: boolean): Promise<void> {
+    const origin = extensionOrigin.trim();
+    if (enabled && origin.length === 0) {
+      setError(text(locale, 'ใส่ chrome-extension://... ก่อนเปิด Extension Wake', 'Enter chrome-extension://... before enabling Extension Wake.'));
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const bridge = await window.lnwjud.setCommandRoomExtensionConfig({
+        enabled,
+        allowedOrigins: origin.length === 0 ? extensionOverview.bridge.allowedOrigins : [origin],
+      });
+      setExtensionOverview((current) => ({ ...current, bridge }));
+      setNotice(enabled
+        ? text(locale, bridge.running ? 'เปิด Extension Wake แล้ว' : 'บันทึก Extension Wake แล้ว แต่ Bridge ยังไม่พร้อม', bridge.running ? 'Extension Wake is enabled.' : 'Extension Wake is enabled, but the Bridge is not ready yet.')
+        : text(locale, 'ปิด Extension Wake แล้ว', 'Extension Wake is disabled.'));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ตั้งค่า Extension Wake ไม่สำเร็จ', 'Could not configure Extension Wake')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createPairing(roomId: string, slotKey: string): Promise<void> {
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.createCommandRoomPairing({ roomId, slotKey });
+      setPairing(result);
+      setNotice(text(locale, `สร้าง Pairing สำหรับ ${slotKey} แล้ว กดคัดลอกภายในเวลาที่กำหนด`, `Pairing for ${slotKey} is ready. Copy it before it expires.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'สร้าง Pairing ไม่สำเร็จ', 'Could not create pairing')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function wakeAgent(roomId: string, slotKey: string): Promise<void> {
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.wakeCommandRoomAgent({ roomId, slotKey });
+      setNotice(text(locale, `Wake ${slotKey}: ${result.outcome}`, `Wake ${slotKey}: ${result.outcome}`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ส่ง Wake ไม่สำเร็จ', 'Could not queue wake')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeBinding(roomId: string, slotKey: string): Promise<void> {
+    const confirmed = window.confirm(text(locale, `ยกเลิก Browser Pairing ของ ${slotKey} หรือไม่?`, `Revoke browser pairing for ${slotKey}?`));
+    if (!confirmed) return;
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.revokeCommandRoomExtensionBinding({ roomId, slotKey });
+      if (pairing?.roomId === roomId && pairing.slotKey === slotKey) setPairing(null);
+      setNotice(result.revoked
+        ? text(locale, `ยกเลิก Pairing ของ ${slotKey} แล้ว`, `Pairing for ${slotKey} was revoked.`)
+        : text(locale, `ไม่พบ Pairing ของ ${slotKey}`, `No pairing was found for ${slotKey}.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ยกเลิก Pairing ไม่สำเร็จ', 'Could not revoke pairing')));
     } finally {
       setBusy(false);
     }
@@ -157,6 +246,53 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
         </section>
       )}
 
+      <section className="panel command-room-extension" aria-labelledby="command-room-extension-title">
+        <div className="section-heading">
+          <div>
+            <h2 id="command-room-extension-title">{text(locale, 'Browser Extension Wake (Phase 3)', 'Browser Extension Wake (Phase 3)')}</h2>
+            <p className="hint">
+              {text(locale, 'Bridge เป็น loopback-only และไม่เปิด generic MCP/tool proxy', 'The Bridge is loopback-only and never exposes a generic MCP/tool proxy.')}
+            </p>
+          </div>
+          <span className={`command-room-status ${extensionOverview.bridge.running ? 'status-active' : 'status-archived'}`}>
+            {extensionOverview.bridge.running ? 'BRIDGE ONLINE' : extensionOverview.bridge.enabled ? 'BRIDGE ERROR' : 'OPT-IN OFF'}
+          </span>
+        </div>
+        <div className="form-row">
+          <input
+            aria-label={text(locale, 'Extension origin', 'Extension origin')}
+            placeholder="chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            value={extensionOrigin}
+            onChange={(event) => setExtensionOrigin(event.target.value)}
+            disabled={busy}
+          />
+          <button type="button" onClick={() => { void setExtensionConfig(true); }} disabled={busy || extensionOverview.bridge.running}>
+            {text(locale, 'เปิด Extension Wake', 'Enable Extension Wake')}
+          </button>
+          <button type="button" onClick={() => { void setExtensionConfig(false); }} disabled={busy || !extensionOverview.bridge.enabled}>
+            {text(locale, 'ปิด', 'Disable')}
+          </button>
+        </div>
+        <div className="command-room-resource-metrics">
+          <span>{text(locale, 'Bridge', 'Bridge')} <strong>{extensionOverview.bridge.url ?? 'OFFLINE'}</strong></span>
+          <span>{text(locale, 'Origins', 'Origins')} <strong>{extensionOverview.bridge.allowedOrigins.length}</strong></span>
+        </div>
+        {extensionOverview.bridge.message === null ? null : <div className="error-banner" role="alert">{extensionOverview.bridge.message}</div>}
+        {pairing === null ? null : (
+          <div className="command-room-notice" role="status">
+            <strong>{text(locale, `Pairing พร้อมสำหรับ ${pairing.slotKey}`, `Pairing ready for ${pairing.slotKey}`)}</strong>
+            <span>{text(locale, `หมดอายุ ${formatDate(pairing.expiresAt, locale)} — secret จะไม่ถูกแสดงบนหน้าจอ`, `Expires ${formatDate(pairing.expiresAt, locale)} — the secret is never rendered on screen.`)}</span>
+            <div className="command-room-room-actions">
+              <button type="button" onClick={() => { void copyTextToClipboard(pairingPayload(pairing)); }}>
+                {text(locale, 'คัดลอก Pairing Payload', 'Copy pairing payload')}
+              </button>
+              <button type="button" onClick={() => setPairing(null)}>{text(locale, 'ล้าง Pairing', 'Clear pairing')}</button>
+            </div>
+          </div>
+        )}
+        <p className="hint">{text(locale, 'DELIVERED / SUBMITTED เป็นสถานะ browser เท่านั้น; TASK_CLAIMED ต้องเกิดจาก agent กลับมา claim งานจริง', 'DELIVERED / SUBMITTED are browser states only; TASK_CLAIMED requires the agent to actually return and claim the task.')}</p>
+      </section>
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -200,13 +336,46 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                   </div>
                 </header>
                 <div className="command-room-agent-grid">
-                  {room.agents.map((agent) => (
-                    <div className="command-room-agent" key={agent.slotKey}>
-                      <strong>{agent.slotKey}</strong>
-                      <span>{agent.state}</span>
-                      <small>{agent.projectKey ?? text(locale, 'ยังไม่ผูกโปรเจกต์', 'No project bound')}</small>
-                    </div>
-                  ))}
+                  {room.agents.map((agent) => {
+                    const extensionAgent = findExtensionAgent(extensionOverview, room.id, agent.slotKey);
+                    const canRevoke = extensionAgent !== undefined && extensionAgent.bindingId !== undefined
+                      && !['UNPAIRED', 'REVOKED', 'REPLACED'].includes(extensionAgent.bindingState);
+                    return (
+                      <div className="command-room-agent" key={agent.slotKey}>
+                        <strong>{agent.slotKey}</strong>
+                        <span>{agent.state}</span>
+                        <small>{agent.projectKey ?? text(locale, 'ยังไม่ผูกโปรเจกต์', 'No project bound')}</small>
+                        <small>Browser · {extensionAgent?.bindingState ?? 'UNPAIRED'} · epoch {extensionAgent?.connectionEpoch ?? 0}</small>
+                        {extensionAgent?.lastWake === undefined ? null : (
+                          <small>Wake · {extensionAgent.lastWake.state} · attempt {extensionAgent.lastWake.attemptCount}</small>
+                        )}
+                        <div className="command-room-room-actions">
+                          <button
+                            type="button"
+                            disabled={busy || !extensionOverview.bridge.running || extensionAgent?.bindingState === 'PAIRED'}
+                            onClick={() => { void createPairing(room.id, agent.slotKey); }}
+                          >
+                            {text(locale, 'Pair', 'Pair')}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || !extensionOverview.bridge.running || extensionAgent?.bindingState !== 'PAIRED'}
+                            onClick={() => { void wakeAgent(room.id, agent.slotKey); }}
+                          >
+                            {text(locale, 'Wake', 'Wake')}
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-soft-button"
+                            disabled={busy || !canRevoke}
+                            onClick={() => { void revokeBinding(room.id, agent.slotKey); }}
+                          >
+                            {text(locale, 'Revoke', 'Revoke')}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="command-room-resource-board">
                   <div className="command-room-resource-metrics">
@@ -253,6 +422,24 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
       </section>
     </div>
   );
+}
+
+function findExtensionAgent(overview: CommandRoomExtensionOverview, roomId: string, slotKey: string): CommandRoomExtensionAgentSummary | undefined {
+  return overview.agents.find((agent) => agent.roomId === roomId && agent.slotKey === slotKey);
+}
+
+function pairingPayload(pairing: CreateCommandRoomPairingResult): string {
+  return JSON.stringify({
+    protocolVersion: 1,
+    bridgeUrl: pairing.bridgeUrl,
+    roomId: pairing.roomId,
+    slotKey: pairing.slotKey,
+    bindingId: pairing.bindingId,
+    challenge: pairing.challenge,
+    expiresAt: pairing.expiresAt,
+    connectionEpoch: pairing.connectionEpoch,
+    allowedOrigins: pairing.allowedOrigins,
+  }, null, 2);
 }
 
 function bootPrompt(locale: UiLocale, roomId: string, slotKey: string, joinCode: string): string {

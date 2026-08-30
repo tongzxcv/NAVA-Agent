@@ -41,6 +41,11 @@ export const ipcChannels = {
   getCommandRoomOverview: 'lnwjud:get-command-room-overview',
   createCommandRoom: 'lnwjud:create-command-room',
   deleteCommandRoom: 'lnwjud:delete-command-room',
+  getCommandRoomExtensionOverview: 'lnwjud:get-command-room-extension-overview',
+  setCommandRoomExtensionConfig: 'lnwjud:set-command-room-extension-config',
+  createCommandRoomPairing: 'lnwjud:create-command-room-pairing',
+  wakeCommandRoomAgent: 'lnwjud:wake-command-room-agent',
+  revokeCommandRoomExtensionBinding: 'lnwjud:revoke-command-room-extension-binding',
 } as const;
 
 export const pushChannels = {
@@ -135,6 +140,86 @@ export interface CreateCommandRoomResult {
 
 export interface DeleteCommandRoomRequest {
   readonly roomId: string;
+}
+
+export type CommandRoomExtensionBindingState = 'UNPAIRED' | 'CHALLENGED' | 'PAIRED' | 'STALE' | 'REVOKED' | 'REPLACED';
+export type CommandRoomExtensionWakeState = 'QUEUED' | 'ATTEMPTING' | 'DELIVERED' | 'SUBMITTED' | 'MANUAL_FALLBACK' | 'DEAD_LETTER' | 'CANCELLED';
+
+export interface CommandRoomExtensionWakeSummary {
+  readonly id: string;
+  readonly reason: 'TASK_ASSIGNED' | 'HANDOFF_READY' | 'USER_WAKE';
+  readonly state: CommandRoomExtensionWakeState;
+  readonly attemptCount: number;
+  readonly taskId?: string;
+  readonly nextEligibleAt?: string;
+  readonly lastErrorCode?: string;
+  readonly updatedAt: string;
+}
+
+export interface CommandRoomExtensionAgentSummary {
+  readonly roomId: string;
+  readonly slotKey: string;
+  readonly connectionEpoch: number;
+  readonly bindingState: CommandRoomExtensionBindingState;
+  readonly bindingId?: string;
+  readonly pairedAt?: string;
+  readonly lastSeenAt?: string;
+  readonly updatedAt?: string;
+  readonly lastWake?: CommandRoomExtensionWakeSummary;
+}
+
+export interface CommandRoomExtensionBridgeStatus {
+  readonly enabled: boolean;
+  readonly running: boolean;
+  readonly url: string | null;
+  readonly allowedOrigins: readonly string[];
+  readonly message: string | null;
+}
+
+export interface CommandRoomExtensionOverview {
+  readonly bridge: CommandRoomExtensionBridgeStatus;
+  readonly agents: readonly CommandRoomExtensionAgentSummary[];
+}
+
+export interface SetCommandRoomExtensionConfigRequest {
+  readonly enabled: boolean;
+  readonly allowedOrigins: readonly string[];
+}
+
+export interface CreateCommandRoomPairingRequest {
+  readonly roomId: string;
+  readonly slotKey: string;
+}
+
+export interface CreateCommandRoomPairingResult {
+  readonly roomId: string;
+  readonly slotKey: string;
+  readonly bindingId: string;
+  readonly challenge: string;
+  readonly expiresAt: string;
+  readonly connectionEpoch: number;
+  readonly bridgeUrl: string;
+  readonly allowedOrigins: readonly string[];
+}
+
+export interface WakeCommandRoomAgentRequest {
+  readonly roomId: string;
+  readonly slotKey: string;
+}
+
+export type WakeCommandRoomAgentResult =
+  | { readonly outcome: 'queued'; readonly duplicate: boolean; readonly wake: CommandRoomExtensionWakeSummary }
+  | { readonly outcome: 'coalesced'; readonly wake: CommandRoomExtensionWakeSummary }
+  | { readonly outcome: 'unpaired' | 'binding_not_active' | 'stale_epoch' | 'not_found' | 'binding_budget_exhausted' | 'room_budget_exhausted' | 'circuit_open' };
+
+export interface RevokeCommandRoomExtensionBindingRequest {
+  readonly roomId: string;
+  readonly slotKey: string;
+}
+
+export interface RevokeCommandRoomExtensionBindingResult {
+  readonly revoked: boolean;
+  readonly binding?: CommandRoomExtensionAgentSummary;
 }
 export type AgentState = 'stopped' | 'idle' | 'busy';
 export type TunnelRunState = 'stopped' | 'starting' | 'running' | 'error';
@@ -518,6 +603,11 @@ export interface IpcRequestMap {
   readonly [ipcChannels.getCommandRoomOverview]: undefined;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomRequest;
   readonly [ipcChannels.deleteCommandRoom]: DeleteCommandRoomRequest;
+  readonly [ipcChannels.getCommandRoomExtensionOverview]: undefined;
+  readonly [ipcChannels.setCommandRoomExtensionConfig]: SetCommandRoomExtensionConfigRequest;
+  readonly [ipcChannels.createCommandRoomPairing]: CreateCommandRoomPairingRequest;
+  readonly [ipcChannels.wakeCommandRoomAgent]: WakeCommandRoomAgentRequest;
+  readonly [ipcChannels.revokeCommandRoomExtensionBinding]: RevokeCommandRoomExtensionBindingRequest;
 }
 
 export interface IpcResponseMap {
@@ -560,6 +650,11 @@ export interface IpcResponseMap {
   readonly [ipcChannels.getCommandRoomOverview]: CommandRoomOverview;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomResult;
   readonly [ipcChannels.deleteCommandRoom]: { readonly deleted: boolean };
+  readonly [ipcChannels.getCommandRoomExtensionOverview]: CommandRoomExtensionOverview;
+  readonly [ipcChannels.setCommandRoomExtensionConfig]: CommandRoomExtensionBridgeStatus;
+  readonly [ipcChannels.createCommandRoomPairing]: CreateCommandRoomPairingResult;
+  readonly [ipcChannels.wakeCommandRoomAgent]: WakeCommandRoomAgentResult;
+  readonly [ipcChannels.revokeCommandRoomExtensionBinding]: RevokeCommandRoomExtensionBindingResult;
 }
 
 export interface LnwjudApi {
@@ -602,6 +697,11 @@ export interface LnwjudApi {
   getCommandRoomOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomOverview]>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.createCommandRoom]>;
   deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.deleteCommandRoom]>;
+  getCommandRoomExtensionOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomExtensionOverview]>;
+  setCommandRoomExtensionConfig(request: SetCommandRoomExtensionConfigRequest): Promise<IpcResponseMap[typeof ipcChannels.setCommandRoomExtensionConfig]>;
+  createCommandRoomPairing(request: CreateCommandRoomPairingRequest): Promise<IpcResponseMap[typeof ipcChannels.createCommandRoomPairing]>;
+  wakeCommandRoomAgent(request: WakeCommandRoomAgentRequest): Promise<IpcResponseMap[typeof ipcChannels.wakeCommandRoomAgent]>;
+  revokeCommandRoomExtensionBinding(request: RevokeCommandRoomExtensionBindingRequest): Promise<IpcResponseMap[typeof ipcChannels.revokeCommandRoomExtensionBinding]>;
   onLogEvent(callback: (line: LogLine) => void): () => void;
   onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
 }

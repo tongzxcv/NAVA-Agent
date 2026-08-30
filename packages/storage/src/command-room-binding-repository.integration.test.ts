@@ -105,6 +105,7 @@ describe('SqliteCommandRoomBindingRepository', () => {
     })).toEqual({ outcome: 'stale_epoch' });
 
     expect((await repository.replace('binding-1', '2026-08-30T00:01:01.000Z'))?.state).toBe('REPLACED');
+    expect(await repository.getWake('wake-1')).toMatchObject({ state: 'CANCELLED', lastErrorCode: 'BINDING_REPLACED' });
     const epoch2 = await repository.createChallenge({
       id: 'binding-2', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1', provider: 'CHATGPT',
       connectionEpoch: 2, challengeHash: 'sha256:challenge-2', challengeExpiresAt: '2026-08-30T00:06:00.000Z',
@@ -127,7 +128,7 @@ describe('SqliteCommandRoomBindingRepository', () => {
     expect(await reopened.getActiveBinding('room-1', 'lead-1', 2)).toMatchObject({
       id: 'binding-2', state: 'PAIRED', connectionEpoch: 2,
     });
-    expect(await reopened.getWake('wake-1')).toMatchObject({ state: 'QUEUED', attemptCount: 0 });
+    expect(await reopened.getWake('wake-1')).toMatchObject({ state: 'CANCELLED', attemptCount: 0, lastErrorCode: 'BINDING_REPLACED' });
     reopenedDatabase.close();
   });
 
@@ -205,6 +206,16 @@ describe('SqliteCommandRoomBindingRepository', () => {
       .rejects.toThrow('exhausted its attempt budget');
     expect(await repository.markWakeDeadLetter('wake-budget', '2026-08-30T00:04:01.000Z', 'ATTEMPT_LIMIT'))
       .toMatchObject({ state: 'DEAD_LETTER', attemptCount: 3, lastErrorCode: 'ATTEMPT_LIMIT' });
+
+    await repository.enqueueWake({
+      id: 'wake-revoke-pending', roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-wake',
+      eventKey: 'USER_WAKE:revoke-pending', reason: 'USER_WAKE', nextEligibleAt: NOW, createdAt: NOW,
+    });
+    expect((await repository.revoke('binding-wake', '2026-08-30T00:05:00.000Z'))?.state).toBe('REVOKED');
+    expect(await repository.getWake('wake-revoke-pending')).toMatchObject({
+      state: 'CANCELLED', lastErrorCode: 'BINDING_REVOKED',
+    });
+    expect(await repository.getWake('wake-state')).toMatchObject({ state: 'SUBMITTED' });
 
     database.close();
   });

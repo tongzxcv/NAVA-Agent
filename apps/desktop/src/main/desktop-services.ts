@@ -9,6 +9,7 @@ import {
   CheckpointService,
   CodexService,
   CommandRoomBroker,
+  CommandRoomExtensionService,
   FileService,
   GitService,
   ProjectService,
@@ -25,7 +26,7 @@ import {
 } from '@lnwjud/application';
 import { AuditService, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
-import type { CommandRoomRecord, Result } from '@lnwjud/domain';
+import type { CommandRoomAgentRecord, CommandRoomRecord, CommandRoomWakeDeliveryRecord, Result } from '@lnwjud/domain';
 import {
   EXTENSIONS_SETTINGS_KEY,
   createLocalExtensionsService,
@@ -76,8 +77,9 @@ import {
   serializePathList,
   serializeStringRecordSetting,
   loadCheckpointEncryptionKey,
+  loadOrCreateWindowsProtectedKey,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomRepository, SqliteCommandRoomResourceRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomBindingRepository, SqliteCommandRoomRepository, SqliteCommandRoomResourceRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
@@ -88,9 +90,20 @@ import {
   type ClearLogBufferRequest,
   type CommandRoomOverview,
   type CommandRoomSummary,
+  type CommandRoomExtensionAgentSummary,
+  type CommandRoomExtensionBridgeStatus,
+  type CommandRoomExtensionOverview,
+  type CommandRoomExtensionWakeSummary,
   type CreateCommandRoomRequest,
   type CreateCommandRoomResult,
+  type CreateCommandRoomPairingRequest,
+  type CreateCommandRoomPairingResult,
   type DeleteCommandRoomRequest,
+  type RevokeCommandRoomExtensionBindingRequest,
+  type RevokeCommandRoomExtensionBindingResult,
+  type SetCommandRoomExtensionConfigRequest,
+  type WakeCommandRoomAgentRequest,
+  type WakeCommandRoomAgentResult,
   type ConfigureTunnelProfileRequest,
   type ConnectionModes,
   type DashboardSnapshot,
@@ -122,6 +135,11 @@ import {
 } from '@lnwjud/ipc-contracts';
 import type { DesktopIpcServices } from './main.js';
 import { buildCapabilitySummary, createLocalCapabilityRuntime } from './capability-runtime.js';
+import {
+  isCommandRoomExtensionOrigin,
+  startCommandRoomExtensionBridge,
+  type CommandRoomExtensionBridgeHandle,
+} from './command-room-extension-bridge.js';
 import { LogHub } from './log-hub.js';
 import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
@@ -134,6 +152,9 @@ const permissionSettingKey = 'permission_profile';
 const selectedWorkspaceSettingKey = 'selected_workspace_id';
 const workLogClearedSettingKey = 'work_log_cleared_at';
 const localeSettingKey = 'ui_locale';
+const commandRoomExtensionEnabledSettingKey = 'command_room_extension_wake_enabled';
+const commandRoomExtensionOriginsSettingKey = 'command_room_extension_allowed_origins';
+const COMMAND_ROOM_EXTENSION_BRIDGE_PORT = 18_766;
 const DASHBOARD_GIT_CACHE_MS = 60_000;
 
 export interface DesktopRuntime {
@@ -152,6 +173,7 @@ export interface DesktopRuntime {
 
 export interface DesktopRuntimeOptions {
   readonly permissionProfile?: PermissionProfileName;
+  readonly extensionBridgePort?: number;
 }
 
 export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOptions = {}): DesktopRuntime {
@@ -262,6 +284,8 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   });
   const activityLogPath = mcpActivityLogPath(dataPath);
   const commandRoomRepository = new SqliteCommandRoomRepository(database);
+  const commandRoomBindings = new SqliteCommandRoomBindingRepository(database);
+  const commandRoomExtensionService = new CommandRoomExtensionService(commandRoomBindings);
   const workspaceLeases = new SqliteWorkspaceLeaseRepository(database);
   const commandRoomResources = new SqliteCommandRoomResourceRepository(database);
   const commandRoomBroker = new CommandRoomBroker(
@@ -418,6 +442,119 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     const workspace = await workspaceRepository.get(workspaceId);
     if (workspace === null) throw new Error('Workspace was not found');
     return workspace;
+  }
+
+  let commandRoomExtensionBridge: CommandRoomExtensionBridgeHandle | null = null;
+  let commandRoomExtensionBridgeError: string | null = null;
+  let commandRoomExtensionBridgeStart: Promise<void> | null = null;
+  let commandRoomExtensionAuthKey: Buffer | null = null;
+
+  const extensionWakeEnabled = (): boolean => parseBooleanSetting(
+    settingsRepository.get(commandRoomExtensionEnabledSettingKey),
+    false,
+  );
+
+  const extensionAllowedOrigins = (): readonly string[] => parseExtensionOrigins(
+    settingsRepository.get(commandRoomExtensionOriginsSettingKey),
+  );
+
+  const extensionBridgeAuthKey = (): Buffer => {
+    commandRoomExtensionAuthKey ??= loadOrCreateWindowsProtectedKey(
+      path.join(dataPath, 'command-room-extension-bridge.key'),
+      32,
+    );
+    return commandRoomExtensionAuthKey;
+  };
+
+  async function syncCommandRoomExtensionBridge(): Promise<void> {
+    if (commandRoomExtensionBridgeStart !== null) return commandRoomExtensionBridgeStart;
+    const pending = (async (): Promise<void> => {
+      if (!extensionWakeEnabled()) {
+        if (commandRoomExtensionBridge !== null) {
+          const current = commandRoomExtensionBridge;
+          commandRoomExtensionBridge = null;
+          await current.close();
+        }
+        commandRoomExtensionBridgeError = null;
+        return;
+      }
+      const origins = extensionAllowedOrigins();
+      if (origins.length === 0) {
+        commandRoomExtensionBridgeError = 'At least one explicit browser extension origin is required.';
+        return;
+      }
+      if (commandRoomExtensionBridge !== null) {
+        commandRoomExtensionBridgeError = null;
+        return;
+      }
+      try {
+        commandRoomExtensionBridge = await startCommandRoomExtensionBridge({
+          service: commandRoomExtensionService,
+          authKey: extensionBridgeAuthKey(),
+          enabled: extensionWakeEnabled,
+          allowedOrigins: extensionAllowedOrigins,
+          port: options.extensionBridgePort ?? COMMAND_ROOM_EXTENSION_BRIDGE_PORT,
+        });
+        commandRoomExtensionBridgeError = null;
+      } catch (error: unknown) {
+        commandRoomExtensionBridgeError = error instanceof Error ? error.message : 'Extension Bridge could not start.';
+      }
+    })();
+    commandRoomExtensionBridgeStart = pending;
+    try {
+      await pending;
+    } finally {
+      if (commandRoomExtensionBridgeStart === pending) commandRoomExtensionBridgeStart = null;
+    }
+  }
+
+  function commandRoomExtensionBridgeStatus(): CommandRoomExtensionBridgeStatus {
+    return {
+      enabled: extensionWakeEnabled(),
+      running: commandRoomExtensionBridge !== null,
+      url: commandRoomExtensionBridge?.url ?? null,
+      allowedOrigins: extensionAllowedOrigins(),
+      message: commandRoomExtensionBridgeError,
+    };
+  }
+
+  function toExtensionWakeSummary(wake: CommandRoomWakeDeliveryRecord): CommandRoomExtensionWakeSummary {
+    return {
+      id: wake.id,
+      reason: wake.reason,
+      state: wake.state,
+      attemptCount: wake.attemptCount,
+      ...(wake.taskId === undefined ? {} : { taskId: wake.taskId }),
+      ...(wake.nextEligibleAt === undefined ? {} : { nextEligibleAt: wake.nextEligibleAt }),
+      ...(wake.lastErrorCode === undefined ? {} : { lastErrorCode: wake.lastErrorCode }),
+      updatedAt: wake.updatedAt,
+    };
+  }
+
+  async function toExtensionAgentSummary(roomId: string, agent: CommandRoomAgentRecord): Promise<CommandRoomExtensionAgentSummary> {
+    const binding = await commandRoomBindings.getLatestBindingForAgent(roomId, agent.id);
+    if (binding === null) {
+      return { roomId, slotKey: agent.slotKey, connectionEpoch: agent.connectionEpoch, bindingState: 'UNPAIRED' };
+    }
+    const lastWake = await commandRoomBindings.getLatestWakeForBinding(binding.id);
+    const bindingState = binding.state === 'PAIRED' && binding.connectionEpoch !== agent.connectionEpoch ? 'STALE' : binding.state;
+    return {
+      roomId,
+      slotKey: agent.slotKey,
+      connectionEpoch: agent.connectionEpoch,
+      bindingState,
+      bindingId: binding.id,
+      ...(binding.pairedAt === undefined ? {} : { pairedAt: binding.pairedAt }),
+      ...(binding.lastSeenAt === undefined ? {} : { lastSeenAt: binding.lastSeenAt }),
+      updatedAt: binding.updatedAt,
+      ...(lastWake === null ? {} : { lastWake: toExtensionWakeSummary(lastWake) }),
+    };
+  }
+
+  async function commandRoomAgent(roomId: string, slotKey: string): Promise<CommandRoomAgentRecord> {
+    const agent = await commandRoomRepository.getAgentBySlot(roomId, slotKey);
+    if (agent === null) throw new Error('Command Room agent slot was not found');
+    return agent;
   }
 
   function parseCommandRoomLeaseOwner(roomId: string, owner: string): { readonly slotKey: string; readonly taskId: string } | null {
@@ -624,6 +761,75 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       if (!result.deleted && result.reason === 'not_archived') throw new Error('Archive the Command Room before deleting it');
       return { deleted: result.deleted };
     },
+    getCommandRoomExtensionOverview: async (): Promise<CommandRoomExtensionOverview> => {
+      if (extensionWakeEnabled() && commandRoomExtensionBridge === null) await syncCommandRoomExtensionBridge();
+      const rooms = await commandRoomRepository.listRooms(100);
+      const agents: CommandRoomExtensionAgentSummary[] = [];
+      for (const room of rooms) {
+        for (const agent of await commandRoomRepository.listAgents(room.id)) {
+          agents.push(await toExtensionAgentSummary(room.id, agent));
+        }
+      }
+      return { bridge: commandRoomExtensionBridgeStatus(), agents };
+    },
+    setCommandRoomExtensionConfig: async (request: SetCommandRoomExtensionConfigRequest): Promise<CommandRoomExtensionBridgeStatus> => {
+      const origins = [...new Set(request.allowedOrigins.map((origin) => origin.trim()).filter((origin) => origin.length > 0))];
+      if (origins.length > 10 || origins.some((origin) => !isCommandRoomExtensionOrigin(origin))) {
+        throw new Error('Only explicit chrome-extension:// or moz-extension:// origins are allowed');
+      }
+      if (request.enabled && origins.length === 0) throw new Error('Enable Extension Wake only after adding an explicit extension origin');
+      settingsRepository.set(commandRoomExtensionOriginsSettingKey, JSON.stringify(origins));
+      settingsRepository.set(commandRoomExtensionEnabledSettingKey, request.enabled ? 'true' : 'false');
+      await syncCommandRoomExtensionBridge();
+      return commandRoomExtensionBridgeStatus();
+    },
+    createCommandRoomPairing: async (request: CreateCommandRoomPairingRequest): Promise<CreateCommandRoomPairingResult> => {
+      await syncCommandRoomExtensionBridge();
+      if (commandRoomExtensionBridge === null) throw new Error(commandRoomExtensionBridgeError ?? 'Command Room Extension Bridge is not running');
+      const agent = await commandRoomAgent(request.roomId, request.slotKey);
+      const activeBinding = await commandRoomBindings.getActiveBinding(request.roomId, agent.id, agent.connectionEpoch);
+      if (activeBinding !== null) throw new Error('This slot is already paired. Revoke or replace the current binding first.');
+      const pairing = await commandRoomExtensionService.createPairingChallenge({
+        roomId: request.roomId,
+        agentId: agent.id,
+        slotKey: agent.slotKey,
+        provider: agent.provider,
+        connectionEpoch: agent.connectionEpoch,
+        now: new Date().toISOString(),
+      });
+      return {
+        roomId: request.roomId,
+        slotKey: agent.slotKey,
+        bindingId: pairing.bindingId,
+        challenge: pairing.challenge,
+        expiresAt: pairing.expiresAt,
+        connectionEpoch: pairing.connectionEpoch,
+        bridgeUrl: commandRoomExtensionBridge.url,
+        allowedOrigins: extensionAllowedOrigins(),
+      };
+    },
+    wakeCommandRoomAgent: async (request: WakeCommandRoomAgentRequest): Promise<WakeCommandRoomAgentResult> => {
+      const agent = await commandRoomAgent(request.roomId, request.slotKey);
+      const result = await commandRoomExtensionService.queueWake({
+        roomId: request.roomId,
+        agentId: agent.id,
+        connectionEpoch: agent.connectionEpoch,
+        eventKey: `USER_WAKE:${randomUUID()}`,
+        reason: 'USER_WAKE',
+        now: new Date().toISOString(),
+      });
+      if (result.outcome === 'queued') return { outcome: 'queued', duplicate: result.duplicate, wake: toExtensionWakeSummary(result.delivery) };
+      if (result.outcome === 'coalesced') return { outcome: 'coalesced', wake: toExtensionWakeSummary(result.delivery) };
+      return { outcome: result.outcome };
+    },
+    revokeCommandRoomExtensionBinding: async (request: RevokeCommandRoomExtensionBindingRequest): Promise<RevokeCommandRoomExtensionBindingResult> => {
+      const agent = await commandRoomAgent(request.roomId, request.slotKey);
+      const binding = await commandRoomBindings.getLatestBindingForAgent(request.roomId, agent.id);
+      if (binding === null) return { revoked: false };
+      const revoked = await commandRoomExtensionService.revoke(binding.id, new Date().toISOString());
+      if (revoked === null) return { revoked: false };
+      return { revoked: true, binding: await toExtensionAgentSummary(request.roomId, agent) };
+    },
     setPermissionProfile: async (request: SetPermissionProfileRequest): Promise<{ readonly profile: IpcPermissionProfileName }> => {
       profileName = request.profile;
       settingsRepository.set(permissionSettingKey, profileName);
@@ -770,6 +976,12 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
   };
 
+  if (extensionWakeEnabled()) {
+    void syncCommandRoomExtensionBridge().catch((error: unknown) => {
+      commandRoomExtensionBridgeError = error instanceof Error ? error.message : 'Extension Bridge startup failed.';
+    });
+  }
+
   return {
     services,
     mcpServices,
@@ -840,6 +1052,11 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       await mcpLifecycle.close();
       await extensionsService.close().catch(() => undefined);
       await workspaceIndex.close().catch(() => undefined);
+      if (commandRoomExtensionBridge !== null) {
+        const current = commandRoomExtensionBridge;
+        commandRoomExtensionBridge = null;
+        await current.close().catch(() => undefined);
+      }
       database.close();
     },
   };
@@ -851,6 +1068,19 @@ function fixtureNodeExecutable(): string {
     throw new Error('Fixture Node executable is not configured');
   }
   return executable;
+}
+
+function parseExtensionOrigins(value: string | null): readonly string[] {
+  if (value === null || value.trim().length === 0) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => isCommandRoomExtensionOrigin(entry)))];
+  } catch {
+    return [];
+  }
 }
 
 async function resolveSelectedWorkspace(

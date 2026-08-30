@@ -117,6 +117,39 @@ describe('production desktop IPC acceptance', () => {
     expect(services.createCommandRoom).toHaveBeenCalledWith({ name: 'EA Portfolio' });
   });
 
+  it('routes Command Room Extension opt-in, pairing, wake, and revoke through trusted IPC only', async () => {
+    const services = desktopServices();
+    registerIpcHandlers(() => ({}) as never, services);
+    const trusted = { senderFrame: { url: pathToFileURL(getRendererEntryPath()).href } };
+    const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    await expect(requiredHandler(ipcChannels.getCommandRoomExtensionOverview)(trusted)).resolves.toMatchObject({
+      bridge: { enabled: false, running: false }, agents: [],
+    });
+    await expect(requiredHandler(ipcChannels.setCommandRoomExtensionConfig)(trusted, { enabled: true, allowedOrigins: [origin] })).resolves.toMatchObject({
+      enabled: true, running: true, allowedOrigins: [origin],
+    });
+    await expect(requiredHandler(ipcChannels.createCommandRoomPairing)(trusted, { roomId: 'room-1', slotKey: 'LEAD-1' })).resolves.toMatchObject({
+      roomId: 'room-1', slotKey: 'LEAD-1', bindingId: 'binding-1',
+    });
+    await expect(requiredHandler(ipcChannels.wakeCommandRoomAgent)(trusted, { roomId: 'room-1', slotKey: 'LEAD-1' })).resolves.toMatchObject({
+      outcome: 'queued', wake: { id: 'wake-1', state: 'QUEUED' },
+    });
+    await expect(requiredHandler(ipcChannels.revokeCommandRoomExtensionBinding)(trusted, { roomId: 'room-1', slotKey: 'LEAD-1' })).resolves.toEqual({ revoked: true });
+
+    await expect(requiredHandler(ipcChannels.setCommandRoomExtensionConfig)(trusted, { enabled: true, allowedOrigins: 'not-an-array' }))
+      .rejects.toThrow('Invalid IPC payload: Command Room extension config');
+    await expect(requiredHandler(ipcChannels.createCommandRoomPairing)(trusted, { roomId: 'room-1', slotKey: 'LEAD-9' }))
+      .rejects.toThrow('Invalid IPC payload: slotKey');
+    await expect(requiredHandler(ipcChannels.wakeCommandRoomAgent)({ senderFrame: { url: 'https://example.invalid/' } }, { roomId: 'room-1', slotKey: 'LEAD-1' }))
+      .rejects.toThrow('IPC sender rejected');
+
+    expect(services.setCommandRoomExtensionConfig).toHaveBeenCalledWith({ enabled: true, allowedOrigins: [origin] });
+    expect(services.createCommandRoomPairing).toHaveBeenCalledWith({ roomId: 'room-1', slotKey: 'LEAD-1' });
+    expect(services.wakeCommandRoomAgent).toHaveBeenCalledWith({ roomId: 'room-1', slotKey: 'LEAD-1' });
+    expect(services.revokeCommandRoomExtensionBinding).toHaveBeenCalledWith({ roomId: 'room-1', slotKey: 'LEAD-1' });
+  });
+
   it('notifies the native tray after a trusted locale change', async () => {
     const services = desktopServices();
     const onLocaleChanged = vi.fn();
@@ -182,6 +215,26 @@ function desktopServices(): DesktopIpcServices {
       },
       joinCodes: { MAIN: 'one-time-main' },
     })),
+    deleteCommandRoom: vi.fn(async () => ({ deleted: true })),
+    getCommandRoomExtensionOverview: vi.fn(async () => ({
+      bridge: { enabled: false, running: false, url: null, allowedOrigins: [], message: null },
+      agents: [],
+    })),
+    setCommandRoomExtensionConfig: vi.fn(async (request) => ({
+      enabled: request.enabled, running: request.enabled, url: request.enabled ? 'http://127.0.0.1:18766' : null,
+      allowedOrigins: request.allowedOrigins, message: null,
+    })),
+    createCommandRoomPairing: vi.fn(async (request) => ({
+      roomId: request.roomId, slotKey: request.slotKey, bindingId: 'binding-1', challenge: 'x'.repeat(32),
+      expiresAt: new Date(300_000).toISOString(), connectionEpoch: 1, bridgeUrl: 'http://127.0.0.1:18766',
+      allowedOrigins: ['chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+    })),
+    wakeCommandRoomAgent: vi.fn(async () => ({
+      outcome: 'queued' as const, duplicate: false, wake: {
+        id: 'wake-1', reason: 'USER_WAKE' as const, state: 'QUEUED' as const, attemptCount: 0, updatedAt: new Date(0).toISOString(),
+      },
+    })),
+    revokeCommandRoomExtensionBinding: vi.fn(async () => ({ revoked: true })),
     setPermissionProfile: vi.fn(async (request) => ({ profile: request.profile })),
     setUnrestrictedMode: vi.fn(async (request) => ({ unrestricted: request.enabled, restartRequired: false })),
     setAiDeletePolicy: vi.fn(async (request) => ({ enabled: request.enabled })),

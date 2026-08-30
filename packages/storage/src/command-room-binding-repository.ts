@@ -180,6 +180,16 @@ export class SqliteCommandRoomBindingRepository {
     )).get(roomId, agentId, connectionEpoch));
   }
 
+  public async getLatestBindingForAgent(roomId: string, agentId: string): Promise<CommandRoomBindingRecord | null> {
+    return toBinding(this.database.connection.prepare(`${bindingSelect('WHERE room_id = ? AND agent_id = ?')} ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(
+      roomId, agentId,
+    ));
+  }
+
+  public async getLatestWakeForBinding(bindingId: string): Promise<CommandRoomWakeDeliveryRecord | null> {
+    return toWake(this.database.connection.prepare(`${wakeSelect('WHERE binding_id = ?')} ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(bindingId));
+  }
+
   public async getWakePolicySnapshot(input: {
     readonly roomId: string;
     readonly agentId: string;
@@ -220,23 +230,11 @@ export class SqliteCommandRoomBindingRepository {
   }
 
   public async revoke(bindingId: string, revokedAt: string): Promise<CommandRoomBindingRecord | null> {
-    const connection = this.database.connection;
-    connection.prepare(`
-      UPDATE command_room_bindings
-      SET state = 'REVOKED', revoked_at = ?, challenge_hash = NULL, challenge_expires_at = NULL, updated_at = ?
-      WHERE id = ? AND state IN ('CHALLENGED', 'PAIRED', 'STALE')
-    `).run(revokedAt, revokedAt, bindingId);
-    return this.getBinding(bindingId);
+    return this.invalidateBinding(bindingId, 'REVOKED', revokedAt, 'BINDING_REVOKED');
   }
 
   public async replace(bindingId: string, replacedAt: string): Promise<CommandRoomBindingRecord | null> {
-    const connection = this.database.connection;
-    connection.prepare(`
-      UPDATE command_room_bindings
-      SET state = 'REPLACED', replaced_at = ?, challenge_hash = NULL, challenge_expires_at = NULL, updated_at = ?
-      WHERE id = ? AND state IN ('CHALLENGED', 'PAIRED', 'STALE')
-    `).run(replacedAt, replacedAt, bindingId);
-    return this.getBinding(bindingId);
+    return this.invalidateBinding(bindingId, 'REPLACED', replacedAt, 'BINDING_REPLACED');
   }
 
   public async touch(bindingId: string, seenAt: string): Promise<CommandRoomBindingRecord | null> {
@@ -383,6 +381,41 @@ export class SqliteCommandRoomBindingRepository {
 
   public async getWake(id: string): Promise<CommandRoomWakeDeliveryRecord | null> {
     return toWake(this.database.connection.prepare(wakeSelect('WHERE id = ?')).get(id));
+  }
+
+  private async invalidateBinding(
+    bindingId: string,
+    state: 'REVOKED' | 'REPLACED',
+    occurredAt: string,
+    wakeErrorCode: 'BINDING_REVOKED' | 'BINDING_REPLACED',
+  ): Promise<CommandRoomBindingRecord | null> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const current = toBinding(connection.prepare(bindingSelect('WHERE id = ?')).get(bindingId));
+      if (current === null) {
+        connection.exec('ROLLBACK;');
+        return null;
+      }
+      if (['CHALLENGED', 'PAIRED', 'STALE'].includes(current.state)) {
+        const timestampColumn = state === 'REVOKED' ? 'revoked_at' : 'replaced_at';
+        connection.prepare(`
+          UPDATE command_room_bindings
+          SET state = ?, ${timestampColumn} = ?, challenge_hash = NULL, challenge_expires_at = NULL, updated_at = ?
+          WHERE id = ? AND state IN ('CHALLENGED', 'PAIRED', 'STALE')
+        `).run(state, occurredAt, occurredAt, bindingId);
+        connection.prepare(`
+          UPDATE command_room_wake_deliveries
+          SET state = 'CANCELLED', last_error_code = ?, updated_at = ?
+          WHERE binding_id = ? AND state IN ('QUEUED', 'ATTEMPTING', 'DELIVERED')
+        `).run(wakeErrorCode, occurredAt, bindingId);
+      }
+      connection.exec('COMMIT;');
+      return this.getBinding(bindingId);
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
   }
 
   private requireBinding(id: string): CommandRoomBindingRecord {

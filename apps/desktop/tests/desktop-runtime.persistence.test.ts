@@ -307,6 +307,75 @@ describe('DesktopRuntime persistence', () => {
       await runtime.close();
     }
   }, 30_000);
+
+  it('runs the opt-in Command Room Extension Bridge end to end and revokes old browser authority', async () => {
+    if (process.platform !== 'win32') return;
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-extension-bridge-data-'));
+    temporaryRoots.push(rawDataRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const runtime = createDesktopRuntime(dataRoot, { extensionBridgePort: 0 });
+    const origin = 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    try {
+      const created = await runtime.services.createCommandRoom({ name: 'Extension bridge integration' });
+      const roomId = created.room.id;
+      const bridge = await runtime.services.setCommandRoomExtensionConfig({ enabled: true, allowedOrigins: [origin] });
+      expect(bridge).toMatchObject({ enabled: true, running: true, allowedOrigins: [origin] });
+      expect(bridge.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      if (bridge.url === null) throw new Error('Expected Extension Bridge URL');
+
+      const pairing = await runtime.services.createCommandRoomPairing({ roomId, slotKey: 'LEAD-1' });
+      expect(pairing).toMatchObject({ roomId, slotKey: 'LEAD-1', connectionEpoch: 0, bridgeUrl: bridge.url });
+      expect(pairing.challenge.length).toBeGreaterThanOrEqual(32);
+
+      const pairedResponse = await fetch(`${bridge.url}/v1/pair/confirm`, {
+        method: 'POST',
+        headers: { Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bindingId: pairing.bindingId,
+          challenge: pairing.challenge,
+          extensionInstallationId: 'extension-installation-integration-1',
+          encryptedConversationRef: 'ciphertext:v1:integration-conversation',
+          conversationRefFingerprint: 'hmac:integration-conversation',
+        }),
+      });
+      expect(pairedResponse.status).toBe(200);
+      const pairedBody: unknown = await pairedResponse.json();
+      expect(pairedBody).toMatchObject({ ok: true, outcome: 'paired', binding: { id: pairing.bindingId, state: 'PAIRED' }, authToken: expect.any(String) });
+      if (typeof pairedBody !== 'object' || pairedBody === null || !('authToken' in pairedBody) || typeof pairedBody.authToken !== 'string') {
+        throw new Error('Expected Extension Bridge auth token');
+      }
+      const authToken = pairedBody.authToken;
+
+      await expect(runtime.services.getCommandRoomExtensionOverview()).resolves.toMatchObject({
+        bridge: { enabled: true, running: true },
+        agents: expect.arrayContaining([expect.objectContaining({ roomId, slotKey: 'LEAD-1', bindingState: 'PAIRED' })]),
+      });
+
+      const queued = await runtime.services.wakeCommandRoomAgent({ roomId, slotKey: 'LEAD-1' });
+      expect(queued).toMatchObject({ outcome: 'queued', wake: { state: 'QUEUED', reason: 'USER_WAKE' } });
+
+      const wakesResponse = await fetch(`${bridge.url}/v1/bindings/${pairing.bindingId}/wakes?limit=5`, {
+        headers: { Origin: origin, Authorization: `Bearer ${authToken}` },
+      });
+      expect(wakesResponse.status).toBe(200);
+      const wakesBody: unknown = await wakesResponse.json();
+      expect(wakesBody).toMatchObject({ ok: true, wakes: [expect.objectContaining({ state: 'QUEUED', reason: 'USER_WAKE' })] });
+
+      const revoked = await runtime.services.revokeCommandRoomExtensionBinding({ roomId, slotKey: 'LEAD-1' });
+      expect(revoked).toMatchObject({ revoked: true, binding: { bindingState: 'REVOKED' } });
+      const staleResponse = await fetch(`${bridge.url}/v1/bindings/${pairing.bindingId}/status`, {
+        headers: { Origin: origin, Authorization: `Bearer ${authToken}` },
+      });
+      expect(staleResponse.status).toBe(401);
+
+      await expect(runtime.services.setCommandRoomExtensionConfig({ enabled: false, allowedOrigins: [origin] })).resolves.toMatchObject({
+        enabled: false, running: false, url: null,
+      });
+    } finally {
+      await runtime.close();
+    }
+  }, 30_000);
+
 });
 
 async function closeRuntime(runtime: DesktopRuntime): Promise<void> {

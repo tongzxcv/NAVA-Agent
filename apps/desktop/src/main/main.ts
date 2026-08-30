@@ -11,9 +11,18 @@ import {
   type BackupSummary,
   type ClearLogBufferRequest,
   type CommandRoomOverview,
+  type CommandRoomExtensionBridgeStatus,
+  type CommandRoomExtensionOverview,
   type CreateCommandRoomRequest,
   type CreateCommandRoomResult,
+  type CreateCommandRoomPairingRequest,
+  type CreateCommandRoomPairingResult,
   type DeleteCommandRoomRequest,
+  type RevokeCommandRoomExtensionBindingRequest,
+  type RevokeCommandRoomExtensionBindingResult,
+  type SetCommandRoomExtensionConfigRequest,
+  type WakeCommandRoomAgentRequest,
+  type WakeCommandRoomAgentResult,
   type ConfigureTunnelProfileRequest,
   type DashboardSnapshot,
   type DoctorReport,
@@ -67,6 +76,11 @@ export interface DesktopIpcServices {
   getCommandRoomOverview(): Promise<CommandRoomOverview>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<CreateCommandRoomResult>;
   deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }>;
+  getCommandRoomExtensionOverview(): Promise<CommandRoomExtensionOverview>;
+  setCommandRoomExtensionConfig(request: SetCommandRoomExtensionConfigRequest): Promise<CommandRoomExtensionBridgeStatus>;
+  createCommandRoomPairing(request: CreateCommandRoomPairingRequest): Promise<CreateCommandRoomPairingResult>;
+  wakeCommandRoomAgent(request: WakeCommandRoomAgentRequest): Promise<WakeCommandRoomAgentResult>;
+  revokeCommandRoomExtensionBinding(request: RevokeCommandRoomExtensionBindingRequest): Promise<RevokeCommandRoomExtensionBindingResult>;
   setPermissionProfile(request: SetPermissionProfileRequest): Promise<{ readonly profile: PermissionProfileName }>;
   setUnrestrictedMode(request: SetUnrestrictedModeRequest): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }>;
   setAiDeletePolicy(request: SetAiDeletePolicyRequest): Promise<{ readonly enabled: boolean }>;
@@ -170,6 +184,14 @@ const defaultDesktopServices: DesktopIpcServices = {
   getCommandRoomOverview: async (): Promise<CommandRoomOverview> => ({ rooms: [] }),
   createCommandRoom: async (): Promise<CreateCommandRoomResult> => { throw new Error('Command Room service is not configured'); },
   deleteCommandRoom: async (): Promise<{ readonly deleted: boolean }> => ({ deleted: false }),
+  getCommandRoomExtensionOverview: async (): Promise<CommandRoomExtensionOverview> => ({
+    bridge: { enabled: false, running: false, url: null, allowedOrigins: [], message: null },
+    agents: [],
+  }),
+  setCommandRoomExtensionConfig: async (): Promise<CommandRoomExtensionBridgeStatus> => ({ enabled: false, running: false, url: null, allowedOrigins: [], message: 'Command Room extension service is not configured' }),
+  createCommandRoomPairing: async (): Promise<CreateCommandRoomPairingResult> => { throw new Error('Command Room extension service is not configured'); },
+  wakeCommandRoomAgent: async (): Promise<WakeCommandRoomAgentResult> => ({ outcome: 'unpaired' }),
+  revokeCommandRoomExtensionBinding: async (): Promise<RevokeCommandRoomExtensionBindingResult> => ({ revoked: false }),
   setPermissionProfile: async (request): Promise<{ readonly profile: PermissionProfileName }> => ({ profile: request.profile }),
   setUnrestrictedMode: async (request): Promise<{ readonly unrestricted: boolean; readonly restartRequired: boolean }> => ({
     unrestricted: request.enabled,
@@ -272,6 +294,27 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.deleteCommandRoom, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.deleteCommandRoom(parseDeleteCommandRoomRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.getCommandRoomExtensionOverview, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    assertNoPayload(payload);
+    return services.getCommandRoomExtensionOverview();
+  });
+  ipcMain.handle(ipcChannels.setCommandRoomExtensionConfig, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.setCommandRoomExtensionConfig(parseSetCommandRoomExtensionConfigRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.createCommandRoomPairing, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.createCommandRoomPairing(parseCommandRoomAgentTarget(payload));
+  });
+  ipcMain.handle(ipcChannels.wakeCommandRoomAgent, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.wakeCommandRoomAgent(parseCommandRoomAgentTarget(payload));
+  });
+  ipcMain.handle(ipcChannels.revokeCommandRoomExtensionBinding, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.revokeCommandRoomExtensionBinding(parseCommandRoomAgentTarget(payload));
   });
   ipcMain.handle(ipcChannels.setPermissionProfile, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -454,6 +497,25 @@ function parseCreateCommandRoomRequest(payload: unknown): CreateCommandRoomReque
 function parseDeleteCommandRoomRequest(payload: unknown): DeleteCommandRoomRequest {
   if (!isRecord(payload)) throw new Error('Invalid IPC payload');
   return { roomId: nonEmptyString(payload.roomId, 'roomId') };
+}
+
+function parseSetCommandRoomExtensionConfigRequest(payload: unknown): SetCommandRoomExtensionConfigRequest {
+  if (!isRecord(payload) || typeof payload.enabled !== 'boolean' || !Array.isArray(payload.allowedOrigins)) {
+    throw new Error('Invalid IPC payload: Command Room extension config');
+  }
+  if (payload.allowedOrigins.length > 10) throw new Error('Invalid IPC payload: too many extension origins');
+  return {
+    enabled: payload.enabled,
+    allowedOrigins: payload.allowedOrigins.map((origin) => nonEmptyString(origin, 'allowedOrigin').trim()),
+  };
+}
+
+function parseCommandRoomAgentTarget(payload: unknown): CreateCommandRoomPairingRequest & WakeCommandRoomAgentRequest & RevokeCommandRoomExtensionBindingRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  const roomId = nonEmptyString(payload.roomId, 'roomId').trim();
+  const slotKey = nonEmptyString(payload.slotKey, 'slotKey').trim();
+  if (!/^(MAIN|LEAD-[1-5])$/.test(slotKey)) throw new Error('Invalid IPC payload: slotKey');
+  return { roomId, slotKey };
 }
 
 function parseSelectWorkspaceRequest(payload: unknown): SelectWorkspaceRequest {
