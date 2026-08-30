@@ -42,12 +42,30 @@ response without opening a public inbound port on the Windows machine.
 
 ## Current source target: v4.12.0 (Phase 3 development)
 
-The current published installer and installed runtime baseline remain `v4.11.4`. This branch targets `v4.12.0` source-only Phase 3 development. The default runtime advertises
+The current published stable installer remains `v4.11.4`. The default branch now tracks `v4.12.0` Phase 3 development, so source on `main` can be newer than the latest stable GitHub Release. The default runtime advertises
 **221 MCP tools**; enabling Command Room adds its 8 opt-in `command_room_*` tools.
 The earlier 184-tool snapshot remains only as the compatibility baseline used by
 the v4 architecture; new v4 gateway capabilities are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### What's new in v4.12.0 development — Command Room Phase 3 + runtime reliability
+
+- Adds durable multi-stage workflows for long research/build/MT5/ML work, with a
+  short synchronous wait budget so the chat can return `RUNNING + task_id` while
+  the machine continues the real job in the background.
+- Adds migration 007 and the Phase 3 Command Room binding/wake foundation: exact
+  connection-epoch authority, one-time pairing challenges, revocation/replacement,
+  recoverable wake deliveries, bounded retries, coalescing, hourly budgets, and a
+  circuit breaker for unanswered wake attempts.
+- Adds an opt-in authenticated loopback Extension Bridge plus Desktop Pair / Wake /
+  Revoke controls. Conversation references are protected locally and the extension
+  boundary does not expose a generic MCP proxy.
+- Makes the Command Room overview auto-refresh every 5 seconds, separates room
+  activity time from UI refresh time, and surfaces per-agent heartbeat age.
+- Hardens Windows CI/E2E cleanup and moves GitHub Actions verification to Node.js 24.
+- The browser-extension exact-conversation / wrong-tab / composer-safety acceptance
+  gate is still in development, so `v4.12.0` is not yet the published stable release.
 
 ### What's new in v4.11.4 — Command Room Phase 2B
 
@@ -62,10 +80,9 @@ the v4 architecture; new v4 gateway capabilities are additive.
   leases, resource leases, and resource queue entries are clear.
 - Keeps the 8 `command_room_*` MCP tools opt-in behind the Command Room setting;
   the normal 221-tool default contract is unchanged.
-- Freezes `v4.11.4` as the Phase 2B baseline. The next planned implementation is
-  the opt-in Phase 3 extension identity/wake slice documented in
-  [`NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md`](docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md),
-  targeting `v4.12.0` only when Phase 3 source work begins.
+- Freezes `v4.11.4` as the Phase 2B stable baseline. Phase 3 implementation is now
+  in progress on the `v4.12.0` source target documented in
+  [`NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md`](docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md).
 ### What's new in v4.11.0
 
 - Adds automatic bounded checkpoints after successful workspace mutations and
@@ -284,7 +301,7 @@ Current v4 highlights include:
 Authoritative in-repository references:
 
 - [Tool contract](docs/architecture/TOOL_CONTRACT.md) — core primitive schemas,
-  policy classes, and compatibility rules; the 210-tool index below comes from the live runtime registry.
+  policy classes, and compatibility rules; the 227-tool configurable index below comes from the live runtime registry.
 - [Upgrade architecture](docs/architecture/UPGRADE_ARCHITECTURE.md) — v4 runtime
   architecture and additive gateway design.
 - [Roadmap phase status](docs/architecture/ROADMAP_PHASE_STATUS.md) — completed
@@ -349,7 +366,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current published release is `nava-agent-Setup-4.11.4.exe`; the Phase 3 source branch targets `4.12.0` but is not installed yet.
+   The current published stable release is `nava-agent-Setup-4.11.4.exe`; `main` targets `4.12.0` Phase 3 development and is not yet the stable public installer.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -428,7 +445,7 @@ The stable flow is:
 3. Enter a name/description, choose **Tunnel** under Connection, and select the
    associated `lnwjud` tunnel or enter its `tunnel_id`.
 4. Create the connection and review the discovered tools and metadata.
-5. Confirm that the default runtime exposes **206 tools** (or **212** when Codex delegation is explicitly enabled) and run a read-only
+5. Confirm that the default runtime exposes **221 tools** (or **227 configurable tools** when the opt-in Codex delegation surface is enabled) and run a read-only
    smoke test before trying writes.
 
 Example smoke test:
