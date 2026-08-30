@@ -113,3 +113,11 @@
 - New slots start `AVAILABLE`, `connectionEpoch=0`, with only a hashed one-time join code. No `agentSessionId` exists until a real `command_room_join` consumes the code at epoch 1.
 - Desktop IPC adds a trusted `addCommandRoomLead` operation and the Command Room UI now exposes **Add Lead** for non-archived rooms below five Leads. The one-time boot prompt is shown only in transient renderer state; overview remains secret-free.
 - Local source verification: root TypeScript build and ESLint passed; focused storage/broker/MCP/Desktop IPC/UI + session-resilience + release-hygiene gates = 41/41 passed. A direct unprepared root Vitest sweep also exposed only harness/precondition failures (missing packaged runtime bundles, tunnel helper contract context, and one concurrency timeout); the authoritative GitHub release workflow remains the final gate because it builds those artifacts in the required order.
+
+## 2026-08-30 — Phase 3C.6 Session / Bootstrap Authority Hardening
+
+- Command Room DB is the session authority. The existing eight-tool MCP surface now classifies resume preflight through `command_room_status action=resume_check` as `SLOT_NOT_FOUND`, `CREATE_SESSION_REQUIRED`, `HEARTBEAT_REQUIRED`, or `READY`.
+- A successful join starts the slot as `AVAILABLE` without a heartbeat. The chat must send `command_room_presence heartbeat` and read `resume_check` back as `READY` before claiming ONLINE/resumed.
+- Recovery output is bounded to `roomId`, `slotKey`, and `connectionEpoch`; raw join codes and session IDs remain transient and are excluded from bootstrap material.
+- Rebind rotates the session hash/epoch. Regression coverage proves the old session fails closed across resume/legacy status, send, inbox, task, presence, resource, and admin paths.
+- No migration, dependency, ninth MCP tool, installed-app update, or production SQLite change is part of this source-only phase.

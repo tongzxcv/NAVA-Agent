@@ -17,11 +17,20 @@ const joinSchema = z.object({
   connectionEpoch: z.number().int().min(1),
 }).strict();
 
-const statusSchema = z.object({
-  roomId,
-  agentSessionId: sessionId,
-  taskLimit: z.number().int().min(1).max(100).optional(),
-}).strict();
+const statusSchema = z.union([
+  z.object({
+    roomId,
+    agentSessionId: sessionId,
+    taskLimit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
+  z.object({
+    action: z.literal('resume_check'),
+    roomId,
+    slotKey,
+    connectionEpoch: z.number().int().min(0),
+    agentSessionId: sessionId.optional(),
+  }).strict(),
+]);
 
 const inboxSchema = z.discriminatedUnion('action', [
   z.object({
@@ -168,7 +177,7 @@ export function commandRoomTools(context: McpToolContext): readonly McpToolDefin
     }),
     defineTool({
       name: 'command_room_status',
-      description: 'Read bounded room, agent, task, active writer-lease ownership, resource capacity, active resource leases, and queue depth.',
+      description: 'Read bounded room state with an active session, or preflight room/slot/epoch resume authority. A resumed session is READY only after heartbeat read-back.',
       ...readOnly,
       inputSchema: statusSchema,
       handler: async (input) => context.services.commandRoom?.status(input) ?? missingService(),

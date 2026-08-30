@@ -261,8 +261,8 @@ export class SqliteCommandRoomRepository {
       if (current.joinCodeHash !== input.joinCodeHash) return rollbackResult(connection, { joined: false, reason: 'INVALID_JOIN_CODE' });
       if (input.connectionEpoch !== current.connectionEpoch + 1) return rollbackResult(connection, { joined: false, reason: 'STALE_EPOCH' });
       connection.prepare(
-        "UPDATE command_room_agents SET provider = ?, state = 'ONLINE', connection_epoch = ?, last_heartbeat_at = ?, join_code_hash = NULL, session_hash = ?, updated_at = ? WHERE id = ?",
-      ).run(input.provider, input.connectionEpoch, input.joinedAt, input.sessionHash, input.joinedAt, current.id);
+        "UPDATE command_room_agents SET provider = ?, state = 'AVAILABLE', connection_epoch = ?, last_heartbeat_at = NULL, join_code_hash = NULL, session_hash = ?, updated_at = ? WHERE id = ?",
+      ).run(input.provider, input.connectionEpoch, input.sessionHash, input.joinedAt, current.id);
       connection.prepare(
         'INSERT INTO command_room_cursors (room_id, agent_id, last_message_seq, updated_at) VALUES (?, ?, 0, ?) ON CONFLICT(room_id, agent_id) DO NOTHING',
       ).run(input.roomId, current.id, input.joinedAt);

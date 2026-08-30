@@ -1,3 +1,29 @@
+# NAVA Command Room Phase 3C.6 findings
+
+- Remote `main` is `f9792d6`; authoritative GitHub run `33296871416` is green and includes Phase 3C.5 Dynamic Lead Capacity.
+- Phase 3C.5 intentionally creates a slot with `connectionEpoch=0`, a hashed one-time join code, and no `agentSessionId`; Phase 3C.6 must preserve this split between slot authority and session authority.
+- The frozen contract requires DB authority, explicit `SLOT_NOT_FOUND` / `CREATE_SESSION_REQUIRED`, stale-session revocation, and heartbeat plus status read-back before claiming resume success.
+- Current Codex connector exposes NAVA primitives but no Command Room or workspace-lease tools, so this implementation cannot truthfully claim a live room lease. Git branch isolation is the safe source-only fallback.
+- Installed NAVA and production Command Room SQLite are out of scope; all authority proofs must run through repository/application/MCP test fixtures.
+- Existing `joinAgent` already distinguishes `SLOT_NOT_FOUND`, validates the one-time code, and requires exactly `current.connectionEpoch + 1`; broker `authenticate` resolves only the current session hash.
+- Existing rebind tests already prove an old session loses `resource`/`status` access after rotation. The likely missing public seam is a typed resume/preflight contract that can distinguish an absent slot from an existing unjoined slot before a session exists, plus an explicit heartbeat/status readiness proof after join.
+- Continuity `session_resume` is project-checkpoint recovery and must not be treated as Command Room session authority; Phase 3C.6 should not merge those two stores.
+- `authenticate` already protects every session-bearing broker method by current `session_hash`; rebind clears the hash atomically, so stale-session rejection is a shared deep-module invariant rather than eight separate fixes.
+- Current `join` immediately marks a replacement ONLINE and returns a session before any explicit post-join heartbeat/read-back. That conflicts with the Phase 3C.6 readiness claim and is the first concrete behavioral gap.
+- The repository can inspect an agent by `(roomId, slotKey)` before session creation. A minimal preflight/resume check can classify missing room, missing slot, unjoined slot, stale epoch, and current joined authority without adding another database or migration.
+- `command_room_join` currently has one strict schema containing a join code; there is no read-only preflight action. Extending this tool would overload WRITE join semantics. The existing `command_room_status` cannot be called before a session exists.
+- Global `AppErrorCode` has no `SLOT_NOT_FOUND` or `CREATE_SESSION_REQUIRED`. Adding global codes would require updating capability bridges and error allowlists unrelated to Command Room. A smaller compatible surface is a successful typed preflight result whose `authority` discriminant carries these Command Room-specific states.
+- No source implementation named bootstrap exists; bootstrap currently exists only as an operational concept in the Phase 3C plan. Creating a new bootstrap database/file subsystem would duplicate Command Room authority and violate the minimum-diff rule.
+- The existing fixed-eight tool surface can carry a read-only `resume_check` variant on `command_room_status`. This keeps join WRITE-only, preserves old status calls, and can return bounded recovery material without creating a ninth tool.
+- Candidate readiness states: `SLOT_NOT_FOUND`, `CREATE_SESSION_REQUIRED`, `HEARTBEAT_REQUIRED`, and `READY`. Any supplied stale/revoked session must fail `PERMISSION_DENIED`, not downgrade to anonymous preflight.
+- RED evidence: the new public broker tracer failed only because legacy `status` dereferenced an absent session before it could classify a slot; all 7 prior tests passed.
+- GREEN behavior: join now creates current session authority in `AVAILABLE` with no heartbeat timestamp; `presence heartbeat` promotes it to ONLINE; `status action=resume_check` reports READY only after the current session/epoch heartbeat is read back.
+- Recovery bootstrap output contains only `roomId`, `slotKey`, and `connectionEpoch`. Raw join code/session material is absent by construction and asserted in the tracer.
+- Focused broker integration now passes 8/8. No migration, dependency, ninth tool, second authority store, or installed-runtime change was needed.
+- The existing ToolRegistry integration already exercises all eight Command Room tools through public MCP structured content. Extending that same flow with `resume_check -> heartbeat -> READY` is the smallest end-to-end schema/handler regression; no separate mock-heavy MCP test file is needed.
+
+---
+
 # NAVA Command Room Phase 1 findings
 
 ## Frozen scope from the accepted design
@@ -681,3 +707,10 @@
 - Existing admin operations cannot add a missing slot to an active room. `rebind` explicitly requires the target slot to exist, so LEAD-4 cannot be made real in a three-Lead room by changing prompts or bootstrap text.
 - Dynamic capacity should add an agent slot and one-time join code atomically; it must not pre-create an agent session. `agentSessionId` remains proof of a completed join and must never be inferred from bootstrap material.
 - Extension Pair/Wake must depend on a real Command Room slot and epoch. Letting the extension create authority would duplicate the broker and break the existing room-version/session model.
+# Phase 3C.6 continuation findings (2026-08-30)
+
+- Extension wake delivery already resolves an active binding by exact `roomId + agentId + connectionEpoch`; revoked/replaced epochs are excluded by the repository contract.
+- The broker shares one `authenticate()` path across send, inbox, task, presence, resource, admin, and legacy status actions. The Phase 3C.6 regression matrix now proves a rebound session fails closed across every action.
+- Resume bootstrap remains intentionally bounded to `roomId`, `slotKey`, and `connectionEpoch`; it must never contain join codes or raw session identifiers.
+- The repository has no separate bootstrap persistence layer. `resume_check` derives bounded recovery output from the current authoritative agent row, avoiding a second source of truth or migration.
+- Existing Extension binding storage checks the current agent epoch again when pairing is confirmed and when a wake is enqueued, so an old paired binding cannot enqueue authority after rebind.

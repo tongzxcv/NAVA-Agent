@@ -34,7 +34,9 @@ Each chat joins its assigned slot with `command_room_join`:
 - first `connectionEpoch` is 1
 - keep the returned `agentSessionId` only in active chat context
 
-Immediately send `command_room_presence` heartbeat with bounded project, workspace, and checkpoint references when known. Room identity comes from the slot and room ID, not from the ChatGPT Project container.
+Immediately send `command_room_presence` heartbeat with bounded project, workspace, and checkpoint references when known. Then call `command_room_status` with `action=resume_check`, the exact `roomId`, `slotKey`, `connectionEpoch`, and active `agentSessionId`. Continue only when authority is `READY`; `HEARTBEAT_REQUIRED` means heartbeat/read-back is incomplete, and `CREATE_SESSION_REQUIRED` means the chat must join or be rebound first. Room identity comes from the slot and room ID, not from the ChatGPT Project container.
+
+Recovery/bootstrap material may contain only `roomId`, `slotKey`, and `connectionEpoch`. It is a locator, not session authority; never copy a raw join code or `agentSessionId` into Git, Obsidian, logs, or handoff notes.
 
 ## Inbox loop
 
@@ -104,8 +106,9 @@ When a chat is full or lost:
 
 1. MAIN rebinds the target slot with the current room version and a new idempotency key.
 2. Start a new chat and join with the returned one-time code and required connection epoch.
-3. The old session is revoked.
-4. The new chat reads status and inbox, verifies checkpoint/Git/workspace evidence, acknowledges processed messages, and continues.
+3. Send a heartbeat, then run `command_room_status` with `action=resume_check`; do not claim takeover until it returns `READY` for the exact room, slot, session, and epoch.
+4. The old session is revoked and must fail across status, inbox, send, task, presence, resource, and admin actions.
+5. The new chat reads status and inbox, verifies checkpoint/Git/workspace evidence, acknowledges processed messages, and continues.
 
 Use the same flow for MAIN replacement. Do not create a duplicate room unless recovery is impossible and the user explicitly chooses replacement.
 
