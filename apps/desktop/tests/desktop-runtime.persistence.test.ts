@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -244,6 +244,38 @@ describe('DesktopRuntime persistence', () => {
       });
     } finally {
       await restarted.close();
+    }
+  }, 30_000);
+  it('binds Command Room project focus from a registered project workspace without renderer-controlled identity', async () => {
+    const rawDataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-command-room-bind-data-'));
+    const rawProjectsRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-command-room-bind-projects-'));
+    const hermesRoot = path.join(rawProjectsRoot, 'HERMES EA');
+    await mkdir(hermesRoot, { recursive: true });
+    temporaryRoots.push(rawDataRoot, rawProjectsRoot);
+    const dataRoot = await realpath(rawDataRoot);
+    const runtime = createDesktopRuntime(dataRoot);
+    try {
+      const workspace = await runtime.services.addWorkspace({ rootPath: hermesRoot });
+      const created = await runtime.services.createCommandRoom({ name: 'Desktop project binding' });
+      const bound = await runtime.services.bindCommandRoomLeadProject({
+        roomId: created.room.id, slotKey: 'LEAD-4', workspaceId: workspace.id, expectedVersion: created.room.version,
+      });
+      expect(bound).toMatchObject({ slotKey: 'LEAD-4', projectKey: 'hermes', workspaceId: workspace.id });
+      expect(bound.room.agents.find((agent) => agent.slotKey === 'LEAD-4')).toMatchObject({
+        projectKey: 'hermes', workspaceId: workspace.id, connectionEpoch: 0,
+      });
+
+      if (process.platform === 'win32') {
+        const machineRoot = (await runtime.services.listWorkspaces()).find((entry) => /^[A-Za-z]:\\$/.test(entry.rootPath));
+        expect(machineRoot).toBeDefined();
+        if (machineRoot !== undefined) {
+          await expect(runtime.services.bindCommandRoomLeadProject({
+            roomId: created.room.id, slotKey: 'LEAD-5', workspaceId: machineRoot.id, expectedVersion: bound.room.version,
+          })).rejects.toThrow('project workspace, not a machine root');
+        }
+      }
+    } finally {
+      await runtime.close();
     }
   }, 30_000);
   it('serves the local capability health tool through the desktop MCP listener', async () => {

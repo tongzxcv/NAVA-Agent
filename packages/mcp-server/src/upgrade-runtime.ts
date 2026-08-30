@@ -4,7 +4,8 @@ import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
 import type { FileActor } from '@lnwjud/application';
 import { capabilityDescriptors, EventLogCapabilityBackend, type CapabilityDescriptor } from '@lnwjud/capabilities';
-import type { McpApplicationServices } from './tools/tool-types.js';
+import type { McpApplicationServices, McpToolDefinition } from './tools/tool-types.js';
+import { z } from 'zod';
 import { ContextEngine } from './context-engine.js';
 import { ContextEconomyRuntime } from './context-economy.js';
 import { DatabaseRuntimeService } from './database-runtime.js';
@@ -235,6 +236,7 @@ export class UpgradeRuntimeService {
     actor: FileActor,
     contextEconomy: ContextEconomyRuntime = new ContextEconomyRuntime(),
     private readonly activity?: ActivityTracker,
+    private readonly toolDefinitions?: () => readonly McpToolDefinition[],
   ) {
     this.actor = actor;
     this.contextEconomy = contextEconomy;
@@ -393,7 +395,7 @@ export class UpgradeRuntimeService {
       case 'recovery_status':
         return ok({ reconnect: 'enabled-at-transport-boundary', safeReadRetry: true, destructiveRetry: false, staleContinuation: 'detected', indexRecovery: 'rebuildable', workerIsolation: true });
       case 'tool_schema_list':
-        return ok({ manifestVersion: TOOL_MANIFEST_VERSION, essentialTools: ESSENTIAL_TOOL_NAMES, schemas: UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true })) });
+        return ok({ manifestVersion: this.discoveryManifestVersion(), essentialTools: this.essentialToolNames(), schemas: this.discoverySchemas() });
       case 'tool_schema_register':
         return ok({ registered: true, backwardCompatible: true, id: readString(input, 'name') ?? null });
       case 'mcp_discover':
@@ -505,7 +507,9 @@ export class UpgradeRuntimeService {
     const category = readString(input, 'category')?.toLowerCase();
     const route = routeIntent(query);
     const experienceStats = toolExperienceStats(this.experiences);
-    const scored = SEARCH_CATALOG
+    const catalog = this.discoveryCatalog();
+    const essentialTools = this.essentialToolNames();
+    const scored = catalog
       .filter((entry) => category === undefined || entry.tags.some((tag) => tag.toLowerCase() === category))
       .map((entry) => scoreToolEntry(entry, normalized, route, this.activeStrategy, experienceStats.get(entry.name)))
       .filter((entry) => normalized.length === 0 || entry.score > 0)
@@ -514,7 +518,7 @@ export class UpgradeRuntimeService {
       name: candidate.entry.name,
       score: Number(candidate.score.toFixed(4)),
       reasonCodes: candidate.reasonCodes,
-      essential: isEssentialTool(candidate.entry.name),
+      essential: essentialTools.includes(candidate.entry.name),
       permission: candidate.entry.permission,
       permissionMetadata: {
         permission: candidate.entry.permission,
@@ -538,23 +542,63 @@ export class UpgradeRuntimeService {
       authorizationUnchanged: true,
       route: route.route,
       activeStrategy: this.activeStrategy,
-      essentialTools: ESSENTIAL_TOOL_NAMES,
-      manifestVersion: TOOL_MANIFEST_VERSION,
+      essentialTools,
+      manifestVersion: this.discoveryManifestVersion(),
     };
   }
 
   private describeTool(name: string | undefined): unknown {
-    const entry = SEARCH_CATALOG.find((candidate) => candidate.name === name);
+    const definition = this.actualToolDefinitions().find((candidate) => candidate.name === name);
+    if (definition !== undefined) {
+      return {
+        found: true, name: definition.name, description: definition.description, permission: definition.permission,
+        phase: 0, tags: discoveryTags(definition.name), parallelSafe: definition.permission === 'READ' && definition.annotations.readOnlyHint,
+        schema: z.toJSONSchema(definition.inputSchema), authorizationUnchanged: true, source: 'registry',
+      };
+    }
+    const entry = this.discoveryCatalog().find((candidate) => candidate.name === name);
     return entry === undefined ? { found: false, name: name ?? null } : { found: true, ...entry, schema: { type: 'object', additionalProperties: true }, authorizationUnchanged: true };
+  }
+
+  private actualToolDefinitions(): readonly McpToolDefinition[] {
+    return this.toolDefinitions?.() ?? [];
+  }
+
+  private discoveryCatalog(): readonly SearchCatalogEntry[] {
+    const dynamic = this.actualToolDefinitions().map((definition): SearchCatalogEntry => ({
+      name: definition.name, phase: 0, description: definition.description, permission: definition.permission,
+      tags: discoveryTags(definition.name), parallelSafe: definition.permission === 'READ' && definition.annotations.readOnlyHint, primitive: true,
+    }));
+    return dedupeSearchEntries([...dynamic, ...SEARCH_CATALOG]);
+  }
+
+  private essentialToolNames(): readonly string[] {
+    const commandRoom = this.actualToolDefinitions().filter((definition) => definition.name.startsWith('command_room_')).map((definition) => definition.name);
+    return [...ESSENTIAL_TOOL_NAMES, ...commandRoom.filter((name) => !(ESSENTIAL_TOOL_NAMES as readonly string[]).includes(name))];
+  }
+
+  private discoverySchemas(): readonly Record<string, unknown>[] {
+    const definitions = this.actualToolDefinitions();
+    if (definitions.length === 0) return UPGRADE_TOOL_CATALOG.map((entry) => ({ id: entry.name, version: '1.0.0', permissions: [entry.permission], streamable: entry.streamable === true, parallelSafe: entry.parallelSafe === true }));
+    return definitions.map((definition) => ({
+      id: definition.name, version: '1.0.0', inputSchema: z.toJSONSchema(definition.inputSchema), permissions: [definition.permission],
+      streamable: /(?:page|context|map|stream|logs)/i.test(definition.name),
+      parallelSafe: definition.permission === 'READ' && definition.annotations.readOnlyHint && !definition.annotations.destructiveHint,
+    }));
+  }
+
+  private discoveryManifestVersion(): string {
+    const definitions = this.actualToolDefinitions();
+    return definitions.length === 0 ? TOOL_MANIFEST_VERSION : digest(definitions.map((definition) => `${definition.name}:${definition.permission}`).sort());
   }
 
   private categories(): { readonly categories: readonly { readonly category: string; readonly tools: number }[]; readonly essentialTools: readonly string[]; readonly manifestVersion: string } {
     const counts = new Map<string, number>();
-    for (const entry of UPGRADE_TOOL_CATALOG) for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const entry of this.discoveryCatalog()) for (const tag of entry.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
     return {
       categories: [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([category, tools]) => ({ category, tools })),
-      essentialTools: ESSENTIAL_TOOL_NAMES,
-      manifestVersion: TOOL_MANIFEST_VERSION,
+      essentialTools: this.essentialToolNames(),
+      manifestVersion: this.discoveryManifestVersion(),
     };
   }
 
@@ -569,8 +613,8 @@ export class UpgradeRuntimeService {
       timeoutIsolation: true,
       nativeToolsRemainVisible: true,
       verificationRequired: true,
-      essentialTools: ESSENTIAL_TOOL_NAMES,
-      manifestVersion: TOOL_MANIFEST_VERSION,
+      essentialTools: this.essentialToolNames(),
+      manifestVersion: this.discoveryManifestVersion(),
     };
   }
 
@@ -1170,10 +1214,6 @@ function identityAliases(value: string): readonly string[] {
   return [...aliases];
 }
 
-function isEssentialTool(name: string): boolean {
-  return (ESSENTIAL_TOOL_NAMES as readonly string[]).includes(name);
-}
-
 interface WorkspaceAuthorityEntry {
   readonly id: string;
   readonly displayName: string | null;
@@ -1290,6 +1330,11 @@ function normalizeMode(value: string | undefined): 'compact' | 'normal' | 'verbo
 
 function lifecycleEvents(): readonly string[] {
   return ['beforeTool', 'afterTool', 'beforeRead', 'afterRead', 'beforeWrite', 'afterWrite', 'beforeShell', 'afterShell', 'beforeGit', 'afterGit', 'beforeBrowser', 'afterBrowser'];
+}
+
+function discoveryTags(name: string): readonly string[] {
+  const tags = name.split('_').filter((value) => value.length > 0);
+  return name.startsWith('command_room_') ? [...new Set([...tags, 'coordination', 'command-room'])] : tags;
 }
 
 function primitiveEntry(name: string, description: string, permission: UpgradeToolCatalogEntry['permission'], tags: readonly string[]): SearchCatalogEntry {

@@ -15,6 +15,13 @@ describe('Command Room Extension UI', () => {
     expect(source).toContain("text(locale, 'ออก Boot Prompt ใหม่', 'Reissue Boot Prompt')");
     expect(source).toContain('agent.connectionEpoch === 0');
     expect(source).toContain("scrollIntoView({ behavior: 'smooth', block: 'start' })");
+    expect(source).toContain('window.lnwjud.bindCommandRoomLeadProject');
+    expect(source).toContain("text(locale, 'ผูกโปรเจกต์', 'Bind project')");
+    expect(source).toContain('workspaces.filter((workspace) => !isMachineRootWorkspace(workspace))');
+    expect(source).not.toContain('projectKeyForWorkspace');
+    const bindBlock = source.slice(source.indexOf('async function bindProject'), source.indexOf('async function createRoom'));
+    expect(bindBlock).not.toContain('agentSessionId');
+    expect(bindBlock).not.toContain('projectKey:');
   });
 
   it('renders the Phase 3 opt-in boundary without exposing pairing secrets by default', () => {

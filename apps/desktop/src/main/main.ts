@@ -12,6 +12,8 @@ import {
   type AddCommandRoomLeadResult,
   type ReissueCommandRoomBootPromptRequest,
   type ReissueCommandRoomBootPromptResult,
+  type BindCommandRoomLeadProjectRequest,
+  type BindCommandRoomLeadProjectResult,
   type BackupSummary,
   type ClearLogBufferRequest,
   type CommandRoomOverview,
@@ -81,6 +83,7 @@ export interface DesktopIpcServices {
   createCommandRoom(request: CreateCommandRoomRequest): Promise<CreateCommandRoomResult>;
   addCommandRoomLead(request: AddCommandRoomLeadRequest): Promise<AddCommandRoomLeadResult>;
   reissueCommandRoomBootPrompt(request: ReissueCommandRoomBootPromptRequest): Promise<ReissueCommandRoomBootPromptResult>;
+  bindCommandRoomLeadProject(request: BindCommandRoomLeadProjectRequest): Promise<BindCommandRoomLeadProjectResult>;
   deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }>;
   getCommandRoomExtensionOverview(): Promise<CommandRoomExtensionOverview>;
   setCommandRoomExtensionConfig(request: SetCommandRoomExtensionConfigRequest): Promise<CommandRoomExtensionBridgeStatus>;
@@ -191,6 +194,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   createCommandRoom: async (): Promise<CreateCommandRoomResult> => { throw new Error('Command Room service is not configured'); },
   addCommandRoomLead: async (): Promise<AddCommandRoomLeadResult> => { throw new Error('Command Room service is not configured'); },
   reissueCommandRoomBootPrompt: async (): Promise<ReissueCommandRoomBootPromptResult> => { throw new Error('Command Room service is not configured'); },
+  bindCommandRoomLeadProject: async (): Promise<BindCommandRoomLeadProjectResult> => { throw new Error('Command Room service is not configured'); },
   deleteCommandRoom: async (): Promise<{ readonly deleted: boolean }> => ({ deleted: false }),
   getCommandRoomExtensionOverview: async (): Promise<CommandRoomExtensionOverview> => ({
     bridge: { enabled: false, running: false, url: null, allowedOrigins: [], message: null },
@@ -306,6 +310,10 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.reissueCommandRoomBootPrompt, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.reissueCommandRoomBootPrompt(parseReissueCommandRoomBootPromptRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.bindCommandRoomLeadProject, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.bindCommandRoomLeadProject(parseBindCommandRoomLeadProjectRequest(payload));
   });
   ipcMain.handle(ipcChannels.deleteCommandRoom, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -524,6 +532,19 @@ function parseReissueCommandRoomBootPromptRequest(payload: unknown): ReissueComm
   if (!/^LEAD-[1-5]$/.test(slotKey)) throw new Error('Invalid IPC payload: slotKey');
   if (!Number.isInteger(payload.expectedVersion) || (payload.expectedVersion as number) < 1) throw new Error('Invalid IPC payload: expectedVersion');
   return { roomId, slotKey, expectedVersion: payload.expectedVersion as number };
+}
+
+function parseBindCommandRoomLeadProjectRequest(payload: unknown): BindCommandRoomLeadProjectRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  const allowedKeys = new Set(['roomId', 'slotKey', 'workspaceId', 'expectedVersion']);
+  if (Object.keys(payload).some((key) => !allowedKeys.has(key))) throw new Error('Invalid IPC payload: unexpected project binding field');
+  const roomId = nonEmptyString(payload.roomId, 'roomId').trim();
+  const slotKey = nonEmptyString(payload.slotKey, 'slotKey').trim().toUpperCase();
+  const workspaceId = nonEmptyString(payload.workspaceId, 'workspaceId').trim();
+  if (!/^LEAD-[1-5]$/.test(slotKey)) throw new Error('Invalid IPC payload: slotKey');
+  if (workspaceId.length > 128) throw new Error('Invalid IPC payload: project binding');
+  if (!Number.isInteger(payload.expectedVersion) || (payload.expectedVersion as number) < 1) throw new Error('Invalid IPC payload: expectedVersion');
+  return { roomId, slotKey, workspaceId, expectedVersion: payload.expectedVersion as number };
 }
 
 function parseDeleteCommandRoomRequest(payload: unknown): DeleteCommandRoomRequest {

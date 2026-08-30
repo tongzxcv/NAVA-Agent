@@ -10,6 +10,7 @@ import {
   type CommandRoomTaskRecord,
 } from '@lnwjud/domain';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { deriveCommandRoomAgentLiveState } from './command-room-live-state.js';
 
 const MAX_SUMMARY_BYTES = 16 * 1024;
 const MAX_SUBJECT_LENGTH = 200;
@@ -119,6 +120,17 @@ export interface CommandRoomAddLeadRepositoryInput {
   readonly occurredAt: string;
 }
 
+export interface CommandRoomBindProjectRepositoryInput {
+  readonly roomId: string;
+  readonly actorAgentId: string;
+  readonly targetSlotKey: string;
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly expectedVersion: number;
+  readonly idempotencyKey: string;
+  readonly occurredAt: string;
+}
+
 export interface CommandRoomPresenceRepositoryInput {
   readonly roomId: string;
   readonly agentId: string;
@@ -159,6 +171,7 @@ export interface CommandRoomRepositoryPort {
   updatePresence(input: CommandRoomPresenceRepositoryInput): Promise<{ readonly agent: CommandRoomAgentRecord; readonly roomVersion: number }>;
   updateRoomStatus(input: CommandRoomRoomStatusRepositoryInput): Promise<CommandRoomAdminMutationResult>;
   addLeadSlot(input: CommandRoomAddLeadRepositoryInput): Promise<CommandRoomAdminMutationResult>;
+  bindAgentProject(input: CommandRoomBindProjectRepositoryInput): Promise<CommandRoomAdminMutationResult>;
   rebindAgent(input: CommandRoomRebindRepositoryInput): Promise<CommandRoomAdminMutationResult>;
   getTask(roomId: string, taskId: string): Promise<CommandRoomTaskRecord | null>;
   findTaskByEventKey(roomId: string, actorAgentId: string, idempotencyKey: string): Promise<{ readonly task: CommandRoomTaskRecord; readonly eventType: string } | null>;
@@ -279,6 +292,13 @@ export interface CommandRoomAddLeadResponse extends CommandRoomEnvelope {
   readonly joinCode?: string;
 }
 
+export interface CommandRoomBindProjectResponse extends CommandRoomEnvelope {
+  readonly action: 'bind_project';
+  readonly duplicate: boolean;
+  readonly room: CommandRoomRecord;
+  readonly agent: PublicCommandRoomAgent;
+}
+
 export interface CommandRoomRebindResponse extends CommandRoomEnvelope {
   readonly action: 'rebind';
   readonly duplicate: boolean;
@@ -316,6 +336,8 @@ export interface PublicCommandRoomAgent {
   readonly lastHeartbeatAt?: string;
   readonly currentTaskId?: string;
   readonly lastCheckpointId?: string | undefined;
+  readonly lastActivityAt: string;
+  readonly stale: boolean;
 }
 
 export interface CommandRoomSendInput {
@@ -663,6 +685,44 @@ export class CommandRoomBroker {
     return this.addLeadSlot(room, main.id, input.expectedVersion, idempotencyKey, this.now().toISOString());
   }
 
+  /** Trusted local Desktop project focus path. It never accepts or manufactures an agent session. */
+  public async bindProjectFromTrustedDesktop(input: {
+    readonly roomId: string;
+    readonly targetSlotKey: string;
+    readonly projectKey: string;
+    readonly workspaceId: string;
+    readonly expectedVersion: number;
+    readonly idempotencyKey: string;
+  }): Promise<Result<CommandRoomBindProjectResponse>> {
+    const idempotencyKey = input.idempotencyKey.trim();
+    const projectKey = input.projectKey.trim();
+    const workspaceId = input.workspaceId.trim();
+    if (!validKey(idempotencyKey)) return err(appError('INVALID_INPUT', 'idempotencyKey must contain 1 to 128 safe characters'));
+    if (projectKey.length < 1 || projectKey.length > 128) return err(appError('INVALID_INPUT', 'projectKey must contain 1 to 128 characters'));
+    if (workspaceId.length < 1 || workspaceId.length > 128) return err(appError('INVALID_INPUT', 'workspaceId must contain 1 to 128 characters'));
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) return err(appError('INVALID_INPUT', 'expectedVersion must be a positive integer'));
+    const room = await this.repository.getRoom(input.roomId);
+    if (room === null) return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));
+    if (room.status === 'ARCHIVED') return err(appError('PERMISSION_DENIED', 'Archived Command Rooms cannot change project bindings'));
+    const main = await this.repository.getAgentBySlot(input.roomId, 'MAIN');
+    if (main === null || main.role !== 'MAIN') return err(appError('INTERNAL_ERROR', 'Command Room MAIN authority was not found', true));
+    const targetSlotKey = input.targetSlotKey.trim().toUpperCase();
+    const target = await this.repository.getAgentBySlot(input.roomId, targetSlotKey);
+    if (target === null || target.role !== 'LEAD') return err(appError('INVALID_INPUT', 'targetSlotKey must identify a Project Lead'));
+    if (target.currentTaskId !== undefined) return err(appError('PERMISSION_REQUIRED', 'Cannot change project binding while the Lead owns a task', true));
+    if (this.dependencies.workspaceExists === undefined || !(await this.dependencies.workspaceExists(workspaceId))) {
+      return err(appError('WORKSPACE_NOT_FOUND', 'Project binding requires a registered workspaceId'));
+    }
+    const changed = await this.repository.bindAgentProject({
+      roomId: input.roomId, actorAgentId: main.id, targetSlotKey, projectKey, workspaceId,
+      expectedVersion: input.expectedVersion, idempotencyKey, occurredAt: this.now().toISOString(),
+    });
+    if (changed.outcome !== 'updated') return adminMutationError(changed, input.expectedVersion);
+    const agent = changed.agent;
+    if (agent === undefined) return err(appError('INTERNAL_ERROR', 'Bound Command Room Lead was not returned', true));
+    return ok({ ...envelope(changed.room.version, this.now()), action: 'bind_project', duplicate: changed.duplicate, room: changed.room, agent: publicAgent(agent) });
+  }
+
   /** Trusted local Desktop recovery path for an unjoined Lead whose one-time Boot Prompt was lost. */
   public async reissueBootPromptFromTrustedDesktop(input: {
     readonly roomId: string;
@@ -834,10 +894,18 @@ export class CommandRoomBroker {
     const workspaceEntries = workspaceLeaseResult?.ok === true
       ? workspaceLeaseResult.value.filter((lease) => lease.owner.startsWith(ownerPrefix))
       : [];
+    const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
+    const publicAgents = agents.map((agent) => {
+      const task = agent.currentTaskId === undefined ? undefined : tasksById.get(agent.currentTaskId);
+      const writerLeaseOwned = task?.state === 'RUNNING' && task.mutationMode === 'WRITE' && task.workspaceId !== undefined
+        ? workspaceEntries.some((lease) => lease.workspaceId === task.workspaceId && lease.owner === workspaceLeaseOwner(input.roomId, agent.slotKey, task.id))
+        : undefined;
+      return publicAgent(agent, deriveCommandRoomAgentLiveState({ agent, task, writerLeaseOwned, now }));
+    });
     return ok({
       ...envelope(room.version, now),
       room,
-      agents: agents.map(publicAgent),
+      agents: publicAgents,
       tasks,
       workspaceLeases: {
         observable: workspaceLeaseResult?.ok === true,
@@ -875,13 +943,21 @@ export class CommandRoomBroker {
       || agent.sessionHash !== hash(input.agentSessionId) || agent.connectionEpoch !== input.connectionEpoch) {
       return err(appError('PERMISSION_DENIED', 'Command Room session is invalid or no longer active'));
     }
-    const ready = agent.lastHeartbeatAt !== undefined && (agent.state === 'ONLINE' || agent.state === 'WORKING');
+    const now = this.now();
+    const task = agent.currentTaskId === undefined ? undefined : (await this.repository.getTask(input.roomId, agent.currentTaskId)) ?? undefined;
+    let writerLeaseOwned: boolean | undefined;
+    if (task?.state === 'RUNNING' && task.mutationMode === 'WRITE' && task.workspaceId !== undefined && this.dependencies.workspaceLeases !== undefined) {
+      const leases = await this.dependencies.workspaceLeases.status(task.workspaceId);
+      writerLeaseOwned = leases.ok && leases.value.some((lease) => lease.owner === workspaceLeaseOwner(input.roomId, agent.slotKey, task.id));
+    }
+    const live = deriveCommandRoomAgentLiveState({ agent, task, writerLeaseOwned, now });
+    const ready = live.state === 'ONLINE' || live.state === 'WORKING';
     return ok({
-      ...envelope(room.version, this.now()),
+      ...envelope(room.version, now),
       action: 'resume_check',
       authority: ready ? 'READY' : 'HEARTBEAT_REQUIRED',
       bootstrap,
-      agent: publicAgent(agent),
+      agent: publicAgent(agent, live),
     });
   }
 
@@ -903,10 +979,18 @@ export class CommandRoomBroker {
     });
     await this.reconcilePresenceLeases(input.action, authenticated.value.agent, this.now().toISOString());
     const latestAgent = await this.repository.getAgentBySessionHash(input.roomId, hash(input.agentSessionId));
+    const agent = latestAgent ?? updated.agent;
+    const task = agent.currentTaskId === undefined ? undefined : (await this.repository.getTask(input.roomId, agent.currentTaskId)) ?? undefined;
+    let writerLeaseOwned: boolean | undefined;
+    if (task?.state === 'RUNNING' && task.mutationMode === 'WRITE' && task.workspaceId !== undefined && this.dependencies.workspaceLeases !== undefined) {
+      const leases = await this.dependencies.workspaceLeases.status(task.workspaceId);
+      writerLeaseOwned = leases.ok && leases.value.some((lease) => lease.owner === workspaceLeaseOwner(input.roomId, agent.slotKey, task.id));
+    }
+    const live = deriveCommandRoomAgentLiveState({ agent, task, writerLeaseOwned, now: this.now() });
     return ok({
       ...envelope(updated.roomVersion, this.now()),
       action: input.action,
-      agent: publicAgent(latestAgent ?? updated.agent),
+      agent: publicAgent(agent, live),
     });
   }
 
@@ -1250,19 +1334,24 @@ function envelope(roomVersion: number, now: Date): CommandRoomEnvelope {
   return { manifestVersion: COMMAND_ROOM_MANIFEST_VERSION, roomVersion, serverTime: now.toISOString() };
 }
 
-function publicAgent(agent: CommandRoomAgentRecord): PublicCommandRoomAgent {
+function publicAgent(
+  agent: CommandRoomAgentRecord,
+  live = deriveCommandRoomAgentLiveState({ agent }),
+): PublicCommandRoomAgent {
   return {
     id: agent.id,
     slotKey: agent.slotKey,
     role: agent.role,
     provider: agent.provider,
-    state: agent.state,
+    state: live.state,
     connectionEpoch: agent.connectionEpoch,
     ...(agent.projectKey === undefined ? {} : { projectKey: agent.projectKey }),
     ...(agent.workspaceId === undefined ? {} : { workspaceId: agent.workspaceId }),
     ...(agent.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: agent.lastHeartbeatAt }),
     ...(agent.currentTaskId === undefined ? {} : { currentTaskId: agent.currentTaskId }),
     ...(agent.lastCheckpointId === undefined ? {} : { lastCheckpointId: agent.lastCheckpointId }),
+    lastActivityAt: live.lastActivityAt,
+    stale: live.stale,
   };
 }
 

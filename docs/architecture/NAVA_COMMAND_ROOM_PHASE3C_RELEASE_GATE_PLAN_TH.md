@@ -150,12 +150,21 @@ Gate:
 
 ## Phase 3C.7 — Command Room Live State
 
-- แยก `ONLINE / WORKING / WAITING / SLEEPING / OFFLINE` จาก heartbeat age, current task และ lease truth
-- DTO/UI แสดง last heartbeat, last activity, workspace focus และ binding epoch โดยไม่แสดง session material
-- แยก “รีเฟรชล่าสุด” ออกจาก “กิจกรรมล่าสุด”
-- stale threshold ต้อง deterministic และมี test ด้วยเวลาควบคุมได้
-- LEAD ที่ join/park/rebind ต้องปรากฏในหน้า Command Room ภายใน refresh รอบถัดไปโดยไม่ restart
+- แยก `ONLINE / WORKING / WAITING / SLEEPING / OFFLINE` จาก heartbeat age, current task และ lease truth; stale threshold คงที่ 15 นาทีและมี test ด้วยเวลาควบคุมได้
+- `resume_check` และ presence response ต้องใช้ live-state projection เดียวกัน; `READY` อนุญาตเฉพาะ fresh `ONLINE` หรือ `WORKING` และ WRITE ที่ RUNNING ต้องพิสูจน์ writer lease ownership จริง
+- DTO/UI แสดง last heartbeat, last activity, workspace focus และ binding epoch โดยไม่แสดง session material และแยก “รีเฟรชล่าสุด” ออกจาก “กิจกรรมล่าสุด”
+- Project binding เป็น trusted Desktop/MAIN configuration: UI ส่งเฉพาะ registered `workspaceId`; Desktop ตรวจว่าไม่ใช่ machine root และสร้าง `projectKey` เอง ห้าม renderer/agent ส่งหรือเดา `projectKey` และห้ามใช้ `agentSessionId` เพื่อเปลี่ยน focus
+- การ bind project ต้องไม่ rotate session hash/epoch, ไม่เปลี่ยน heartbeat และต้องปฏิเสธเมื่อ Lead มี active task หรือ workspace ไม่ได้ลงทะเบียน
+- Dynamic discovery (`tool_search`, `tool_describe`, `tool_schema_list`, categories/health) ต้องสะท้อน ToolRegistry จริง: Command Room เปิด = พบครบ 8 tools พร้อม schema; ปิด = ไม่พบ โดยไม่สร้าง tool ที่ 9
+- LEAD ที่ join/park/rebind/bind project ต้องปรากฏในหน้า Command Room ภายใน refresh รอบถัดไปโดยไม่ restart
 
+Gate:
+
+- HERMES `LEAD-4` สามารถ bind `D:\EA\HERMES EA` จาก Desktop โดย session epoch เดิมยังคงเดิมและไม่ต้องส่ง session secret ผ่าน nested tool call
+- stale heartbeat, RUNNING task, WRITE lease lost/owned และ parked/offline states ต้องผ่าน deterministic unit/integration tests
+- renderer-supplied `projectKey`, machine-root workspace, unknown workspace, stale room version และ binding ขณะ Lead ถือ task ต้อง fail closed
+- Command Room dynamic discovery ครบ 8/8 และ schema ตรง registry; disabled mode ต้องไม่ leak tools
+- Phase 3D ยังไม่เริ่มจน Phase 3C.7 ผ่าน authoritative Windows release gate และ main CI
 ## Phase 3D dependency rule
 
 Extension จับคู่ได้เฉพาะ slot ที่มีอยู่จริงใน Command Room และห้ามสร้าง slot/session เอง ทุก wake ต้องใช้ exact room/slot/binding epoch หลัง Phase 3C.5–3C.7 ผ่านแล้ว

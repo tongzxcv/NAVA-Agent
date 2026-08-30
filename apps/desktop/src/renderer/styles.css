@@ -2057,6 +2057,22 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.command-room-bind-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+
+.command-room-bind-row select {
+  min-width: 0;
+  width: 100%;
+}
+
+.command-room-bind-row button {
+  white-space: nowrap;
+}
+
 .command-room-resource-board {
   display: grid;
   gap: 8px;

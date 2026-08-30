@@ -113,16 +113,11 @@
 - New slots start `AVAILABLE`, `connectionEpoch=0`, with only a hashed one-time join code. No `agentSessionId` exists until a real `command_room_join` consumes the code at epoch 1.
 - Desktop IPC adds a trusted `addCommandRoomLead` operation and the Command Room UI now exposes **Add Lead** for non-archived rooms below five Leads. The one-time boot prompt is shown only in transient renderer state; overview remains secret-free.
 - Local source verification: root TypeScript build and ESLint passed; focused storage/broker/MCP/Desktop IPC/UI + session-resilience + release-hygiene gates = 41/41 passed. A direct unprepared root Vitest sweep also exposed only harness/precondition failures (missing packaged runtime bundles, tunnel helper contract context, and one concurrency timeout); the authoritative GitHub release workflow remains the final gate because it builds those artifacts in the required order.
-
-## 2026-08-30 — Phase 3C.6 Session / Bootstrap Authority Hardening
-
-- Command Room DB is the session authority. The existing eight-tool MCP surface now classifies resume preflight through `command_room_status action=resume_check` as `SLOT_NOT_FOUND`, `CREATE_SESSION_REQUIRED`, `HEARTBEAT_REQUIRED`, or `READY`.
-- A successful join starts the slot as `AVAILABLE` without a heartbeat. The chat must send `command_room_presence heartbeat` and read `resume_check` back as `READY` before claiming ONLINE/resumed.
-- Recovery output is bounded to `roomId`, `slotKey`, and `connectionEpoch`; raw join codes and session IDs remain transient and are excluded from bootstrap material.
-- Rebind rotates the session hash/epoch. Regression coverage proves the old session fails closed across resume/legacy status, send, inbox, task, presence, resource, and admin paths.
-- No migration, dependency, ninth MCP tool, installed-app update, or production SQLite change is part of this source-only phase.
-
-## 2026-08-30 — Lost Boot Prompt recovery fix
+- PR #2 authoritative Windows CI passed in run `33295883414`; PR #2 merged to `main` at `f9792d6fe8317b6c897bc0b04cccf257a318eef5`.
+- User authorized the installed Phase 3C.5 refresh. Pre-update SQLite backup: `E:\AI_CACHE\nava-agent-setup\20260830-1329-before-phase3c5.sqlite` (SHA-256 `9C704A53C2E82CFBDA00D1874A514BD312B4115453DE0C3DAF986C21647F9302`, `PRAGMA integrity_check=ok`, 1 room / 4 agents).
+- Packaging attempts `caf4d80c-3b37-4c6e-8a92-7c25e8c181d3`, `7fbd0e90-e613-4221-8512-bebfb345b7b9`, and `a78c1e98-948d-4023-9381-53c283c1e3d0` documented the local missing-Corepack / non-elevated winCodeSign symlink limitation. A verified unsigned `win-unpacked` payload was then produced with Node 24 and `signAndEditExecutable=false` in task `33fb99b2-7881-4a7b-bee2-fa422b8d114a`.
+- Installed payload was synchronized to both `D:\Program` and `D:\Program Files\NAVA Agent`; active hashes now match the Phase 3C.5 build: NAVA EXE `4BA3137837A463E36CB03AFD2268C14C5364CB1384A71B28DFCA73A921D1FF64`, MCP `4115504B3F3F2A0EB69A35099217325B6764F4D77619C15421BA129EE33F5856`, app.asar `B05BBDDA37D215B2F335FD39F5F5245B491FBADEDC7781AFAD66357FCF65BDE1`, bundled Node `3602F2BB1A10F2CBAB4C36886218A33C1AB3DB87290E73B033C46C77147D0237`.
+- Restart validation passed: one NAVA root, lnwjud tunnel and stdio node are running; migration 007 remains present; `NAVA EA LAB — ALL-RW` remains ACTIVE with its existing MAIN + LEAD-1/2/3 identities and task data. The installed MCP bundle contains the new `add_lead` action/description, and the active app payload contains the trusted Desktop `addCommandRoomLead` IPC path.
 
 - User reproduced a real Phase 3C.5 UX gap: an added `LEAD-4` remained `AVAILABLE` at `connectionEpoch=0`, but its one-time raw join code disappeared after the transient Boot Prompt panel was lost. The hashed join authority cannot recover the original raw code by design.
 - Added a trusted Desktop-only **Reissue Boot Prompt** path. It is fail-closed to ACTIVE rooms and never-joined Project Leads only: `AVAILABLE`, epoch 0, no session hash, no heartbeat, no current task, and no active browser binding. It generates a fresh one-time join code without creating `LEAD-5` or exposing a secret through overview.
@@ -130,3 +125,13 @@
 - A newly issued Boot Prompt is kept only in transient renderer state and the page auto-scrolls to the one-time code panel. Idempotent replay does not return the raw code again.
 - Local verification: root TypeScript build passed, changed-source ESLint passed, Command Room integration 8/8 passed, focused Desktop IPC/UI 9/9 passed, full Desktop suite 41 files / 242 tests passed, and `git diff --check` passed.
 - Installed runtime remains unchanged until this fix passes authoritative GitHub Windows CI and is merged.
+
+## 2026-08-30 — Phase 3C.7 Command Room Live State + trusted project binding
+
+- Live state is now derived from Command Room authority instead of trusting stored presentation state: heartbeat age, current task state, WRITE writer-lease ownership, and lifecycle state deterministically project `ONLINE / WORKING / WAITING / SLEEPING / OFFLINE`. Heartbeats older than 15 minutes are stale and project OFFLINE; `lastActivityAt` is the newest authoritative agent/task timestamp.
+- `command_room_status action=resume_check` and presence responses use the same live-state projection. `READY` is returned only for fresh `ONLINE` or `WORKING`; stale or lease-incomplete sessions fail closed as `HEARTBEAT_REQUIRED`/`WAITING` without rotating the valid session.
+- Project/workspace focus is now a trusted Desktop/MAIN configuration path, not a nested agent-session mutation. The Desktop resolves the registered workspace itself, rejects machine-root workspaces, derives the bounded project key server-side, and binds the Lead without changing its session hash, connection epoch, or heartbeat.
+- Renderer IPC no longer accepts a caller-supplied `projectKey`; unexpected binding fields are rejected. The Command Room UI offers only registered project workspaces and never requires or transports `agentSessionId` to bind project focus.
+- Dynamic MCP discovery now reads the actual ToolRegistry. When Command Room is enabled, `tool_search`, `tool_describe`, `tool_schema_list`, categories, and health expose the real eight Command Room tool definitions and their input schemas; when disabled they remain absent. This removes the `tool_batch` discovery workaround while keeping exactly eight Command Room tools.
+- Local focused verification currently passes root TypeScript, live-state + Command Room integration 14/14, and Desktop IPC/UI 9/9. Authoritative GitHub Windows CI remains the release gate; installed NAVA is not changed by this source phase.
+- Desktop runtime persistence gate also passes 8/8 under portable Node 24.19.0. The added integration proves a registered workspace named `HERMES EA` derives trusted `projectKey=hermes`, and a machine-root workspace is rejected before any Command Room binding mutation. Durable verification task: `c4e32f3e-f7b2-4b96-b158-9eddce19c951`.

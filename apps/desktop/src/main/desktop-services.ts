@@ -10,6 +10,7 @@ import {
   CodexService,
   CommandRoomBroker,
   CommandRoomExtensionService,
+  deriveCommandRoomAgentLiveState,
   FileService,
   GitService,
   ProjectService,
@@ -88,6 +89,8 @@ import {
   type AddCommandRoomLeadResult,
   type ReissueCommandRoomBootPromptRequest,
   type ReissueCommandRoomBootPromptResult,
+  type BindCommandRoomLeadProjectRequest,
+  type BindCommandRoomLeadProjectResult,
   type BackupSummary as IpcBackupSummary,
   type AgentState,
   type AuditEventSummary,
@@ -572,6 +575,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   }
 
   async function toCommandRoomSummary(room: CommandRoomRecord): Promise<CommandRoomSummary> {
+    const now = new Date();
     const [agents, tasks, writerLeaseResult, resourceSnapshot] = await Promise.all([
       commandRoomRepository.listAgents(room.id),
       commandRoomRepository.listTasks(room.id, 100),
@@ -579,6 +583,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       commandRoomResources.status({ roomId: room.id, now: new Date().toISOString() }),
     ]);
     const agentSlots = new Map(agents.map((agent) => [agent.id, agent.slotKey] as const));
+    const tasksById = new Map(tasks.map((task) => [task.id, task] as const));
     return {
       id: room.id,
       name: room.name,
@@ -586,17 +591,24 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       version: room.version,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
-      agents: agents.map((agent) => ({
-        slotKey: agent.slotKey,
-        role: agent.role,
-        provider: agent.provider,
-        state: agent.state,
-        connectionEpoch: agent.connectionEpoch,
-        ...(agent.projectKey === undefined ? {} : { projectKey: agent.projectKey }),
-        ...(agent.workspaceId === undefined ? {} : { workspaceId: agent.workspaceId }),
-        ...(agent.currentTaskId === undefined ? {} : { currentTaskId: agent.currentTaskId }),
-        ...(agent.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: agent.lastHeartbeatAt }),
-      })),
+      agents: agents.map((agent) => {
+        const task = agent.currentTaskId === undefined ? undefined : tasksById.get(agent.currentTaskId);
+        const writerLeaseOwned = task?.state === 'RUNNING' && task.mutationMode === 'WRITE' && task.workspaceId !== undefined && writerLeaseResult.ok
+          ? writerLeaseResult.value.some((lease) => {
+            const owner = parseCommandRoomLeaseOwner(room.id, lease.owner);
+            return lease.workspaceId === task.workspaceId && owner?.slotKey === agent.slotKey && owner.taskId === task.id;
+          })
+          : undefined;
+        const live = deriveCommandRoomAgentLiveState({ agent, task, writerLeaseOwned, now });
+        return {
+          slotKey: agent.slotKey, role: agent.role, provider: agent.provider, state: live.state, connectionEpoch: agent.connectionEpoch,
+          ...(agent.projectKey === undefined ? {} : { projectKey: agent.projectKey }),
+          ...(agent.workspaceId === undefined ? {} : { workspaceId: agent.workspaceId }),
+          ...(agent.currentTaskId === undefined ? {} : { currentTaskId: agent.currentTaskId }),
+          ...(agent.lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt: agent.lastHeartbeatAt }),
+          lastActivityAt: live.lastActivityAt, stale: live.stale,
+        };
+      }),
       writerLeases: writerLeaseResult.ok
         ? writerLeaseResult.value.flatMap((lease) => {
           const owner = parseCommandRoomLeaseOwner(room.id, lease.owner);
@@ -787,6 +799,29 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         slotKey: reissued.targetSlotKey,
         requiredConnectionEpoch: reissued.requiredConnectionEpoch,
         ...(reissued.joinCode === undefined ? {} : { joinCode: reissued.joinCode }),
+      };
+    },
+    bindCommandRoomLeadProject: async (request: BindCommandRoomLeadProjectRequest): Promise<BindCommandRoomLeadProjectResult> => {
+      const workspace = await workspaceRepository.get(request.workspaceId);
+      if (workspace === null) throw new Error('Command Room project binding requires a registered workspace');
+      const realRootPath = path.resolve(workspace.realRootPath);
+      if (realRootPath === path.parse(realRootPath).root) throw new Error('Command Room project binding requires a project workspace, not a machine root');
+      const projectKey = commandRoomProjectKey(workspace.displayName, workspace.id);
+      const bound = unwrap(await commandRoomBroker.bindProjectFromTrustedDesktop({
+        roomId: request.roomId,
+        targetSlotKey: request.slotKey,
+        projectKey,
+        workspaceId: workspace.id,
+        expectedVersion: request.expectedVersion,
+        idempotencyKey: `desktop-bind-project:${request.roomId}:${request.slotKey}:${workspace.id}:${projectKey}:${request.expectedVersion}`,
+      }), 'Command Room project could not be bound');
+      if (bound.agent.projectKey === undefined || bound.agent.workspaceId === undefined) throw new Error('Bound Command Room project metadata was not returned');
+      return {
+        duplicate: bound.duplicate,
+        room: await toCommandRoomSummary(bound.room),
+        slotKey: bound.agent.slotKey,
+        projectKey: bound.agent.projectKey,
+        workspaceId: bound.agent.workspaceId,
       };
     },
     deleteCommandRoom: async (request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }> => {
@@ -1110,6 +1145,13 @@ function fixtureNodeExecutable(): string {
   return executable;
 }
 
+function commandRoomProjectKey(displayName: string, workspaceId: string): string {
+  const normalized = displayName.normalize('NFKC').trim().toLowerCase()
+    .replace(/\bea(?:[\s_-]*lab)?\b/giu, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized.length > 0 ? normalized.slice(0, 128) : `project-${workspaceId}`.slice(0, 128);
+}
 function parseExtensionOrigins(value: string | null): readonly string[] {
   if (value === null || value.trim().length === 0) return [];
   try {

@@ -121,10 +121,16 @@ describe('production desktop IPC acceptance', () => {
       slotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: 'replacement-lead-4',
     });
     await expect(requiredHandler(ipcChannels.reissueCommandRoomBootPrompt)(trusted, { roomId: 'room-1', slotKey: 'MAIN', expectedVersion: 8 })).rejects.toThrow('Invalid IPC payload: slotKey');
+    await expect(requiredHandler(ipcChannels.bindCommandRoomLeadProject)(trusted, { roomId: 'room-1', slotKey: 'lead-4', workspaceId: 'workspace-hermes', expectedVersion: 9 })).resolves.toMatchObject({
+      slotKey: 'LEAD-4', projectKey: 'hermes', workspaceId: 'workspace-hermes',
+    });
+    await expect(requiredHandler(ipcChannels.bindCommandRoomLeadProject)(trusted, { roomId: 'room-1', slotKey: 'LEAD-4', workspaceId: 'workspace-hermes', projectKey: 'renderer-controlled', expectedVersion: 9 }))
+      .rejects.toThrow('Invalid IPC payload: unexpected project binding field');
 
     expect(services.createCommandRoom).toHaveBeenCalledWith({ name: 'EA Portfolio' });
     expect(services.addCommandRoomLead).toHaveBeenCalledWith({ roomId: 'room-1', expectedVersion: 7 });
     expect(services.reissueCommandRoomBootPrompt).toHaveBeenCalledWith({ roomId: 'room-1', slotKey: 'LEAD-4', expectedVersion: 8 });
+    expect(services.bindCommandRoomLeadProject).toHaveBeenCalledWith({ roomId: 'room-1', slotKey: 'LEAD-4', workspaceId: 'workspace-hermes', expectedVersion: 9 });
   });
 
   it('routes Command Room Extension opt-in, pairing, wake, and revoke through trusted IPC only', async () => {
@@ -250,6 +256,15 @@ function desktopServices(): DesktopIpcServices {
         tasks: [], writerLeases: [], resources: [], resourceLeases: [], resourceQueueDepth: 0,
       },
       slotKey: request.slotKey, requiredConnectionEpoch: 1, joinCode: 'replacement-lead-4',
+    })),
+    bindCommandRoomLeadProject: vi.fn(async (request) => ({
+      duplicate: false,
+      room: {
+        id: request.roomId, name: 'Existing Room', status: 'ACTIVE', version: request.expectedVersion + 1,
+        createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), agents: [], tasks: [],
+        writerLeases: [], resources: [], resourceLeases: [], resourceQueueDepth: 0,
+      },
+      slotKey: request.slotKey, projectKey: 'hermes', workspaceId: request.workspaceId,
     })),
     deleteCommandRoom: vi.fn(async () => ({ deleted: true })),
     getCommandRoomExtensionOverview: vi.fn(async () => ({
