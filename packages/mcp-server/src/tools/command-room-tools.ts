@@ -137,7 +137,7 @@ const adminSchema = z.discriminatedUnion('action', [
     idempotencyKey,
     leadSlots: z.number().int().min(1).max(5).optional(),
   }).strict(),
-  ...(['pause', 'resume', 'archive'] as const).map((action) => z.object({
+  ...(['pause', 'resume', 'archive', 'add_lead'] as const).map((action) => z.object({
     action: z.literal(action),
     roomId,
     agentSessionId: sessionId,
@@ -210,7 +210,7 @@ export function commandRoomTools(context: McpToolContext): readonly McpToolDefin
     }),
     defineTool({
       name: 'command_room_admin',
-      description: 'Create, pause, resume, archive, or manually rebind a Command Room slot. MAIN cannot bypass NAVA permissions or destructive confirmations.',
+      description: 'Create, pause, resume, archive, add the next sequential Lead slot up to LEAD-5, or manually rebind a Command Room slot. MAIN cannot bypass NAVA permissions or destructive confirmations.',
       ...write,
       inputSchema: adminSchema,
       handler: async (input) => context.services.commandRoom?.admin(input) ?? missingService(),

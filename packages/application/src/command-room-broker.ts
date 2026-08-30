@@ -87,6 +87,7 @@ export type CommandRoomAdminMutationResult =
     readonly agent?: CommandRoomAgentRecord;
   }
   | { readonly outcome: 'room_version_conflict'; readonly currentVersion: number }
+  | { readonly outcome: 'slot_conflict' }
   | { readonly outcome: 'not_found' };
 
 export interface CommandRoomRoomStatusRepositoryInput {
@@ -105,6 +106,15 @@ export interface CommandRoomRebindRepositoryInput {
   readonly targetSlotKey: string;
   readonly expectedVersion: number;
   readonly joinCodeHash: string;
+  readonly idempotencyKey: string;
+  readonly occurredAt: string;
+}
+
+export interface CommandRoomAddLeadRepositoryInput {
+  readonly roomId: string;
+  readonly actorAgentId: string;
+  readonly agent: CommandRoomAgentRecord;
+  readonly expectedVersion: number;
   readonly idempotencyKey: string;
   readonly occurredAt: string;
 }
@@ -148,6 +158,7 @@ export interface CommandRoomRepositoryPort {
   ackInbox(roomId: string, agentId: string, ackThrough: number, acknowledgedAt: string): Promise<{ readonly cursor: number; readonly roomVersion: number }>;
   updatePresence(input: CommandRoomPresenceRepositoryInput): Promise<{ readonly agent: CommandRoomAgentRecord; readonly roomVersion: number }>;
   updateRoomStatus(input: CommandRoomRoomStatusRepositoryInput): Promise<CommandRoomAdminMutationResult>;
+  addLeadSlot(input: CommandRoomAddLeadRepositoryInput): Promise<CommandRoomAdminMutationResult>;
   rebindAgent(input: CommandRoomRebindRepositoryInput): Promise<CommandRoomAdminMutationResult>;
   getTask(roomId: string, taskId: string): Promise<CommandRoomTaskRecord | null>;
   findTaskByEventKey(roomId: string, actorAgentId: string, idempotencyKey: string): Promise<{ readonly task: CommandRoomTaskRecord; readonly eventType: string } | null>;
@@ -231,6 +242,13 @@ export type CommandRoomAdminInput =
     readonly idempotencyKey: string;
   }
   | {
+    readonly action: 'add_lead';
+    readonly roomId: string;
+    readonly agentSessionId: string;
+    readonly expectedVersion: number;
+    readonly idempotencyKey: string;
+  }
+  | {
     readonly action: 'rebind';
     readonly roomId: string;
     readonly agentSessionId: string;
@@ -252,6 +270,15 @@ export interface CommandRoomLifecycleResponse extends CommandRoomEnvelope {
   readonly room: CommandRoomRecord;
 }
 
+export interface CommandRoomAddLeadResponse extends CommandRoomEnvelope {
+  readonly action: 'add_lead';
+  readonly duplicate: boolean;
+  readonly room: CommandRoomRecord;
+  readonly targetSlotKey: string;
+  readonly requiredConnectionEpoch: number;
+  readonly joinCode?: string;
+}
+
 export interface CommandRoomRebindResponse extends CommandRoomEnvelope {
   readonly action: 'rebind';
   readonly duplicate: boolean;
@@ -261,7 +288,7 @@ export interface CommandRoomRebindResponse extends CommandRoomEnvelope {
   readonly joinCode?: string;
 }
 
-export type CommandRoomAdminResponse = CommandRoomCreateResponse | CommandRoomLifecycleResponse | CommandRoomRebindResponse;
+export type CommandRoomAdminResponse = CommandRoomCreateResponse | CommandRoomLifecycleResponse | CommandRoomAddLeadResponse | CommandRoomRebindResponse;
 
 export interface CommandRoomJoinInput {
   readonly roomId: string;
@@ -543,6 +570,10 @@ export class CommandRoomBroker {
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) return err(appError('INVALID_INPUT', 'expectedVersion must be a positive integer'));
     const occurredAt = this.now().toISOString();
 
+    if (input.action === 'add_lead') {
+      return this.addLeadSlot(authenticated.value.room, authenticated.value.agent.id, input.expectedVersion, idempotencyKey, occurredAt);
+    }
+
     if (input.action === 'rebind') {
       const targetSlotKey = input.targetSlotKey.trim().toUpperCase();
       const target = await this.repository.getAgentBySlot(input.roomId, targetSlotKey);
@@ -594,6 +625,22 @@ export class CommandRoomBroker {
       duplicate: changed.duplicate,
       room: changed.room,
     });
+  }
+
+  /** Trusted local Desktop operator path. This never accepts or manufactures an agent session. */
+  public async addLeadFromTrustedDesktop(input: {
+    readonly roomId: string;
+    readonly expectedVersion: number;
+    readonly idempotencyKey: string;
+  }): Promise<Result<CommandRoomAddLeadResponse>> {
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (!validKey(idempotencyKey)) return err(appError('INVALID_INPUT', 'idempotencyKey must contain 1 to 128 safe characters'));
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) return err(appError('INVALID_INPUT', 'expectedVersion must be a positive integer'));
+    const room = await this.repository.getRoom(input.roomId);
+    if (room === null) return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));
+    const main = await this.repository.getAgentBySlot(input.roomId, 'MAIN');
+    if (main === null || main.role !== 'MAIN') return err(appError('INTERNAL_ERROR', 'Command Room MAIN authority was not found', true));
+    return this.addLeadSlot(room, main.id, input.expectedVersion, idempotencyKey, this.now().toISOString());
   }
 
   public async join(input: CommandRoomJoinInput): Promise<Result<CommandRoomJoinResponse>> {
@@ -940,6 +987,64 @@ export class CommandRoomBroker {
     return response.ok && workspaceLease !== undefined ? ok({ ...response.value, workspaceLease }) : response;
   }
 
+  private async addLeadSlot(
+    room: CommandRoomRecord,
+    actorAgentId: string,
+    expectedVersion: number,
+    idempotencyKey: string,
+    occurredAt: string,
+  ): Promise<Result<CommandRoomAddLeadResponse>> {
+    if (room.status === 'ARCHIVED') return err(appError('PERMISSION_DENIED', 'Archived Command Rooms cannot add Lead slots'));
+    const agents = await this.repository.listAgents(room.id);
+    const leadNumbers = agents
+      .filter((agent) => agent.role === 'LEAD')
+      .map((agent) => /^LEAD-([1-5])$/.exec(agent.slotKey)?.[1])
+      .map((value) => value === undefined ? Number.NaN : Number.parseInt(value, 10))
+      .sort((left, right) => left - right);
+    if (leadNumbers.some((value) => !Number.isInteger(value))) {
+      return err(appError('INTERNAL_ERROR', 'Command Room contains an invalid Lead slot', true));
+    }
+    for (let index = 0; index < leadNumbers.length; index += 1) {
+      if (leadNumbers[index] !== index + 1) return err(appError('INTERNAL_ERROR', 'Command Room Lead slots are not contiguous', true));
+    }
+    const targetSlotKey = `LEAD-${Math.min(leadNumbers.length + 1, 5)}`;
+    const joinCode = opaqueToken();
+    const agent: CommandRoomAgentRecord = {
+      id: randomUUID(),
+      roomId: room.id,
+      slotKey: targetSlotKey,
+      role: 'LEAD',
+      provider: 'CHATGPT',
+      state: 'AVAILABLE',
+      connectionEpoch: 0,
+      capabilities: [],
+      joinCodeHash: hash(joinCode),
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+    };
+    const changed = await this.repository.addLeadSlot({
+      roomId: room.id,
+      actorAgentId,
+      agent,
+      expectedVersion,
+      idempotencyKey,
+      occurredAt,
+    });
+    if (changed.outcome === 'slot_conflict') return err(appError('INVALID_INPUT', 'Command Room already has the maximum of 5 Lead slots'));
+    if (changed.outcome !== 'updated') return adminMutationError(changed, expectedVersion);
+    const changedAgent = changed.agent;
+    if (changedAgent === undefined) return err(appError('INTERNAL_ERROR', 'Added Command Room Lead slot was not returned', true));
+    return ok({
+      ...envelope(changed.room.version, this.now()),
+      action: 'add_lead',
+      duplicate: changed.duplicate,
+      room: changed.room,
+      targetSlotKey: changedAgent.slotKey,
+      requiredConnectionEpoch: changedAgent.connectionEpoch + 1,
+      ...(changed.duplicate ? {} : { joinCode }),
+    });
+  }
+
   private async reconcilePresenceLeases(action: CommandRoomPresenceInput['action'], agent: CommandRoomAgentRecord, occurredAt: string): Promise<void> {
     if (action === 'park' || action === 'leave') {
       if (agent.currentTaskId !== undefined) {
@@ -1072,9 +1177,9 @@ function adminMutationError(
   result: Exclude<CommandRoomAdminMutationResult, { outcome: 'updated' }>,
   expectedVersion: number,
 ): Result<never> {
-  return result.outcome === 'not_found'
-    ? err(appError('FILE_NOT_FOUND', 'Command Room was not found'))
-    : err(appError('INVALID_INPUT', `Room version conflict: expected ${expectedVersion}, current ${result.currentVersion}`));
+  if (result.outcome === 'not_found') return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));
+  if (result.outcome === 'slot_conflict') return err(appError('INVALID_INPUT', 'Command Room slot conflict'));
+  return err(appError('INVALID_INPUT', `Room version conflict: expected ${expectedVersion}, current ${result.currentVersion}`));
 }
 
 function validateTaskBrief(input: Extract<CommandRoomTaskInput, { action: 'assign' }>): Result<void> {

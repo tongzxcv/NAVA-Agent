@@ -58,9 +58,19 @@ interface RebindAgentInput {
   readonly occurredAt: string;
 }
 
+interface AddLeadSlotInput {
+  readonly roomId: string;
+  readonly actorAgentId: string;
+  readonly agent: CommandRoomAgentRecord;
+  readonly expectedVersion: number;
+  readonly idempotencyKey: string;
+  readonly occurredAt: string;
+}
+
 type AdminMutationResult =
   | { readonly outcome: 'updated'; readonly duplicate: boolean; readonly room: CommandRoomRecord; readonly eventType: string; readonly agent?: CommandRoomAgentRecord }
   | { readonly outcome: 'room_version_conflict'; readonly currentVersion: number }
+  | { readonly outcome: 'slot_conflict' }
   | { readonly outcome: 'not_found' };
 
 interface UpdatePresenceInput {
@@ -383,6 +393,41 @@ export class SqliteCommandRoomRepository {
       if (changed === null) throw new Error('Command Room could not be reloaded');
       connection.exec('COMMIT;');
       return { outcome: 'updated', duplicate: false, room: changed, eventType: input.eventType };
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
+  }
+
+  public async addLeadSlot(input: AddLeadSlotInput): Promise<AdminMutationResult> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const replay = readAdminEvent(connection, input.roomId, input.actorAgentId, input.idempotencyKey);
+      if (replay !== null) {
+        const room = await this.getRoom(input.roomId);
+        const agent = replay.targetSlotKey === null ? null : await this.getAgentBySlot(input.roomId, replay.targetSlotKey);
+        connection.exec('ROLLBACK;');
+        return room === null || agent === null
+          ? { outcome: 'not_found' }
+          : { outcome: 'updated', duplicate: true, room, agent, eventType: replay.eventType };
+      }
+      const room = await this.getRoom(input.roomId);
+      if (room === null) return rollbackResult(connection, { outcome: 'not_found' });
+      if (room.version !== input.expectedVersion) return rollbackResult(connection, { outcome: 'room_version_conflict', currentVersion: room.version });
+      if (input.agent.roomId !== input.roomId || input.agent.role !== 'LEAD') throw new Error('Added Command Room agent is invalid');
+      const occupied = await this.getAgentBySlot(input.roomId, input.agent.slotKey);
+      if (occupied !== null) return rollbackResult(connection, { outcome: 'slot_conflict' });
+      connection.prepare(
+        'INSERT INTO command_room_agents (id, room_id, slot_key, role, provider, state, project_key, workspace_id, connection_epoch, current_task_id, last_heartbeat_at, last_checkpoint_id, capabilities_json, join_code_hash, session_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(...agentValues(input.agent));
+      const roomVersion = touchRoomExpected(connection, input.roomId, input.expectedVersion, input.occurredAt);
+      insertAdminEvent(connection, input.roomId, input.actorAgentId, 'ADD_LEAD', input.agent.slotKey, input.idempotencyKey, input.occurredAt);
+      const changedRoom = await this.getRoom(input.roomId);
+      const changedAgent = await this.getAgentBySlot(input.roomId, input.agent.slotKey);
+      if (changedRoom === null || changedAgent === null || changedRoom.version !== roomVersion) throw new Error('Added Command Room Lead slot could not be reloaded');
+      connection.exec('COMMIT;');
+      return { outcome: 'updated', duplicate: false, room: changedRoom, agent: changedAgent, eventType: 'ADD_LEAD' };
     } catch (error) {
       rollback(connection);
       throw error;

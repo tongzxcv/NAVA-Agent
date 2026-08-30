@@ -84,6 +84,8 @@ import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
   type AddWorkspaceRequest,
+  type AddCommandRoomLeadRequest,
+  type AddCommandRoomLeadResult,
   type BackupSummary as IpcBackupSummary,
   type AgentState,
   type AuditEventSummary,
@@ -750,6 +752,20 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         duplicate: created.duplicate,
         room: await toCommandRoomSummary(created.room),
         joinCodes: created.joinCodes,
+      };
+    },
+    addCommandRoomLead: async (request: AddCommandRoomLeadRequest): Promise<AddCommandRoomLeadResult> => {
+      const added = unwrap(await commandRoomBroker.addLeadFromTrustedDesktop({
+        roomId: request.roomId,
+        expectedVersion: request.expectedVersion,
+        idempotencyKey: `desktop-add-lead:${request.roomId}:${request.expectedVersion}`,
+      }), 'Command Room Lead could not be added');
+      return {
+        duplicate: added.duplicate,
+        room: await toCommandRoomSummary(added.room),
+        slotKey: added.targetSlotKey,
+        requiredConnectionEpoch: added.requiredConnectionEpoch,
+        ...(added.joinCode === undefined ? {} : { joinCode: added.joinCode }),
       };
     },
     deleteCommandRoom: async (request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }> => {

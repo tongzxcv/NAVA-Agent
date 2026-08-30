@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import type { CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
+import type { AddCommandRoomLeadResult, CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 
 interface CommandRoomPageProps {
@@ -17,6 +17,7 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
   const [pairing, setPairing] = useState<CreateCommandRoomPairingResult | null>(null);
   const [roomName, setRoomName] = useState('NAVA Command Room');
   const [created, setCreated] = useState<CreateCommandRoomResult | null>(null);
+  const [addedLead, setAddedLead] = useState<AddCommandRoomLeadResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +173,25 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
     }
   }
 
+  async function addLead(roomId: string, expectedVersion: number): Promise<void> {
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.addCommandRoomLead({ roomId, expectedVersion });
+      setAddedLead(result);
+      setNotice(result.joinCode === undefined
+        ? text(locale, `${result.slotKey} มีอยู่แล้วจากคำขอเดิม — ไม่มีการแสดง join code ซ้ำ`, `${result.slotKey} already exists from the same request — the join code is not shown again.`)
+        : text(locale, `เพิ่ม ${result.slotKey} แล้ว เก็บ Boot Prompt ก่อนออกจากหน้านี้`, `${result.slotKey} was added. Save the boot prompt before leaving this page.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'เพิ่ม Lead ไม่สำเร็จ — รีเฟรชแล้วลองอีกครั้ง', 'Could not add Lead — refresh and try again.')));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createRoom(): Promise<void> {
     const name = roomName.trim();
     if (name.length === 0) return;
@@ -227,6 +247,30 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
           </button>
         </div>
       </section>
+
+      {addedLead?.joinCode === undefined ? null : (
+        <section className="panel command-room-codes" aria-labelledby="added-lead-code-title">
+          <div className="section-heading">
+            <div>
+              <h2 id="added-lead-code-title">{text(locale, `รหัสครั้งเดียวสำหรับ ${addedLead.slotKey}`, `One-time code for ${addedLead.slotKey}`)}</h2>
+              <p className="hint">{text(locale, 'รหัสนี้อยู่เฉพาะในหน้านี้จนกว่าจะซ่อนหรือออกจากหน้า', 'This code remains only in this page state until you hide it or leave the page.')}</p>
+            </div>
+            <button type="button" onClick={() => setAddedLead(null)}>{text(locale, 'ซ่อนรหัส', 'Hide code')}</button>
+          </div>
+          <div className="command-room-code-grid">
+            <article className="command-room-code-card">
+              <div className="command-room-code-heading">
+                <strong>{addedLead.slotKey}</strong>
+                <span>Project Lead</span>
+              </div>
+              <code>{addedLead.joinCode}</code>
+              <button type="button" onClick={() => { void copyTextToClipboard(bootPrompt(locale, addedLead.room.id, addedLead.slotKey, addedLead.joinCode as string, addedLead.requiredConnectionEpoch)); }}>
+                {text(locale, 'คัดลอก Boot Prompt', 'Copy boot prompt')}
+              </button>
+            </article>
+          </div>
+        </section>
+      )}
 
       {created === null ? null : (
         <section className="panel command-room-codes" aria-labelledby="one-time-codes-title">
@@ -339,6 +383,14 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                   </div>
                   <div className="command-room-room-actions">
                     <span className={`command-room-status status-${room.status.toLowerCase()}`}>{room.status}</span>
+                    <button
+                      type="button"
+                      disabled={busy || room.status === 'ARCHIVED' || room.agents.filter((agent) => agent.role === 'LEAD').length >= 5}
+                      title={text(locale, 'เพิ่ม Lead slot ถัดไปในห้องเดิม', 'Add the next Lead slot to this room')}
+                      onClick={() => { void addLead(room.id, room.version); }}
+                    >
+                      {text(locale, 'เพิ่ม Lead', 'Add Lead')}
+                    </button>
                     <button
                       type="button"
                       className="danger-soft-button"
@@ -458,11 +510,11 @@ function pairingPayload(pairing: CreateCommandRoomPairingResult): string {
   }, null, 2);
 }
 
-function bootPrompt(locale: UiLocale, roomId: string, slotKey: string, joinCode: string): string {
+function bootPrompt(locale: UiLocale, roomId: string, slotKey: string, joinCode: string, connectionEpoch: number = 1): string {
   if (locale === 'th') {
-    return `คุณคือ ${slotKey} ใน NAVA Command Room ให้เรียก command_room_join ด้วย roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=1 จากนั้นเรียก command_room_presence heartbeat และตรวจ inbox เป็นระยะ ห้ามส่งต่อ joinCode หรือ agentSessionId`;
+    return `คุณคือ ${slotKey} ใน NAVA Command Room ให้เรียก command_room_join ด้วย roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=${connectionEpoch} จากนั้นเรียก command_room_presence heartbeat และตรวจ inbox เป็นระยะ ห้ามส่งต่อ joinCode หรือ agentSessionId`;
   }
-  return `You are ${slotKey} in a NAVA Command Room. Call command_room_join with roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=1. Then send command_room_presence heartbeats and check the inbox periodically. Never forward the joinCode or agentSessionId.`;
+  return `You are ${slotKey} in a NAVA Command Room. Call command_room_join with roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=${connectionEpoch}. Then send command_room_presence heartbeats and check the inbox periodically. Never forward the joinCode or agentSessionId.`;
 }
 
 function relativeAge(value: string, nowValue: string | null, locale: UiLocale): string {

@@ -26,6 +26,8 @@ Coordinate agents through bounded local SQLite records. Store summaries and evid
 
 MAIN creates a room with `command_room_admin`, a stable idempotency key, and one to five Lead slots. Deliver each one-time join code privately.
 
+To expand an existing room, MAIN may call `command_room_admin` with `action=add_lead`, the current `expectedVersion`, and a stable idempotency key. NAVA adds only the next contiguous slot (`LEAD-2`, then `LEAD-3`, and so on through `LEAD-5`). The response returns a one-time join code only on the first successful mutation; an idempotent replay never reveals it again. Adding a slot creates `AVAILABLE` authority with epoch 0 only — it does **not** create an `agentSessionId`. The trusted Desktop **Add Lead** button uses the same broker/storage mutation without exposing a MAIN session to the renderer.
+
 Each chat joins its assigned slot with `command_room_join`:
 
 - provider is `CHATGPT`, `CODEX`, or `OTHER`

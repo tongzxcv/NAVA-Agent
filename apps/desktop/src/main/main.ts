@@ -8,6 +8,8 @@ import {
   ipcChannels,
   pushChannels,
   type AddWorkspaceRequest,
+  type AddCommandRoomLeadRequest,
+  type AddCommandRoomLeadResult,
   type BackupSummary,
   type ClearLogBufferRequest,
   type CommandRoomOverview,
@@ -75,6 +77,7 @@ export interface DesktopIpcServices {
   getDashboard(): Promise<DashboardSnapshot>;
   getCommandRoomOverview(): Promise<CommandRoomOverview>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<CreateCommandRoomResult>;
+  addCommandRoomLead(request: AddCommandRoomLeadRequest): Promise<AddCommandRoomLeadResult>;
   deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }>;
   getCommandRoomExtensionOverview(): Promise<CommandRoomExtensionOverview>;
   setCommandRoomExtensionConfig(request: SetCommandRoomExtensionConfigRequest): Promise<CommandRoomExtensionBridgeStatus>;
@@ -183,6 +186,7 @@ const defaultDesktopServices: DesktopIpcServices = {
   }),
   getCommandRoomOverview: async (): Promise<CommandRoomOverview> => ({ rooms: [] }),
   createCommandRoom: async (): Promise<CreateCommandRoomResult> => { throw new Error('Command Room service is not configured'); },
+  addCommandRoomLead: async (): Promise<AddCommandRoomLeadResult> => { throw new Error('Command Room service is not configured'); },
   deleteCommandRoom: async (): Promise<{ readonly deleted: boolean }> => ({ deleted: false }),
   getCommandRoomExtensionOverview: async (): Promise<CommandRoomExtensionOverview> => ({
     bridge: { enabled: false, running: false, url: null, allowedOrigins: [], message: null },
@@ -290,6 +294,10 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.createCommandRoom, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
     return services.createCommandRoom(parseCreateCommandRoomRequest(payload));
+  });
+  ipcMain.handle(ipcChannels.addCommandRoomLead, async (event, payload: unknown) => {
+    assertTrustedSender(event, getMainWindow());
+    return services.addCommandRoomLead(parseAddCommandRoomLeadRequest(payload));
   });
   ipcMain.handle(ipcChannels.deleteCommandRoom, async (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow());
@@ -492,6 +500,13 @@ function parseCreateCommandRoomRequest(payload: unknown): CreateCommandRoomReque
   const name = nonEmptyString(payload.name, 'name').trim();
   if (name.length > 120) throw new Error('Invalid IPC payload: name');
   return { name };
+}
+
+function parseAddCommandRoomLeadRequest(payload: unknown): AddCommandRoomLeadRequest {
+  if (!isRecord(payload)) throw new Error('Invalid IPC payload');
+  const roomId = nonEmptyString(payload.roomId, 'roomId').trim();
+  if (!Number.isInteger(payload.expectedVersion) || (payload.expectedVersion as number) < 1) throw new Error('Invalid IPC payload: expectedVersion');
+  return { roomId, expectedVersion: payload.expectedVersion as number };
 }
 
 function parseDeleteCommandRoomRequest(payload: unknown): DeleteCommandRoomRequest {

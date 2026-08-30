@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { CommandRoomAgentRecord } from '@lnwjud/domain';
 import { SqliteCommandRoomRepository } from './command-room-repository.js';
 import { SqliteDatabase } from './database.js';
 
@@ -79,6 +80,49 @@ describe('SqliteCommandRoomRepository', () => {
       { id: 'agent-lead-1', slotKey: 'LEAD-1', role: 'LEAD', state: 'AVAILABLE' },
     ]);
     secondDatabase.close();
+  });
+
+  it('adds a Lead slot atomically, replays idempotently, rejects stale versions, and survives reopen', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-add-lead-'));
+    temporaryRoots.push(root);
+    const filename = path.join(root, 'state.db');
+    const createdAt = '2026-08-30T06:00:00.000Z';
+    const database = new SqliteDatabase(filename);
+    const repository = new SqliteCommandRoomRepository(database);
+    const baseAgent = (id: string, slotKey: string, role: 'MAIN' | 'LEAD'): CommandRoomAgentRecord => ({
+      id, roomId: 'room-add', slotKey, role, provider: 'CHATGPT' as const, state: 'AVAILABLE' as const,
+      connectionEpoch: 0, capabilities: [], joinCodeHash: `${id}-hash`, createdAt, updatedAt: createdAt,
+    });
+    await repository.createRoom({
+      room: { id: 'room-add', name: 'Expandable', status: 'ACTIVE', policy: { directLeadMessaging: false }, version: 1, creationKey: 'room-add-create', createdAt, updatedAt: createdAt },
+      agents: [
+        baseAgent('main-add', 'MAIN', 'MAIN'),
+        baseAgent('lead-add-1', 'LEAD-1', 'LEAD'),
+        baseAgent('lead-add-2', 'LEAD-2', 'LEAD'),
+        baseAgent('lead-add-3', 'LEAD-3', 'LEAD'),
+      ],
+    });
+    const lead4 = baseAgent('lead-add-4', 'LEAD-4', 'LEAD');
+    const first = await repository.addLeadSlot({
+      roomId: 'room-add', actorAgentId: 'main-add', agent: lead4, expectedVersion: 1,
+      idempotencyKey: 'add-lead-4', occurredAt: '2026-08-30T06:00:01.000Z',
+    });
+    expect(first).toMatchObject({ outcome: 'updated', duplicate: false, room: { version: 2 }, agent: { slotKey: 'LEAD-4', connectionEpoch: 0 }, eventType: 'ADD_LEAD' });
+    await expect(repository.addLeadSlot({
+      roomId: 'room-add', actorAgentId: 'main-add', agent: baseAgent('ignored-replay', 'LEAD-5', 'LEAD'), expectedVersion: 1,
+      idempotencyKey: 'add-lead-4', occurredAt: '2026-08-30T06:00:02.000Z',
+    })).resolves.toMatchObject({ outcome: 'updated', duplicate: true, room: { version: 2 }, agent: { id: 'lead-add-4', slotKey: 'LEAD-4' } });
+    await expect(repository.addLeadSlot({
+      roomId: 'room-add', actorAgentId: 'main-add', agent: baseAgent('lead-add-5', 'LEAD-5', 'LEAD'), expectedVersion: 1,
+      idempotencyKey: 'stale-lead-5', occurredAt: '2026-08-30T06:00:03.000Z',
+    })).resolves.toEqual({ outcome: 'room_version_conflict', currentVersion: 2 });
+    database.close();
+
+    const reopenedDatabase = new SqliteDatabase(filename);
+    const reopened = new SqliteCommandRoomRepository(reopenedDatabase);
+    await expect(reopened.listAgents('room-add')).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ slotKey: 'LEAD-4', id: 'lead-add-4' })]));
+    await expect(reopened.getRoom('room-add')).resolves.toMatchObject({ version: 2 });
+    reopenedDatabase.close();
   });
 
   it('deletes archived rooms only and cascades room-owned rows', async () => {

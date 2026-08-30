@@ -100,6 +100,73 @@ describe('CommandRoomBroker', () => {
     expect(empty).toMatchObject({ cursor: inbox.nextCursor, messages: [], truncated: false });
     database.close();
   });
+  it('expands an existing room sequentially to LEAD-5 without creating sessions early', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-expand-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    let now = new Date('2026-08-30T06:10:00.000Z');
+    const broker = new CommandRoomBroker(new SqliteCommandRoomRepository(database), () => now);
+
+    try {
+      const created = value(await broker.admin({ action: 'create', name: 'Expandable Room', idempotencyKey: 'expand-room', leadSlots: 3 }));
+      const main = value(await broker.join({ roomId: created.room.id, slotKey: 'MAIN', joinCode: created.joinCodes.MAIN, provider: 'CHATGPT', connectionEpoch: 1 }));
+      const lead1 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-1', joinCode: created.joinCodes['LEAD-1'], provider: 'CHATGPT', connectionEpoch: 1 }));
+
+      const denied = await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: lead1.agentSessionId, expectedVersion: lead1.roomVersion, idempotencyKey: 'lead-cannot-expand' });
+      expect(denied).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+
+      now = new Date('2026-08-30T06:10:01.000Z');
+      const added4 = value(await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: lead1.roomVersion, idempotencyKey: 'main-add-lead-4' }));
+      expect(added4).toMatchObject({ action: 'add_lead', duplicate: false, targetSlotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: expect.any(String) });
+      const replay4 = value(await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: lead1.roomVersion, idempotencyKey: 'main-add-lead-4' }));
+      expect(replay4).toMatchObject({ action: 'add_lead', duplicate: true, targetSlotKey: 'LEAD-4', requiredConnectionEpoch: 1 });
+      expect(replay4.joinCode).toBeUndefined();
+
+      const stale = await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: lead1.roomVersion, idempotencyKey: 'main-add-stale' });
+      expect(stale).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('Room version conflict') } });
+
+      const joined4 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-4', joinCode: added4.joinCode as string, provider: 'CHATGPT', connectionEpoch: added4.requiredConnectionEpoch }));
+      expect(joined4.agent).toMatchObject({ slotKey: 'LEAD-4', state: 'ONLINE', connectionEpoch: 1 });
+
+      now = new Date('2026-08-30T06:10:02.000Z');
+      const added5 = value(await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: joined4.roomVersion, idempotencyKey: 'main-add-lead-5' }));
+      expect(added5).toMatchObject({ duplicate: false, targetSlotKey: 'LEAD-5', requiredConnectionEpoch: 1, joinCode: expect.any(String) });
+      const replay5 = value(await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: joined4.roomVersion, idempotencyKey: 'main-add-lead-5' }));
+      expect(replay5).toMatchObject({ duplicate: true, targetSlotKey: 'LEAD-5' });
+      expect(replay5.joinCode).toBeUndefined();
+
+      const overCapacity = await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: added5.roomVersion, idempotencyKey: 'main-add-lead-6' });
+      expect(overCapacity).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('maximum of 5') } });
+
+      const archived = value(await broker.admin({ action: 'archive', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: added5.roomVersion, idempotencyKey: 'main-archive-after-capacity' }));
+      const archivedAdd = await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: archived.roomVersion, idempotencyKey: 'main-add-archived' });
+      expect(archivedAdd).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED', message: expect.stringContaining('Archived') } });
+      const status = value(await broker.status({ roomId: created.room.id, agentSessionId: main.agentSessionId }));
+      expect(status.agents.map((agent) => agent.slotKey)).toEqual(['MAIN', 'LEAD-1', 'LEAD-2', 'LEAD-3', 'LEAD-4', 'LEAD-5']);
+      const pending5 = status.agents.find((agent) => agent.slotKey === 'LEAD-5');
+      expect(pending5).toMatchObject({ state: 'AVAILABLE', connectionEpoch: 0 });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('fails closed when an existing room has a non-contiguous Lead slot set', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-gap-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    const repository = new SqliteCommandRoomRepository(database);
+    const broker = new CommandRoomBroker(repository, () => new Date('2026-08-30T06:20:00.000Z'));
+    try {
+      const created = value(await broker.admin({ action: 'create', name: 'Gap Room', idempotencyKey: 'gap-room', leadSlots: 3 }));
+      const main = value(await broker.join({ roomId: created.room.id, slotKey: 'MAIN', joinCode: created.joinCodes.MAIN, provider: 'CHATGPT', connectionEpoch: 1 }));
+      database.connection.prepare("DELETE FROM command_room_agents WHERE room_id = ? AND slot_key = 'LEAD-2'").run(created.room.id);
+      const result = await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: main.roomVersion, idempotencyKey: 'gap-add' });
+      expect(result).toMatchObject({ ok: false, error: { code: 'INTERNAL_ERROR', message: expect.stringContaining('not contiguous') } });
+    } finally {
+      database.close();
+    }
+  });
+
   it('enforces task ownership, optimistic versions, idempotency, and review approval', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-task-'));
     temporaryRoots.push(root);
@@ -424,6 +491,15 @@ describe('CommandRoomBroker', () => {
         provider: 'CHATGPT',
         connectionEpoch: 1,
       }));
+      const addedLead = responseRecord(await enabled.invoke('command_room_admin', {
+        action: 'add_lead',
+        roomId,
+        agentSessionId: stringField(main, 'agentSessionId'),
+        expectedVersion: numberField(lead, 'roomVersion'),
+        idempotencyKey: 'main/manual/add-lead-2',
+      }));
+      expect(addedLead).toMatchObject({ action: 'add_lead', targetSlotKey: 'LEAD-2', requiredConnectionEpoch: 1, joinCode: expect.any(String) });
+
       const sent = responseRecord(await enabled.invoke('command_room_send', {
         roomId,
         agentSessionId: stringField(main, 'agentSessionId'),
@@ -462,6 +538,12 @@ function nestedRecord(value: Record<string, unknown>, field: string): Record<str
 function stringField(value: Record<string, unknown>, field: string): string {
   const entry = value[field];
   if (typeof entry !== 'string') throw new Error(`Expected string field: ${field}`);
+  return entry;
+}
+
+function numberField(value: Record<string, unknown>, field: string): number {
+  const entry = value[field];
+  if (typeof entry !== 'number' || !Number.isFinite(entry)) throw new Error(`Expected number field: ${field}`);
   return entry;
 }
 
