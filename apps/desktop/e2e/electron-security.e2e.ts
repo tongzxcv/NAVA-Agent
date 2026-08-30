@@ -45,7 +45,7 @@ test('renderer cannot access Node globals', async () => {
       process: typeof Reflect.get(window, 'process'),
       require: typeof Reflect.get(window, 'require'),
       api: typeof window.lnwjud?.listWorkspaces,
-    }))).toEqual({ process: 'undefined', require: 'undefined', api: 'function' });
+    })), { timeout: 20_000, intervals: [100, 250, 500] }).toEqual({ process: 'undefined', require: 'undefined', api: 'function' });
     diagnostics.phase('preload-contract-ready');
     await browser.close();
   } finally {

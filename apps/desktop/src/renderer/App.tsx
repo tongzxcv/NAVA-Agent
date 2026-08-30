@@ -44,6 +44,7 @@ export function App(): ReactElement {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const incidentBusyRef = useRef(false);
   const logIds = useRef<Set<number>>(new Set());
+  const refreshInFlight = useRef<Promise<void> | null>(null);
 
   const t = createTranslator(locale);
 
@@ -145,19 +146,26 @@ export function App(): ReactElement {
     }
   }
 
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const [nextDashboard, nextWorkspaces] = await Promise.all([
-        window.lnwjud.getDashboard(),
-        window.lnwjud.listWorkspaces(),
-      ]);
-      setDashboard(nextDashboard);
-      setWorkspaces(nextWorkspaces);
-      setLocale(nextDashboard.locale);
-
-    } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : createTranslator(locale)('error.desktopService'));
-    }
+  const refresh = useCallback((): Promise<void> => {
+    if (refreshInFlight.current !== null) return refreshInFlight.current;
+    const pending = (async (): Promise<void> => {
+      try {
+        const [nextDashboard, nextWorkspaces] = await Promise.all([
+          window.lnwjud.getDashboard(),
+          window.lnwjud.listWorkspaces(),
+        ]);
+        setDashboard(nextDashboard);
+        setWorkspaces(nextWorkspaces);
+        setLocale(nextDashboard.locale);
+      } catch (cause: unknown) {
+        setError(cause instanceof Error ? cause.message : createTranslator(locale)('error.desktopService'));
+      }
+    })();
+    refreshInFlight.current = pending;
+    void pending.finally(() => {
+      if (refreshInFlight.current === pending) refreshInFlight.current = null;
+    });
+    return pending;
   }, [locale]);
 
   useEffect(() => {

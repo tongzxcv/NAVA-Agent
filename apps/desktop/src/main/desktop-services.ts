@@ -156,6 +156,7 @@ const commandRoomExtensionEnabledSettingKey = 'command_room_extension_wake_enabl
 const commandRoomExtensionOriginsSettingKey = 'command_room_extension_allowed_origins';
 const COMMAND_ROOM_EXTENSION_BRIDGE_PORT = 18_766;
 const DASHBOARD_GIT_CACHE_MS = 60_000;
+const E2E_FIXTURE = process.env.LNWJUD_E2E_FIXTURE === '1';
 
 export interface DesktopRuntime {
   readonly services: DesktopIpcServices;
@@ -435,7 +436,9 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       }
       return { status: 'pass', message: `${tools.length} MCP tools advertised; lease/session/skill tools ready. If ChatGPT shows fewer, Refresh connector.` };
     },
-    codex: async (): Promise<DoctorProbeResult> => checkCodex(codexDiscovery),
+    codex: async (): Promise<DoctorProbeResult> => E2E_FIXTURE
+      ? { status: 'warn', message: 'Codex discovery is skipped in the deterministic E2E fixture' }
+      : checkCodex(codexDiscovery),
   });
 
   async function resolveWorkspaceOrThrow(workspaceId: string): Promise<Workspace> {
@@ -667,10 +670,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       const gitSummary = selectedWorkspace === null
         ? { branch: null, changedFiles: 0, stagedFiles: 0, message: 'No workspace selected' }
         : await getDashboardGitSummary(selectedWorkspace);
-      const codex = await buildCodexSummary(codexDiscovery);
+      const codex = E2E_FIXTURE ? { installed: false, version: null } : await buildCodexSummary(codexDiscovery);
       const recentAuditEvents = await buildAuditSummary(auditRepository, settingsRepository);
       const processSummaries = await listTrackedProcesses(processService, trackedProcesses);
-      const capabilities = await buildCapabilitySummary(capabilityRuntime.health);
+      const capabilities = await buildCapabilitySummary(capabilityRuntime.health, { probe: !E2E_FIXTURE });
       const mcp = mcpLifecycle.status();
       const workLog = await buildWorkLog(auditRepository, settingsRepository);
       const activityInFlight = activityTracker.listInFlight();

@@ -93,3 +93,12 @@
 - Portable Node 24.19.0 focused ESLint passed; isolated security E2E passed 1/1 and local sequential E2E passed 3/3 in 36.9s.
 - Roadmap now inserts 3C.5 Dynamic Lead Capacity, 3C.6 Session Authority, and 3C.7 Live State before Phase 3D. Add-slot creates join authority only; a real agent session still requires join/rebind and heartbeat read-back.
 - GitHub runner evidence is still required before claiming the Windows E2E root cause or closing Phase 3C.
+
+## 2026-08-30 — Phase 3C.2/3C.3 deterministic Electron startup fix
+
+- GitHub isolated evidence from run `33292059433` disproved orphan cleanup as the primary startup blocker: dashboard and MCP-client reached DevTools/CDP in about 1–2s but never reached renderer-ready before their 90s/180s deadlines; security reached renderer-ready but missed the default 5s preload-contract poll.
+- Source inspection found the renderer scheduled `getDashboard()` every second without an in-flight guard while each dashboard query could synchronously probe Codex discovery and `health.check_all` external capabilities. On a slower Windows runner, overlapping expensive refreshes could self-amplify before the first dashboard response completed.
+- Renderer refresh is now coalesced to one in-flight request. Under explicit `LNWJUD_E2E_FIXTURE=1`, dashboard startup skips only external Codex/capability probes that are unrelated to the Electron/preload/MCP assertions; production behavior is unchanged. Security preload readiness keeps the real preload contract and uses a bounded 20s poll.
+- Added a focused regression proving fixture capability summary returns static metadata without invoking external health probes. Supported Node 24 verification passes: root TypeScript build, changed-source ESLint, Desktop 40 files / 240 tests, acceptance 16/16, and focused fixture test 1/1.
+- Local `CI=true` Electron E2E passed three consecutive full rounds = 9/9. Phase markers now reach renderer/MCP/preload readiness in about 2s and each full 3-test round finishes in about 17s.
+- GitHub re-verification is the remaining gate. No installed NAVA/Tunnel process was restarted or modified by this source-only fix.

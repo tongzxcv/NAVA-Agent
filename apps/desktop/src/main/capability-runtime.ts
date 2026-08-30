@@ -136,7 +136,19 @@ export function createLocalCapabilityRuntime(
   return { service, health };
 }
 
-export async function buildCapabilitySummary(health: HealthCapabilityBackend): Promise<DashboardSnapshot['capabilities']> {
+export async function buildCapabilitySummary(
+  health: HealthCapabilityBackend,
+  options: { readonly probe?: boolean } = {},
+): Promise<DashboardSnapshot['capabilities']> {
+  if (options.probe === false) {
+    return capabilityToolNames.map((name) => ({
+      name,
+      title: capabilityTitles[name],
+      description: capabilityDescriptions[name],
+      available: false,
+      ready: false,
+    }));
+  }
   const checked = await health.execute({ operation: 'check_all' });
   const values = checked.ok && isRecord(checked.value) && isRecord(checked.value.capabilities) ? checked.value.capabilities : {};
   return capabilityToolNames.map((name) => {
