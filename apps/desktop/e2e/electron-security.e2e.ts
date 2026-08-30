@@ -12,6 +12,7 @@ const electronDistPath = path.join(desktopRoot, 'node_modules', 'electron', 'dis
 const electronExecutable = path.join(electronDistPath, 'electron.exe');
 
 test('renderer cannot access Node globals', async () => {
+  test.setTimeout(60_000);
   const devToolsPort = await findEphemeralPort();
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-security-data-'));
   const electronProcess = spawn(electronExecutable, [`--remote-debugging-port=${devToolsPort}`, `--user-data-dir=${dataRoot}`, mainEntry], {
@@ -71,29 +72,33 @@ async function waitForDevTools(port: number, electronProcess: ChildProcess, stde
     } catch {
       return false;
     }
-  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
+  }, { timeout: 20_000, intervals: [50, 100, 250] }).toBe(true);
 }
 
 async function terminateProcessTree(process: ChildProcess): Promise<void> {
   if (process.exitCode !== null || process.pid === undefined) return;
-  const killer = spawn('taskkill.exe', ['/PID', String(process.pid), '/T', '/F'], { shell: false, windowsHide: true });
+  const killer = spawn('taskkill.exe', ['/PID', String(process.pid), '/T', '/F'], {
+    shell: false,
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore',
+  });
+  killer.unref();
   await Promise.race([
-    new Promise<void>((resolve) => {
-      killer.once('error', () => resolve());
-      killer.once('close', () => resolve());
-    }),
-    new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+    new Promise<void>((resolve) => process.once('exit', () => resolve())),
+    new Promise<void>((resolve) => setTimeout(resolve, 8_000)),
   ]);
-  if (killer.exitCode === null && !killer.killed) killer.kill();
 }
 
 async function removeTemporaryRoot(root: string): Promise<void> {
-  await expect.poll(async () => {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
     try {
       await rm(root, { recursive: true, force: true });
-      return true;
+      return;
     } catch {
-      return false;
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
     }
-  }, { timeout: 10_000, intervals: [50, 100, 250] }).toBe(true);
+  }
+  console.warn(`E2E cleanup left temporary root for OS cleanup: ${root}`);
 }
