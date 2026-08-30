@@ -969,7 +969,7 @@ Phase 1.5 persistence and the Phase 2 Desktop Main 1 + Lead 5 view are installed
 - [x] Create `docs/architecture/NAVA_COMMAND_ROOM_PHASE3_PLAN_TH.md` with migration 007, extension identity/wake, security boundaries, acceptance gates, and implementation order.
 - [x] Target Phase 3 implementation as v4.12.0, but do not bump source version until the first Phase 3 source change begins.
 - [x] Start RED tests for migration 007 and pairing/wake state transitions; migration/repository/application service tests are green.
-- [ ] Implement storage/application/Desktop/extension vertical slice behind opt-in `extensionWakeEnabled` — storage + initial application service are in progress; Desktop/extension remain untouched.
+- [ ] Implement storage/application/Desktop/extension vertical slice behind opt-in `extensionWakeEnabled` — storage + pairing/wake application service + persistent coalescing/hourly budgets/circuit breaker are green; Desktop/extension remain pending.
 - [ ] Pass wrong-tab, revoke/replace, bounded retry, restart recovery, secret-redaction, and Phase 2B regression gates before installed pilot.
 
 Phase 3 source implementation is active on `feature/command-room-phase3` targeting v4.12.0. The local development machine now runs the validated v4.12.0 reliability/identity-foundation pilot; the public release baseline remains v4.11.4 and the Phase 3 Desktop/extension wake slice is still pending.

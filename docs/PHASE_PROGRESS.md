@@ -54,3 +54,12 @@
 - A real 1,413-task history exposed one remaining bottleneck: bounded `shell list` initially took ~17.7s because every historical stdout/stderr file was still loaded. Source fix `3a7ebe1` made list metadata-only; after final reinstall the same limit=2 completed-task query returned in ~580ms with no output blobs.
 - Final source verification after the list optimization: root TypeScript build passed; capabilities + MCP-server regression = 48 files / 261 tests passed; release/public hygiene/desktop packaging guards = 17/17 passed.
 - NAVA Desktop and the lnwjud tunnel reconnected successfully after restart. Public GitHub release/tag remains v4.11.4; this is a local v4.12.0 Phase 3/reliability pilot, not a v4.12.0 public release.
+
+## 2026-08-30 — Phase 3 wake policy + Windows release CI hardening
+
+- Commit `37bb73b` fixes the Windows GitHub Actions E2E teardown race: dashboard cleanup waits for `taskkill`, retries Chromium profile removal on transient locks, and the security E2E now uses an isolated `LNWJUD_DATA_PATH` instead of touching the real local profile. CI/release actions were advanced to the Node-24 generation.
+- The exact three E2Es that failed in the v4.11.4 GitHub release run now pass sequentially locally: dashboard, real MCP client flow, and renderer Node-global isolation = 3/3.
+- Commit `1a65fda` adds persistent wake coalescing, per-binding/per-room hourly budgets, and a circuit breaker that opens after repeated SUBMITTED wakes without a later agent heartbeat. Explicit `USER_WAKE` can bypass the circuit but still obeys hourly budgets.
+- Coalescing keeps any pending QUEUED/ATTEMPTING/DELIVERED wake singular and applies the 60s cooldown to SUBMITTED wakes, preventing duplicate pending deliveries after stalls.
+- Verification after both commits: TypeScript build passed; focused Phase 3/release tests 23/23 passed; application + storage + Desktop + packaging/release regression 69 files / 342 tests passed; changed-source ESLint passed.
+- Public GitHub latest remains v4.11.4. This slice is prepared for the next local v4.12.0 installed pilot while Phase 3 Extension Bridge/Desktop/browser-extension work remains unfinished.
