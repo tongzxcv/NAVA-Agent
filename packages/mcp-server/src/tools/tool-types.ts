@@ -96,6 +96,8 @@ export interface McpToolContext {
   readonly services: McpApplicationServices;
   readonly contextEconomy: ContextEconomyRuntime;
   readonly activity?: ActivityTracker;
+  /** Late-bound actual registry definitions for on-demand discovery; never grants authorization. */
+  readonly toolDefinitions?: () => readonly McpToolDefinition[];
 }
 
 export interface ToolConfig<T extends z.ZodType> {

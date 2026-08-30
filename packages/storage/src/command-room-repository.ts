@@ -66,6 +66,17 @@ interface AddLeadSlotInput {
   readonly idempotencyKey: string;
   readonly occurredAt: string;
 }
+interface BindAgentProjectInput {
+  readonly roomId: string;
+  readonly actorAgentId: string;
+  readonly targetSlotKey: string;
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly expectedVersion: number;
+  readonly idempotencyKey: string;
+  readonly occurredAt: string;
+}
+
 
 type AdminMutationResult =
   | { readonly outcome: 'updated'; readonly duplicate: boolean; readonly room: CommandRoomRecord; readonly eventType: string; readonly agent?: CommandRoomAgentRecord }
@@ -79,9 +90,9 @@ interface UpdatePresenceInput {
   readonly sessionHash: string;
   readonly action: 'heartbeat' | 'park' | 'leave';
   readonly occurredAt: string;
-  readonly projectKey?: string;
-  readonly workspaceId?: string;
-  readonly lastCheckpointId?: string;
+  readonly projectKey?: string | undefined;
+  readonly workspaceId?: string | undefined;
+  readonly lastCheckpointId?: string | undefined;
 }
 
 interface CreateTaskInput {
@@ -428,6 +439,39 @@ export class SqliteCommandRoomRepository {
       if (changedRoom === null || changedAgent === null || changedRoom.version !== roomVersion) throw new Error('Added Command Room Lead slot could not be reloaded');
       connection.exec('COMMIT;');
       return { outcome: 'updated', duplicate: false, room: changedRoom, agent: changedAgent, eventType: 'ADD_LEAD' };
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
+  }
+
+  public async bindAgentProject(input: BindAgentProjectInput): Promise<AdminMutationResult> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const replay = readAdminEvent(connection, input.roomId, input.actorAgentId, input.idempotencyKey);
+      if (replay !== null) {
+        const room = await this.getRoom(input.roomId);
+        const agent = await this.getAgentBySlot(input.roomId, replay.targetSlotKey ?? input.targetSlotKey);
+        connection.exec('ROLLBACK;');
+        return room === null || agent === null
+          ? { outcome: 'not_found' }
+          : { outcome: 'updated', duplicate: true, room, agent, eventType: replay.eventType };
+      }
+      const room = await this.getRoom(input.roomId);
+      const agent = await this.getAgentBySlot(input.roomId, input.targetSlotKey);
+      if (room === null || agent === null) return rollbackResult(connection, { outcome: 'not_found' });
+      if (room.version !== input.expectedVersion) return rollbackResult(connection, { outcome: 'room_version_conflict', currentVersion: room.version });
+      connection.prepare(
+        'UPDATE command_room_agents SET project_key = ?, workspace_id = ?, updated_at = ? WHERE id = ? AND room_id = ?',
+      ).run(input.projectKey, input.workspaceId, input.occurredAt, agent.id, input.roomId);
+      const roomVersion = touchRoomExpected(connection, input.roomId, input.expectedVersion, input.occurredAt);
+      insertAdminEvent(connection, input.roomId, input.actorAgentId, 'BIND_PROJECT', input.targetSlotKey, input.idempotencyKey, input.occurredAt);
+      const changedRoom = await this.getRoom(input.roomId);
+      const changedAgent = await this.getAgentBySlot(input.roomId, input.targetSlotKey);
+      if (changedRoom === null || changedAgent === null || changedRoom.version !== roomVersion) throw new Error('Bound Command Room project could not be reloaded');
+      connection.exec('COMMIT;');
+      return { outcome: 'updated', duplicate: false, room: changedRoom, agent: changedAgent, eventType: 'BIND_PROJECT' };
     } catch (error) {
       rollback(connection);
       throw error;

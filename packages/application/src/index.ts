@@ -17,4 +17,5 @@ export * from './workspace-index.js';
 export * from './lifecycle-hooks.js';
 export * from './runtime-cache.js';
 export * from './command-room-broker.js';
+export * from './command-room-live-state.js';
 export * from './command-room-extension-service.js';

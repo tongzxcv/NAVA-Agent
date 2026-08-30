@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import type { AddCommandRoomLeadResult, CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, ReissueCommandRoomBootPromptResult, UiLocale } from '@lnwjud/ipc-contracts';
+import type { AddCommandRoomLeadResult, CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, ReissueCommandRoomBootPromptResult, UiLocale, WorkspaceSummary } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 
 interface CommandRoomPageProps {
@@ -23,6 +23,8 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<readonly WorkspaceSummary[]>([]);
+  const [workspaceSelections, setWorkspaceSelections] = useState<Record<string, string>>({});
   const refreshInFlight = useRef(false);
 
   useEffect((): (() => void) | undefined => {
@@ -37,12 +39,14 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
     try {
-      const [rooms, extension] = await Promise.all([
+      const [rooms, extension, registeredWorkspaces] = await Promise.all([
         window.lnwjud.getCommandRoomOverview(),
         window.lnwjud.getCommandRoomExtensionOverview(),
+        window.lnwjud.listWorkspaces(),
       ]);
       setOverview(rooms);
       setExtensionOverview(extension);
+      setWorkspaces(registeredWorkspaces.filter((workspace) => !isMachineRootWorkspace(workspace)));
       setExtensionOrigin((current) => current.trim().length > 0 ? current : extension.bridge.allowedOrigins[0] ?? '');
       setLastRefreshedAt(new Date().toISOString());
       setError(null);
@@ -214,6 +218,31 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
       await refresh();
     } catch (cause: unknown) {
       setError(message(cause, text(locale, 'ออก Boot Prompt ใหม่ไม่สำเร็จ', 'Could not reissue the Boot Prompt')));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bindProject(roomId: string, slotKey: string, expectedVersion: number, currentWorkspaceId?: string): Promise<void> {
+    const key = `${roomId}:${slotKey}`;
+    const workspaceId = workspaceSelections[key] ?? currentWorkspaceId ?? '';
+    const workspace = workspaces.find((entry) => entry.id === workspaceId);
+    if (workspace === undefined) {
+      setError(text(locale, 'เลือกโปรเจกต์ที่จะผูกก่อน', 'Choose a project workspace first.'));
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.bindCommandRoomLeadProject({
+        roomId, slotKey, expectedVersion, workspaceId: workspace.id,
+      });
+      setNotice(text(locale, `ผูก ${result.slotKey} กับ ${workspace.displayName} แล้ว โดยไม่เปลี่ยน session/epoch`, `Bound ${result.slotKey} to ${workspace.displayName} without changing its session/epoch.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ผูกโปรเจกต์ไม่สำเร็จ', 'Could not bind the project')));
       await refresh();
     } finally {
       setBusy(false);
@@ -448,11 +477,32 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                         <span>{agent.state}</span>
                         <small>{agent.projectKey ?? text(locale, 'ยังไม่ผูกโปรเจกต์', 'No project bound')}</small>
                         <small>Heartbeat · {agent.lastHeartbeatAt === undefined ? '—' : relativeAge(agent.lastHeartbeatAt, lastRefreshedAt, locale)}</small>
+                        <small>{text(locale, 'กิจกรรม', 'Activity')} · {relativeAge(agent.lastActivityAt, lastRefreshedAt, locale)}{agent.stale ? ' · STALE' : ''}</small>
                         <small>Session · epoch {agent.connectionEpoch}</small>
                         <small>Browser · {extensionAgent?.bindingState ?? 'UNPAIRED'} · epoch {extensionAgent?.connectionEpoch ?? agent.connectionEpoch}</small>
                         {extensionAgent?.lastWake === undefined ? null : (
                           <small>Wake · {extensionAgent.lastWake.state} · attempt {extensionAgent.lastWake.attemptCount}</small>
                         )}
+                        {agent.role === 'LEAD' ? (
+                          <div className="command-room-bind-row">
+                            <select
+                              aria-label={text(locale, `โปรเจกต์สำหรับ ${agent.slotKey}`, `Project for ${agent.slotKey}`)}
+                              value={workspaceSelections[`${room.id}:${agent.slotKey}`] ?? agent.workspaceId ?? ''}
+                              onChange={(event) => setWorkspaceSelections((current) => ({ ...current, [`${room.id}:${agent.slotKey}`]: event.target.value }))}
+                              disabled={busy || room.status === 'ARCHIVED' || agent.currentTaskId !== undefined}
+                            >
+                              <option value="">{text(locale, 'เลือกโปรเจกต์…', 'Choose project…')}</option>
+                              {workspaces.filter((workspace) => !isMachineRootWorkspace(workspace)).map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={busy || room.status === 'ARCHIVED' || agent.currentTaskId !== undefined || (workspaceSelections[`${room.id}:${agent.slotKey}`] ?? agent.workspaceId ?? '').length === 0}
+                              onClick={() => { void bindProject(room.id, agent.slotKey, room.version, agent.workspaceId); }}
+                            >
+                              {text(locale, 'ผูกโปรเจกต์', 'Bind project')}
+                            </button>
+                          </div>
+                        ) : null}
                         <div className="command-room-room-actions">
                           {canReissueBootPrompt ? (
                             <button
@@ -561,6 +611,10 @@ function bootPrompt(locale: UiLocale, roomId: string, slotKey: string, joinCode:
     return `คุณคือ ${slotKey} ใน NAVA Command Room ให้เรียก command_room_join ด้วย roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=${connectionEpoch} จากนั้นเรียก command_room_presence heartbeat และตรวจ inbox เป็นระยะ ห้ามส่งต่อ joinCode หรือ agentSessionId`;
   }
   return `You are ${slotKey} in a NAVA Command Room. Call command_room_join with roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=${connectionEpoch}. Then send command_room_presence heartbeats and check the inbox periodically. Never forward the joinCode or agentSessionId.`;
+}
+
+function isMachineRootWorkspace(workspace: WorkspaceSummary): boolean {
+  return /^[A-Za-z]:\\$/.test(workspace.rootPath);
 }
 
 function relativeAge(value: string, nowValue: string | null, locale: UiLocale): string {

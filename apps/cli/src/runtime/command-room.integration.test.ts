@@ -530,6 +530,59 @@ describe('CommandRoomBroker', () => {
     }
   });
 
+  it('binds a Lead project through the trusted Desktop path without rotating or exposing its session', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-bind-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    let now = new Date('2026-08-30T13:00:00.000Z');
+    const repository = new SqliteCommandRoomRepository(database);
+    const broker = new CommandRoomBroker(repository, () => now, { workspaceExists: async (workspaceId): Promise<boolean> => workspaceId === 'ws-hermes' });
+    try {
+      const created = value(await broker.admin({ action: 'create', name: 'Binding Room', idempotencyKey: 'binding-room', leadSlots: 1 }));
+      const joined = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-1', joinCode: created.joinCodes['LEAD-1'] as string, provider: 'CHATGPT', connectionEpoch: 1 }));
+      now = new Date('2026-08-30T13:01:00.000Z');
+      const heartbeat = value(await broker.presence({ action: 'heartbeat', roomId: created.room.id, agentSessionId: joined.agentSessionId }));
+      const before = await repository.getAgentBySlot(created.room.id, 'LEAD-1');
+      expect(before).not.toBeNull();
+      now = new Date('2026-08-30T13:02:00.000Z');
+      const bound = value(await broker.bindProjectFromTrustedDesktop({
+        roomId: created.room.id, targetSlotKey: 'LEAD-1', projectKey: 'hermes', workspaceId: 'ws-hermes',
+        expectedVersion: heartbeat.roomVersion, idempotencyKey: 'bind-hermes',
+      }));
+      const after = await repository.getAgentBySlot(created.room.id, 'LEAD-1');
+      expect(bound).toMatchObject({ action: 'bind_project', duplicate: false, agent: { projectKey: 'hermes', workspaceId: 'ws-hermes', connectionEpoch: 1 } });
+      expect(after).toMatchObject({ projectKey: 'hermes', workspaceId: 'ws-hermes', connectionEpoch: before?.connectionEpoch, sessionHash: before?.sessionHash, lastHeartbeatAt: before?.lastHeartbeatAt, state: before?.state });
+      await expect(broker.bindProjectFromTrustedDesktop({
+        roomId: created.room.id, targetSlotKey: 'LEAD-1', projectKey: 'other', workspaceId: 'missing',
+        expectedVersion: bound.roomVersion, idempotencyKey: 'bind-missing',
+      })).resolves.toMatchObject({ ok: false, error: { code: 'WORKSPACE_NOT_FOUND' } });
+      await expect(broker.bindProjectFromTrustedDesktop({
+        roomId: created.room.id, targetSlotKey: 'LEAD-1', projectKey: 'hermes', workspaceId: 'ws-hermes',
+        expectedVersion: heartbeat.roomVersion, idempotencyKey: 'bind-stale-version',
+      })).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('Room version conflict') } });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('expires READY authority when the last heartbeat crosses the Phase 3C.7 stale threshold', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-stale-'));
+    temporaryRoots.push(root);
+    const database = new SqliteDatabase(path.join(root, 'state.db'));
+    let now = new Date('2026-08-30T13:00:00.000Z');
+    const broker = new CommandRoomBroker(new SqliteCommandRoomRepository(database), () => now);
+    try {
+      const created = value(await broker.admin({ action: 'create', name: 'Stale Room', idempotencyKey: 'stale-room', leadSlots: 1 }));
+      const joined = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-1', joinCode: created.joinCodes['LEAD-1'] as string, provider: 'CHATGPT', connectionEpoch: 1 }));
+      value(await broker.presence({ action: 'heartbeat', roomId: created.room.id, agentSessionId: joined.agentSessionId }));
+      expect(value(await broker.status({ action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 1, agentSessionId: joined.agentSessionId }))).toMatchObject({ authority: 'READY', agent: { state: 'ONLINE', stale: false } });
+      now = new Date('2026-08-30T13:15:00.001Z');
+      expect(value(await broker.status({ action: 'resume_check', roomId: created.room.id, slotKey: 'LEAD-1', connectionEpoch: 1, agentSessionId: joined.agentSessionId }))).toMatchObject({ authority: 'HEARTBEAT_REQUIRED', agent: { state: 'OFFLINE', stale: true } });
+    } finally {
+      database.close();
+    }
+  });
+
   it('hides all eight MCP tools by default and runs the manual flow when explicitly enabled', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nava-command-room-tools-'));
     temporaryRoots.push(root);
@@ -552,6 +605,26 @@ describe('CommandRoomBroker', () => {
         'command_room_admin',
       ]);
       expect(enabled.list()).toHaveLength(hidden.list().length + 8);
+
+      const hiddenDiscovery = responseRecord(await hidden.invoke('tool_search', { query: 'command_room', limit: 20 }));
+      expect(arrayField(hiddenDiscovery, 'matches').filter((entry) => isRecord(entry) && String(entry.name).startsWith('command_room_'))).toHaveLength(0);
+
+      const discovered = responseRecord(await enabled.invoke('tool_search', { query: 'command_room', limit: 20 }));
+      const discoveredNames = arrayField(discovered, 'matches').filter(isRecord).map((entry) => String(entry.name)).filter((name) => name.startsWith('command_room_'));
+      expect(discoveredNames).toEqual(expect.arrayContaining([
+        'command_room_join', 'command_room_status', 'command_room_inbox', 'command_room_send',
+        'command_room_task', 'command_room_presence', 'command_room_resource', 'command_room_admin',
+      ]));
+      expect(new Set(discoveredNames).size).toBe(8);
+
+      const described = responseRecord(await enabled.invoke('tool_describe', { name: 'command_room_join' }));
+      expect(described).toMatchObject({ found: true, name: 'command_room_join', permission: 'WRITE', source: 'registry' });
+      expect(nestedRecord(described, 'schema')).toMatchObject({ type: 'object', required: expect.arrayContaining(['roomId', 'slotKey', 'joinCode', 'provider', 'connectionEpoch']) });
+
+      const schemaList = responseRecord(await enabled.invoke('tool_schema_list', {}));
+      const commandSchemas = arrayField(schemaList, 'schemas').filter(isRecord).filter((entry) => String(entry.id).startsWith('command_room_'));
+      expect(commandSchemas).toHaveLength(8);
+      expect(commandSchemas.find((entry) => entry.id === 'command_room_presence')).toMatchObject({ permissions: ['WRITE'], inputSchema: expect.objectContaining({ type: 'object' }) });
 
       const invalid = await enabled.invoke('command_room_admin', {
         action: 'create',
@@ -646,6 +719,12 @@ function nestedRecord(value: Record<string, unknown>, field: string): Record<str
 function stringField(value: Record<string, unknown>, field: string): string {
   const entry = value[field];
   if (typeof entry !== 'string') throw new Error(`Expected string field: ${field}`);
+  return entry;
+}
+
+function arrayField(value: Record<string, unknown>, field: string): readonly unknown[] {
+  const entry = value[field];
+  if (!Array.isArray(entry)) throw new Error(`Expected array field: ${field}`);
   return entry;
 }
 

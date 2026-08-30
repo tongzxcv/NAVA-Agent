@@ -75,7 +75,8 @@ export class ToolRegistry {
     this.allowAiDeleteProvider = options.allowAiDeleteProvider ?? ((): boolean => false);
     this.maxToolDurationMs = normalizeToolResponseBudget(options.maxToolDurationMs);
     const contextEconomy = new ContextEconomyRuntime();
-    const context: McpToolContext = { services, actor, contextEconomy, activity: this.activity };
+    let discoveryTools: readonly McpToolDefinition[] = [];
+    const context: McpToolContext = { services, actor, contextEconomy, activity: this.activity, toolDefinitions: () => discoveryTools };
     const contextEngine = new ContextEngine(services, actor, contextEconomy);
     const filePageEngine = new FilePageEngine(services, actor);
     const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
@@ -113,6 +114,7 @@ export class ToolRegistry {
         describe: invoker.describe,
       }),
     ];
+    discoveryTools = this.tools;
     this.schemaRegistry = new ToolSchemaRegistry();
     for (const tool of this.tools) this.schemaRegistry.register(tool);
   }
