@@ -372,6 +372,15 @@ export class SqliteCommandRoomBindingRepository {
       return wake === null ? [] : [wake];
     });
   }
+  public async listRecoverableWakesForBinding(bindingId: string, now: string, limit = 50): Promise<readonly CommandRoomWakeDeliveryRecord[]> {
+    return this.database.connection.prepare(`${wakeSelect(
+      "WHERE binding_id = ? AND state IN ('QUEUED', 'ATTEMPTING', 'DELIVERED') AND (next_eligible_at IS NULL OR next_eligible_at <= ?)",
+    )} ORDER BY created_at ASC LIMIT ?`).all(bindingId, now, Math.max(1, Math.min(limit, 50))).flatMap((row) => {
+      const wake = toWake(row);
+      return wake === null ? [] : [wake];
+    });
+  }
+
   public async getWake(id: string): Promise<CommandRoomWakeDeliveryRecord | null> {
     return toWake(this.database.connection.prepare(wakeSelect('WHERE id = ?')).get(id));
   }

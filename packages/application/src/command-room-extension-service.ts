@@ -42,6 +42,14 @@ export interface CommandRoomExtensionRepositoryPort {
     | { readonly outcome: 'not_found' | 'challenge_mismatch' | 'challenge_expired' | 'stale_epoch' | 'invalid_state' }
   >;
   getActiveBinding(roomId: string, agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null>;
+  getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null>;
+  getWake(id: string): Promise<CommandRoomWakeDeliveryRecord | null>;
+  listRecoverableWakes(now: string, limit?: number): Promise<readonly CommandRoomWakeDeliveryRecord[]>;
+  listRecoverableWakesForBinding(bindingId: string, now: string, limit?: number): Promise<readonly CommandRoomWakeDeliveryRecord[]>;
+  beginWakeAttempt(id: string, attemptedAt: string, nextEligibleAt: string): Promise<CommandRoomWakeDeliveryRecord | null>;
+  markWakeDelivered(id: string, deliveredAt: string): Promise<CommandRoomWakeDeliveryRecord | null>;
+  markWakeSubmitted(id: string, submittedAt: string): Promise<CommandRoomWakeDeliveryRecord | null>;
+  touch(bindingId: string, seenAt: string): Promise<CommandRoomBindingRecord | null>;
   getWakePolicySnapshot(input: {
     readonly roomId: string;
     readonly agentId: string;
@@ -177,6 +185,40 @@ export class CommandRoomExtensionService {
     });
   }
 
+  public async confirmPairingByBinding(input: {
+    readonly bindingId: string;
+    readonly challenge: string;
+    readonly extensionInstallationId: string;
+    readonly encryptedConversationRef: string;
+    readonly conversationRefFingerprint: string;
+    readonly confirmedAt: string;
+  }): Promise<Awaited<ReturnType<CommandRoomExtensionRepositoryPort['confirmPairing']>>> {
+    const binding = await this.repository.getBinding(input.bindingId);
+    if (binding === null) return { outcome: 'not_found' };
+    return this.confirmPairing({
+      bindingId: binding.id,
+      roomId: binding.roomId,
+      agentId: binding.agentId,
+      connectionEpoch: binding.connectionEpoch,
+      challenge: input.challenge,
+      extensionInstallationId: input.extensionInstallationId,
+      encryptedConversationRef: input.encryptedConversationRef,
+      conversationRefFingerprint: input.conversationRefFingerprint,
+      confirmedAt: input.confirmedAt,
+    });
+  }
+
+  public getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null> {
+    return this.repository.getBinding(bindingId);
+  }
+
+  public async authenticateBinding(bindingId: string, extensionInstallationId: string): Promise<CommandRoomBindingRecord | null> {
+    const binding = await this.repository.getBinding(bindingId);
+    if (binding === null || binding.state !== 'PAIRED' || binding.extensionInstallationId !== extensionInstallationId) return null;
+    const active = await this.repository.getActiveBinding(binding.roomId, binding.agentId, binding.connectionEpoch);
+    return active?.id === binding.id ? active : null;
+  }
+
   public async queueWake(input: {
     readonly roomId: string;
     readonly agentId: string;
@@ -216,6 +258,78 @@ export class CommandRoomExtensionService {
       createdAt: input.now,
     });
     return result;
+  }
+
+  public async listRecoverableWakesForBinding(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly now: string;
+    readonly limit?: number;
+  }): Promise<readonly CommandRoomWakeDeliveryRecord[]> {
+    const binding = await this.authenticateBinding(input.bindingId, input.extensionInstallationId);
+    if (binding === null) return [];
+    const limit = input.limit ?? 25;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('Wake recovery limit must be an integer between 1 and 50.');
+    return this.repository.listRecoverableWakesForBinding(binding.id, input.now, limit);
+  }
+
+  public async beginWakeAttempt(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly wakeId: string;
+    readonly attemptedAt: string;
+  }): Promise<CommandRoomWakeDeliveryRecord | null> {
+    const binding = await this.requireActiveBinding(input.bindingId, input.extensionInstallationId);
+    const wake = await this.requireOwnedWake(binding, input.wakeId);
+    if (wake.nextEligibleAt !== undefined && wake.nextEligibleAt > input.attemptedAt) {
+      throw new Error(`Wake ${wake.id} is still in cooldown.`);
+    }
+    return this.repository.beginWakeAttempt(wake.id, input.attemptedAt, addSeconds(input.attemptedAt, this.wakeCooldownSeconds));
+  }
+
+  public async markWakeDelivered(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly wakeId: string;
+    readonly deliveredAt: string;
+  }): Promise<CommandRoomWakeDeliveryRecord | null> {
+    const binding = await this.requireActiveBinding(input.bindingId, input.extensionInstallationId);
+    await this.requireOwnedWake(binding, input.wakeId);
+    return this.repository.markWakeDelivered(input.wakeId, input.deliveredAt);
+  }
+
+  public async markWakeSubmitted(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly wakeId: string;
+    readonly submittedAt: string;
+  }): Promise<CommandRoomWakeDeliveryRecord | null> {
+    const binding = await this.requireActiveBinding(input.bindingId, input.extensionInstallationId);
+    await this.requireOwnedWake(binding, input.wakeId);
+    return this.repository.markWakeSubmitted(input.wakeId, input.submittedAt);
+  }
+
+  public async touchBinding(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly seenAt: string;
+  }): Promise<CommandRoomBindingRecord | null> {
+    const binding = await this.requireActiveBinding(input.bindingId, input.extensionInstallationId);
+    return this.repository.touch(binding.id, input.seenAt);
+  }
+
+  private async requireActiveBinding(bindingId: string, extensionInstallationId: string): Promise<CommandRoomBindingRecord> {
+    const binding = await this.authenticateBinding(bindingId, extensionInstallationId);
+    if (binding === null) throw new Error('Command Room extension binding is not active.');
+    return binding;
+  }
+
+  private async requireOwnedWake(binding: CommandRoomBindingRecord, wakeId: string): Promise<CommandRoomWakeDeliveryRecord> {
+    const wake = await this.repository.getWake(wakeId);
+    if (wake === null || wake.bindingId !== binding.id || wake.roomId !== binding.roomId || wake.agentId !== binding.agentId) {
+      throw new Error('Command Room wake does not belong to the active binding.');
+    }
+    return wake;
   }
 
   public revoke(bindingId: string, revokedAt: string): Promise<CommandRoomBindingRecord | null> {

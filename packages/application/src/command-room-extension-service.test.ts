@@ -191,6 +191,53 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
     return this.activeBinding?.connectionEpoch === connectionEpoch ? this.activeBinding : null;
   }
 
+  public async getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null> {
+    return this.activeBinding?.id === bindingId ? this.activeBinding : null;
+  }
+
+  public async getWake(_id: string): Promise<CommandRoomWakeDeliveryRecord | null> {
+    void _id;
+    return null;
+  }
+
+  public async listRecoverableWakes(_now: string, _limit?: number): Promise<readonly CommandRoomWakeDeliveryRecord[]> {
+    void _now;
+    void _limit;
+    return [];
+  }
+
+  public async listRecoverableWakesForBinding(_bindingId: string, _now: string, _limit?: number): Promise<readonly CommandRoomWakeDeliveryRecord[]> {
+    void _bindingId;
+    void _now;
+    void _limit;
+    return [];
+  }
+
+  public async beginWakeAttempt(_id: string, _attemptedAt: string, _nextEligibleAt: string): Promise<CommandRoomWakeDeliveryRecord | null> {
+    void _id;
+    void _attemptedAt;
+    void _nextEligibleAt;
+    return null;
+  }
+
+  public async markWakeDelivered(_id: string, _deliveredAt: string): Promise<CommandRoomWakeDeliveryRecord | null> {
+    void _id;
+    void _deliveredAt;
+    return null;
+  }
+
+  public async markWakeSubmitted(_id: string, _submittedAt: string): Promise<CommandRoomWakeDeliveryRecord | null> {
+    void _id;
+    void _submittedAt;
+    return null;
+  }
+
+  public async touch(bindingId: string, seenAt: string): Promise<CommandRoomBindingRecord | null> {
+    if (this.activeBinding?.id !== bindingId) return null;
+    this.activeBinding = { ...this.activeBinding, lastSeenAt: seenAt, updatedAt: seenAt };
+    return this.activeBinding;
+  }
+
   public async getWakePolicySnapshot(): ReturnType<CommandRoomExtensionRepositoryPort['getWakePolicySnapshot']> {
     return this.wakePolicySnapshot;
   }
