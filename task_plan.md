@@ -1007,6 +1007,7 @@ Phase 3C errors encountered:
 | Default PATH has no `corepack` | 1 | Reused the pinned Node 24.19.0/Corepack toolchain under `E:\AI_CACHE\tools\lnwjud`. |
 | Local Node and Python environments have no YAML parser package | 2 | Stopped parser retries; manually reviewed workflow structure and use the GitHub workflow parser as the authoritative remote check. |
 | Shell policy blocked recursive/non-recursive `Remove-Item` cleanup | 2 | Deleted the three task-owned JSON files through `apply_patch`; only an ignored empty directory remains. |
+| First isolated GitHub jobs lacked workspace `dist/*.d.ts` outputs | 1 | Added root typecheck before filtered Desktop E2E; do not classify this harness failure as an Electron result. |
 
 ## Command Room Phase 3C.5–3C.7 capacity and authority plan — 2026-08-30
 

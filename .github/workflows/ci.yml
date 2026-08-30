@@ -91,6 +91,10 @@ jobs:
         shell: powershell
         run: corepack pnpm@10.15.0 install --frozen-lockfile
 
+      - name: Build workspace type outputs
+        shell: powershell
+        run: corepack pnpm@10.15.0 typecheck
+
       - name: Run isolated E2E
         shell: powershell
         run: corepack pnpm@10.15.0 --filter @lnwjud/desktop test:e2e -- "e2e/${{ matrix.test_file }}"

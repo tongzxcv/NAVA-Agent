@@ -672,6 +672,8 @@
 - CI currently uploads no targeted Electron phase/process artifact, so the next correct change is observability and isolated reproduction, not another timeout or retry patch.
 - Node `spawn` creates piped stdout/stderr by default. The three E2Es consumed stderr but left stdout unread, so pipe backpressure is now a falsifiable CI-specific hypothesis; Phase 3C.1 drains both streams while retaining only the latest 64 KiB per stream.
 - Local isolated security E2E passed in 5.2s and the full sequential 3/3 suite passed in 36.9s with phase markers. This validates the diagnostic harness locally but does not close the GitHub-only failure.
+- GitHub run `33291460552` shows dashboard renderer at 12.7s and MCP-ready only at 71.6s before the 90s test timeout. MCP-client connected CDP but never rendered the expected heading within 30s; security also timed out. This strongly promotes slow/external dashboard startup work over stdout backpressure alone.
+- The first isolated matrix attempt failed before Electron because filtered Desktop typecheck expected workspace `dist/*.d.ts` outputs. The matrix must run root typecheck before the filtered E2E; this is a diagnosis-harness precondition, not the product failure.
 
 ## 2026-08-30 Dynamic Lead / authority planning findings
 

@@ -690,3 +690,5 @@
 - Portable Node 24.19.0 focused ESLint passed. Isolated security E2E passed 1/1 in 5.2s; full local sequential E2E passed 3/3 in 36.9s.
 - Integrated the requested roadmap amendment: Phase 3C.5 Dynamic Lead Capacity, 3C.6 Session Authority Hardening, and 3C.7 Live State precede Phase 3D Extension/Wake.
 - No installed NAVA, Tunnel, production database, Command Room slot, HERMES workspace, or browser extension was changed in this source/CI slice.
+- First PR run `33291460552` reproduced the GitHub failure with phase evidence. Dashboard reached MCP-ready at 71.6s but exceeded the 90s total budget; MCP-client and security also failed renderer readiness paths.
+- The initial isolated jobs stopped at missing workspace type outputs, so CI now runs root typecheck before each filtered E2E. A second PR run is required for valid isolation evidence.
