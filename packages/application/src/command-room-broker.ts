@@ -663,6 +663,52 @@ export class CommandRoomBroker {
     return this.addLeadSlot(room, main.id, input.expectedVersion, idempotencyKey, this.now().toISOString());
   }
 
+  /** Trusted local Desktop recovery path for an unjoined Lead whose one-time Boot Prompt was lost. */
+  public async reissueBootPromptFromTrustedDesktop(input: {
+    readonly roomId: string;
+    readonly targetSlotKey: string;
+    readonly expectedVersion: number;
+    readonly idempotencyKey: string;
+  }): Promise<Result<CommandRoomRebindResponse>> {
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (!validKey(idempotencyKey)) return err(appError('INVALID_INPUT', 'idempotencyKey must contain 1 to 128 safe characters'));
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) return err(appError('INVALID_INPUT', 'expectedVersion must be a positive integer'));
+    const room = await this.repository.getRoom(input.roomId);
+    if (room === null) return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));
+    if (room.status !== 'ACTIVE') return err(appError('PERMISSION_REQUIRED', 'Boot Prompt can only be reissued while the Command Room is ACTIVE', true));
+    const main = await this.repository.getAgentBySlot(input.roomId, 'MAIN');
+    if (main === null || main.role !== 'MAIN') return err(appError('INTERNAL_ERROR', 'Command Room MAIN authority was not found', true));
+    const targetSlotKey = input.targetSlotKey.trim().toUpperCase();
+    const target = await this.repository.getAgentBySlot(input.roomId, targetSlotKey);
+    if (target === null || target.role !== 'LEAD') return err(appError('INVALID_INPUT', 'targetSlotKey must identify a Project Lead'));
+    if (target.currentTaskId !== undefined) return err(appError('PERMISSION_REQUIRED', 'Cannot reissue a Boot Prompt for a Lead that owns a task', true));
+    if (target.state !== 'AVAILABLE' || target.connectionEpoch !== 0 || target.sessionHash !== undefined || target.lastHeartbeatAt !== undefined) {
+      return err(appError('PERMISSION_REQUIRED', 'Boot Prompt recovery is only allowed for an unjoined AVAILABLE Lead at epoch 0', true));
+    }
+    const joinCode = opaqueToken();
+    const changed = await this.repository.rebindAgent({
+      roomId: input.roomId,
+      actorAgentId: main.id,
+      targetSlotKey,
+      expectedVersion: input.expectedVersion,
+      joinCodeHash: hash(joinCode),
+      idempotencyKey,
+      occurredAt: this.now().toISOString(),
+    });
+    if (changed.outcome !== 'updated') return adminMutationError(changed, input.expectedVersion);
+    const agent = changed.agent;
+    if (agent === undefined) return err(appError('INTERNAL_ERROR', 'Reissued Command Room slot was not returned', true));
+    return ok({
+      ...envelope(changed.room.version, this.now()),
+      action: 'rebind',
+      duplicate: changed.duplicate,
+      room: changed.room,
+      targetSlotKey,
+      requiredConnectionEpoch: agent.connectionEpoch + 1,
+      ...(changed.duplicate ? {} : { joinCode }),
+    });
+  }
+
   public async join(input: CommandRoomJoinInput): Promise<Result<CommandRoomJoinResponse>> {
     const room = await this.repository.getRoom(input.roomId);
     if (room === null) return err(appError('FILE_NOT_FOUND', 'Command Room was not found'));

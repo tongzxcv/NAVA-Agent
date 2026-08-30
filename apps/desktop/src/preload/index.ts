@@ -5,6 +5,7 @@ import {
   pushChannels,
   type AddWorkspaceRequest,
   type AddCommandRoomLeadResult,
+  type ReissueCommandRoomBootPromptResult,
   type AgentState,
   type BackupSummary,
   type ClearLogBufferRequest,
@@ -137,6 +138,7 @@ function commandRoomAgentSummary(value: unknown): CommandRoomAgentSummary {
     role: enumField<CommandRoomRole>(value, 'role', ['MAIN', 'LEAD']),
     provider: enumField<CommandRoomProvider>(value, 'provider', ['CHATGPT', 'CODEX', 'OTHER']),
     state: enumField<CommandRoomAgentState>(value, 'state', ['AVAILABLE', 'ONLINE', 'WORKING', 'WAITING', 'SLEEPING', 'OFFLINE']),
+    connectionEpoch: numberField(value, 'connectionEpoch'),
     ...(projectKey === undefined ? {} : { projectKey }),
     ...(workspaceId === undefined ? {} : { workspaceId }),
     ...(currentTaskId === undefined ? {} : { currentTaskId }),
@@ -320,6 +322,10 @@ function addCommandRoomLeadResult(value: unknown): AddCommandRoomLeadResult {
     requiredConnectionEpoch: numberField(value, 'requiredConnectionEpoch'),
     ...(joinCode === undefined ? {} : { joinCode }),
   };
+}
+
+function reissueCommandRoomBootPromptResult(value: unknown): ReissueCommandRoomBootPromptResult {
+  return addCommandRoomLeadResult(value);
 }
 
 function stringList(value: unknown): readonly string[] {
@@ -920,6 +926,7 @@ const api: LnwjudApi = {
   getCommandRoomOverview: () => invoke(ipcChannels.getCommandRoomOverview).then(commandRoomOverview),
   createCommandRoom: (request) => invoke(ipcChannels.createCommandRoom, { name: request.name }).then(createCommandRoomResult),
   addCommandRoomLead: (request) => invoke(ipcChannels.addCommandRoomLead, { roomId: request.roomId, expectedVersion: request.expectedVersion }).then(addCommandRoomLeadResult),
+  reissueCommandRoomBootPrompt: (request) => invoke(ipcChannels.reissueCommandRoomBootPrompt, { roomId: request.roomId, slotKey: request.slotKey, expectedVersion: request.expectedVersion }).then(reissueCommandRoomBootPromptResult),
   deleteCommandRoom: (request: DeleteCommandRoomRequest) => invoke(ipcChannels.deleteCommandRoom, { roomId: request.roomId }).then((value) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { deleted: booleanField(value, 'deleted') };

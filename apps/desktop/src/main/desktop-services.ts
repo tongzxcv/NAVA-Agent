@@ -86,6 +86,8 @@ import {
   type AddWorkspaceRequest,
   type AddCommandRoomLeadRequest,
   type AddCommandRoomLeadResult,
+  type ReissueCommandRoomBootPromptRequest,
+  type ReissueCommandRoomBootPromptResult,
   type BackupSummary as IpcBackupSummary,
   type AgentState,
   type AuditEventSummary,
@@ -589,6 +591,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         role: agent.role,
         provider: agent.provider,
         state: agent.state,
+        connectionEpoch: agent.connectionEpoch,
         ...(agent.projectKey === undefined ? {} : { projectKey: agent.projectKey }),
         ...(agent.workspaceId === undefined ? {} : { workspaceId: agent.workspaceId }),
         ...(agent.currentTaskId === undefined ? {} : { currentTaskId: agent.currentTaskId }),
@@ -766,6 +769,24 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         slotKey: added.targetSlotKey,
         requiredConnectionEpoch: added.requiredConnectionEpoch,
         ...(added.joinCode === undefined ? {} : { joinCode: added.joinCode }),
+      };
+    },
+    reissueCommandRoomBootPrompt: async (request: ReissueCommandRoomBootPromptRequest): Promise<ReissueCommandRoomBootPromptResult> => {
+      const agent = await commandRoomAgent(request.roomId, request.slotKey);
+      const activeBinding = await commandRoomBindings.getActiveBinding(request.roomId, agent.id, agent.connectionEpoch);
+      if (activeBinding !== null) throw new Error('Revoke the browser pairing before reissuing this Boot Prompt');
+      const reissued = unwrap(await commandRoomBroker.reissueBootPromptFromTrustedDesktop({
+        roomId: request.roomId,
+        targetSlotKey: request.slotKey,
+        expectedVersion: request.expectedVersion,
+        idempotencyKey: `desktop-reissue-boot:${request.roomId}:${request.slotKey}:${request.expectedVersion}`,
+      }), 'Command Room Boot Prompt could not be reissued');
+      return {
+        duplicate: reissued.duplicate,
+        room: await toCommandRoomSummary(reissued.room),
+        slotKey: reissued.targetSlotKey,
+        requiredConnectionEpoch: reissued.requiredConnectionEpoch,
+        ...(reissued.joinCode === undefined ? {} : { joinCode: reissued.joinCode }),
       };
     },
     deleteCommandRoom: async (request: DeleteCommandRoomRequest): Promise<{ readonly deleted: boolean }> => {

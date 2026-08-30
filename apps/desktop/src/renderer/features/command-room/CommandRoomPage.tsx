@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import type { AddCommandRoomLeadResult, CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
+import type { AddCommandRoomLeadResult, CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, ReissueCommandRoomBootPromptResult, UiLocale } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 
 interface CommandRoomPageProps {
@@ -17,12 +17,21 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
   const [pairing, setPairing] = useState<CreateCommandRoomPairingResult | null>(null);
   const [roomName, setRoomName] = useState('NAVA Command Room');
   const [created, setCreated] = useState<CreateCommandRoomResult | null>(null);
-  const [addedLead, setAddedLead] = useState<AddCommandRoomLeadResult | null>(null);
+  const [addedLead, setAddedLead] = useState<AddCommandRoomLeadResult | ReissueCommandRoomBootPromptResult | null>(null);
+  const bootPromptPanelRef = useRef<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
+
+  useEffect((): (() => void) | undefined => {
+    if (addedLead?.joinCode === undefined) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      bootPromptPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [addedLead]);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (refreshInFlight.current) return;
@@ -192,6 +201,25 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
     }
   }
 
+  async function reissueBootPrompt(roomId: string, slotKey: string, expectedVersion: number): Promise<void> {
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const result = await window.lnwjud.reissueCommandRoomBootPrompt({ roomId, slotKey, expectedVersion });
+      setAddedLead(result);
+      setNotice(result.joinCode === undefined
+        ? text(locale, `${slotKey} ถูกออก Boot Prompt ไปแล้วจากคำขอเดิม — รีเฟรชแล้วกดออกใหม่หากรหัสหาย`, `${slotKey} Boot Prompt was already issued by the same request — refresh and reissue if the code was lost.`)
+        : text(locale, `ออก Boot Prompt ใหม่สำหรับ ${slotKey} แล้ว ระบบจะเลื่อนไปที่รหัสให้อัตโนมัติ`, `A new Boot Prompt for ${slotKey} was issued. NAVA will scroll to it automatically.`));
+      await refresh();
+    } catch (cause: unknown) {
+      setError(message(cause, text(locale, 'ออก Boot Prompt ใหม่ไม่สำเร็จ', 'Could not reissue the Boot Prompt')));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createRoom(): Promise<void> {
     const name = roomName.trim();
     if (name.length === 0) return;
@@ -249,7 +277,7 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
       </section>
 
       {addedLead?.joinCode === undefined ? null : (
-        <section className="panel command-room-codes" aria-labelledby="added-lead-code-title">
+        <section ref={bootPromptPanelRef} className="panel command-room-codes" aria-labelledby="added-lead-code-title">
           <div className="section-heading">
             <div>
               <h2 id="added-lead-code-title">{text(locale, `รหัสครั้งเดียวสำหรับ ${addedLead.slotKey}`, `One-time code for ${addedLead.slotKey}`)}</h2>
@@ -407,17 +435,35 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                     const extensionAgent = findExtensionAgent(extensionOverview, room.id, agent.slotKey);
                     const canRevoke = extensionAgent !== undefined && extensionAgent.bindingId !== undefined
                       && !['UNPAIRED', 'REVOKED', 'REPLACED'].includes(extensionAgent.bindingState);
+                    const canReissueBootPrompt = room.status === 'ACTIVE'
+                      && agent.role === 'LEAD'
+                      && agent.state === 'AVAILABLE'
+                      && agent.connectionEpoch === 0
+                      && agent.currentTaskId === undefined
+                      && agent.lastHeartbeatAt === undefined
+                      && (extensionAgent === undefined || extensionAgent.bindingState === 'UNPAIRED');
                     return (
                       <div className="command-room-agent" key={agent.slotKey}>
                         <strong>{agent.slotKey}</strong>
                         <span>{agent.state}</span>
                         <small>{agent.projectKey ?? text(locale, 'ยังไม่ผูกโปรเจกต์', 'No project bound')}</small>
                         <small>Heartbeat · {agent.lastHeartbeatAt === undefined ? '—' : relativeAge(agent.lastHeartbeatAt, lastRefreshedAt, locale)}</small>
-                        <small>Browser · {extensionAgent?.bindingState ?? 'UNPAIRED'} · epoch {extensionAgent?.connectionEpoch ?? 0}</small>
+                        <small>Session · epoch {agent.connectionEpoch}</small>
+                        <small>Browser · {extensionAgent?.bindingState ?? 'UNPAIRED'} · epoch {extensionAgent?.connectionEpoch ?? agent.connectionEpoch}</small>
                         {extensionAgent?.lastWake === undefined ? null : (
                           <small>Wake · {extensionAgent.lastWake.state} · attempt {extensionAgent.lastWake.attemptCount}</small>
                         )}
                         <div className="command-room-room-actions">
+                          {canReissueBootPrompt ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              title={text(locale, 'ออก join code ใหม่สำหรับ Lead ที่ยังไม่เคย join', 'Issue a new join code for this never-joined Lead')}
+                              onClick={() => { void reissueBootPrompt(room.id, agent.slotKey, room.version); }}
+                            >
+                              {text(locale, 'ออก Boot Prompt ใหม่', 'Reissue Boot Prompt')}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             disabled={busy || !extensionOverview.bridge.running || extensionAgent?.bindingState === 'PAIRED'}

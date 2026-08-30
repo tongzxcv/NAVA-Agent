@@ -125,8 +125,25 @@ describe('CommandRoomBroker', () => {
       const stale = await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: lead1.roomVersion, idempotencyKey: 'main-add-stale' });
       expect(stale).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT', message: expect.stringContaining('Room version conflict') } });
 
-      const joined4 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-4', joinCode: added4.joinCode as string, provider: 'CHATGPT', connectionEpoch: added4.requiredConnectionEpoch }));
+      const recovered4 = value(await broker.reissueBootPromptFromTrustedDesktop({
+        roomId: created.room.id, targetSlotKey: 'LEAD-4', expectedVersion: added4.roomVersion,
+        idempotencyKey: 'desktop-recover-lead-4',
+      }));
+      expect(recovered4).toMatchObject({ action: 'rebind', duplicate: false, targetSlotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: expect.any(String) });
+      const recoveredReplay = value(await broker.reissueBootPromptFromTrustedDesktop({
+        roomId: created.room.id, targetSlotKey: 'LEAD-4', expectedVersion: added4.roomVersion,
+        idempotencyKey: 'desktop-recover-lead-4',
+      }));
+      expect(recoveredReplay).toMatchObject({ action: 'rebind', duplicate: true, targetSlotKey: 'LEAD-4', requiredConnectionEpoch: 1 });
+      expect(recoveredReplay.joinCode).toBeUndefined();
+
+      const joined4 = value(await broker.join({ roomId: created.room.id, slotKey: 'LEAD-4', joinCode: recovered4.joinCode as string, provider: 'CHATGPT', connectionEpoch: recovered4.requiredConnectionEpoch }));
       expect(joined4.agent).toMatchObject({ slotKey: 'LEAD-4', state: 'AVAILABLE', connectionEpoch: 1 });
+      const joinedRecoveryDenied = await broker.reissueBootPromptFromTrustedDesktop({
+        roomId: created.room.id, targetSlotKey: 'LEAD-4', expectedVersion: joined4.roomVersion,
+        idempotencyKey: 'desktop-recover-joined-lead-4',
+      });
+      expect(joinedRecoveryDenied).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED', message: expect.stringContaining('epoch 0') } });
 
       now = new Date('2026-08-30T06:10:02.000Z');
       const added5 = value(await broker.admin({ action: 'add_lead', roomId: created.room.id, agentSessionId: main.agentSessionId, expectedVersion: joined4.roomVersion, idempotencyKey: 'main-add-lead-5' }));

@@ -11,6 +11,10 @@ describe('Command Room Extension UI', () => {
     expect(source).toContain("text(locale, 'เพิ่ม Lead', 'Add Lead')");
     expect(source).toContain("room.agents.filter((agent) => agent.role === 'LEAD').length >= 5");
     expect(source).toContain('requiredConnectionEpoch');
+    expect(source).toContain('window.lnwjud.reissueCommandRoomBootPrompt');
+    expect(source).toContain("text(locale, 'ออก Boot Prompt ใหม่', 'Reissue Boot Prompt')");
+    expect(source).toContain('agent.connectionEpoch === 0');
+    expect(source).toContain("scrollIntoView({ behavior: 'smooth', block: 'start' })");
   });
 
   it('renders the Phase 3 opt-in boundary without exposing pairing secrets by default', () => {
