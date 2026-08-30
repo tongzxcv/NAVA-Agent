@@ -681,3 +681,12 @@
 - Added `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md` with ranked hypotheses, diagnostic feedback loop, implementation slices, and explicit go/no-go gates.
 - Phase 3D browser-extension work and MCP Core reliability expansion remain blocked until GitHub Windows E2E is green and repeatable.
 - No runtime, installer, Tunnel, production SQLite, extension, or MCP behavior was changed by this planning slice.
+
+## 2026-08-30 Phase 3C.1 diagnostics implemented locally
+
+- Added bounded Electron phase/output diagnostics to all three E2Es. Both stdout and stderr are drained; only the latest 64 KiB per stream is retained and emitted.
+- Added a read-only Windows diagnostic snapshot for Electron/Node/taskkill processes, owned listening connections, and the 200 newest NAVA E2E temp roots.
+- CI now preserves failure artifacts and, only after an authoritative failure, runs the three E2E files in isolated parallel jobs to distinguish sequential lifecycle interference from per-test startup failure.
+- Portable Node 24.19.0 focused ESLint passed. Isolated security E2E passed 1/1 in 5.2s; full local sequential E2E passed 3/3 in 36.9s.
+- Integrated the requested roadmap amendment: Phase 3C.5 Dynamic Lead Capacity, 3C.6 Session Authority Hardening, and 3C.7 Live State precede Phase 3D Extension/Wake.
+- No installed NAVA, Tunnel, production database, Command Room slot, HERMES workspace, or browser extension was changed in this source/CI slice.

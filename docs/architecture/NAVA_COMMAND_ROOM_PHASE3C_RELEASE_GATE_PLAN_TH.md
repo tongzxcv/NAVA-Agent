@@ -107,12 +107,59 @@ Gate ปิด Phase 3C:
 ## ลำดับ Phase หลังจากนี้
 
 1. **Phase 3C:** ปิด Windows E2E release blocker ตามเอกสารนี้
-2. **Phase 3D:** Browser Extension package จริง + Pair/Wake UI + wrong-tab, composer, SPA, revoke/replace และ restart-recovery matrix
-3. **Phase 3 release gate:** installed pilot แบบ opt-in, backup/rollback, แล้วจึงพิจารณา public v4.12.0
-4. **Phase 4:** provider/Codex adapter แบบ opt-in ตาม roadmap เดิม; ห้ามผูก quota switching อัตโนมัติ
-5. **Phase 5A:** MCP Core Reliability — project-scoped execution lanes, bounded admission/backpressure, truthful cancellation settlement และ structured recoverability
+2. **Phase 3C.5:** Dynamic Lead Capacity — ขยายห้องเดิมถึง LEAD-5 โดยไม่สร้างห้องใหม่
+3. **Phase 3C.6:** Session / Bootstrap Authority Hardening
+4. **Phase 3C.7:** Command Room Live State
+5. **Phase 3D:** Browser Extension package จริง + Pair/Wake UI + wrong-tab, composer, SPA, revoke/replace และ restart-recovery matrix
+6. **Phase 3 release gate:** installed pilot แบบ opt-in, backup/rollback, แล้วจึงพิจารณา public v4.12.0
+7. **Phase 4:** provider/Codex adapter แบบ opt-in ตาม roadmap เดิม; ห้ามผูก quota switching อัตโนมัติ
+8. **Phase 5A:** MCP Core Reliability — project-scoped execution lanes, bounded admission/backpressure, truthful cancellation settlement และ structured recoverability
 
 การอัปเกรด MCP Core จะไม่เริ่มก่อน Phase 3C เขียว เพราะ CI ที่เชื่อถือไม่ได้จะทำให้วัด regression ของ execution supervisor ไม่ได้
+
+## Phase 3C.5 — Dynamic Lead Capacity
+
+Source ปัจจุบันรองรับ `MAIN + LEAD-1..5` ตอนสร้างห้อง แต่ `command_room_admin` ยังไม่มี action เพิ่ม slot ในห้องเดิม; มีเพียง create, pause, resume, archive และ rebind slot ที่มีอยู่แล้ว
+
+ขอบเขตที่ยอมรับ:
+
+- MAIN เพิ่ม slot ถัดไปแบบต่อเนื่องได้จนถึง `LEAD-5`
+- ใช้ optimistic room version + idempotency key และเขียน room/agent/event แบบ atomic
+- add slot สร้าง agent authority record และ one-time join code เท่านั้น; **ห้ามสร้าง `agentSessionId` ล่วงหน้า** เพราะ session authority ต้องเกิดจาก `command_room_join` จริง
+- ห้องเดิม, message history, tasks, leases, bindings และ room ID ต้องคงเดิม
+- duplicate add ด้วย idempotency key เดิมต้องคืนผลเดิมโดยไม่สร้าง slot ซ้ำ
+- UI มีปุ่ม Add Lead และแสดง slot ใหม่หลัง refresh โดยไม่ restart NAVA
+- ห้องใช้งานปัจจุบันต้องรองรับ `LEAD-4 -> HERMES EA -> D:\EA\HERMES EA`; `LEAD-5` คงเป็น AVAILABLE/SLEEPING จนกว่าจะ join
+
+Gate:
+
+- add `LEAD-4` และ `LEAD-5` ผ่าน storage reopen/restart
+- add เกิน 5, slot ข้ามลำดับ, stale version, non-MAIN และ duplicate authority ถูกปฏิเสธอย่างชัดเจน
+- join code แสดงครั้งเดียวและไม่ปรากฏใน overview/audit/log
+- same-workspace writer lease และ Phase 2B resource gates ยังผ่าน
+
+## Phase 3C.6 — Session / Bootstrap Authority Hardening
+
+- Command Room DB เป็น source of truth; bootstrap เป็น recovery material ไม่ใช่ session ที่แชทอ้างขึ้นเองได้
+- resume ตรวจ `roomId + slotKey + connectionEpoch` และต้องพิสูจน์ session ผ่าน join/rebind flow จริง
+- slot ไม่มีต้องตอบ `SLOT_NOT_FOUND`; slot มีแต่ยังไม่ join ต้องตอบ `CREATE_SESSION_REQUIRED`
+- join/rebind สำเร็จแล้วต้อง heartbeat จาก session ใหม่และอ่าน status กลับก่อนรายงานว่า ONLINE/resumed
+- old session/epoch ต้องใช้ status, inbox, task หรือ wake authority ต่อไม่ได้
+- bootstrap update ต้อง atomic, bounded, redacted และไม่เก็บ raw session/join code ใน Git/Obsidian/log
+
+## Phase 3C.7 — Command Room Live State
+
+- แยก `ONLINE / WORKING / WAITING / SLEEPING / OFFLINE` จาก heartbeat age, current task และ lease truth
+- DTO/UI แสดง last heartbeat, last activity, workspace focus และ binding epoch โดยไม่แสดง session material
+- แยก “รีเฟรชล่าสุด” ออกจาก “กิจกรรมล่าสุด”
+- stale threshold ต้อง deterministic และมี test ด้วยเวลาควบคุมได้
+- LEAD ที่ join/park/rebind ต้องปรากฏในหน้า Command Room ภายใน refresh รอบถัดไปโดยไม่ restart
+
+## Phase 3D dependency rule
+
+Extension จับคู่ได้เฉพาะ slot ที่มีอยู่จริงใน Command Room และห้ามสร้าง slot/session เอง ทุก wake ต้องใช้ exact room/slot/binding epoch หลัง Phase 3C.5–3C.7 ผ่านแล้ว
+
+Phase 3 release candidate ต้องพิสูจน์ Command Room ตั้งแต่ 1–5 Leads, HERMES LEAD-4 join/heartbeat, Extension Pair/Wake, durable workflow, persistent logs, migration/restart และ rollback update ก่อน tag `v4.12.0`
 
 ## First action สำหรับรอบ implementation
 

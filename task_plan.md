@@ -999,3 +999,21 @@ Phase 3 source implementation is active on `feature/command-room-phase3` targeti
 - [ ] Start Phase 3D browser-extension work only after Phase 3C is green.
 
 Current release state: **BLOCKED BY WINDOWS E2E**. Do not raise timeouts, add blind retries, package/public-release v4.12.0, or begin MCP Core changes before the observable failure loop is in place.
+
+Phase 3C errors encountered:
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Default PATH has no `corepack` | 1 | Reused the pinned Node 24.19.0/Corepack toolchain under `E:\AI_CACHE\tools\lnwjud`. |
+| Local Node and Python environments have no YAML parser package | 2 | Stopped parser retries; manually reviewed workflow structure and use the GitHub workflow parser as the authoritative remote check. |
+| Shell policy blocked recursive/non-recursive `Remove-Item` cleanup | 2 | Deleted the three task-owned JSON files through `apply_patch`; only an ignored empty directory remains. |
+
+## Command Room Phase 3C.5–3C.7 capacity and authority plan — 2026-08-30
+
+- [x] Confirm source supports 1–5 Lead slots only at room creation; no admin add-slot mutation exists for an active room.
+- [x] Add the accepted 3C.5 Dynamic Lead, 3C.6 Session Authority, and 3C.7 Live State contracts to the Phase 3C plan.
+- [ ] After Phase 3C CI is green, implement atomic/idempotent MAIN-only add-next-slot through `LEAD-5` without replacing the room.
+- [ ] Preserve session security: add-slot returns one-time join authority but no `agentSessionId`; session exists only after real join/rebind.
+- [ ] Bind `LEAD-4` to HERMES EA / `D:\EA\HERMES EA` after installed verification; keep `LEAD-5` unjoined and available.
+- [ ] Add explicit `SLOT_NOT_FOUND` / `CREATE_SESSION_REQUIRED` recovery outcomes and verify heartbeat + read-back before reporting resume success.
+- [ ] Add deterministic live-state derivation and UI refresh proof before Phase 3D Extension Pair/Wake begins.

@@ -85,3 +85,11 @@
 - Frozen plan: `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md`.
 - Next action is diagnostic-only 3C.1: bounded phase/startup logs, owned process/port snapshots, failure artifact upload, and isolated per-file GitHub reproduction.
 - Phase 3D extension implementation, public v4.12.0 release, and MCP Core changes remain blocked until repeatable GitHub E2E gates pass.
+
+## 2026-08-30 — Phase 3C.1 local diagnostic gate
+
+- All Electron E2Es now emit bounded phase evidence and drain both child output streams; previous tests left stdout piped but unread.
+- GitHub CI will upload process/connection/temp-root snapshots and run isolated per-file E2E diagnosis only when the authoritative gate fails.
+- Portable Node 24.19.0 focused ESLint passed; isolated security E2E passed 1/1 and local sequential E2E passed 3/3 in 36.9s.
+- Roadmap now inserts 3C.5 Dynamic Lead Capacity, 3C.6 Session Authority, and 3C.7 Live State before Phase 3D. Add-slot creates join authority only; a real agent session still requires join/rebind and heartbeat read-back.
+- GitHub runner evidence is still required before claiming the Windows E2E root cause or closing Phase 3C.

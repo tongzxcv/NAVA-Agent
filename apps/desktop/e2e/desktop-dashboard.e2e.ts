@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, expect, test, type Page } from '@playwright/test';
+import { monitorElectronProcess } from './electron-e2e-diagnostics.js';
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mainEntry = path.join(desktopRoot, 'dist', 'main', 'main.js');
@@ -35,13 +36,15 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
       LNWJUD_E2E_NODE_PATH: process.execPath,
     },
   });
-  const stderr: string[] = [];
+  const diagnostics = monitorElectronProcess(electronProcess, 'dashboard');
+  diagnostics.phase(`spawned:pid=${electronProcess.pid ?? 'unknown'}:devtools=${devToolsPort}`);
   let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
-  electronProcess.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
 
   try {
-    await waitForDevTools(devToolsPort, electronProcess, stderr);
+    await waitForDevTools(devToolsPort, electronProcess, diagnostics.stderr);
+    diagnostics.phase('devtools-ready');
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${devToolsPort}`);
+    diagnostics.phase('cdp-connected');
     const context = browser.contexts()[0];
     if (context === undefined) throw new Error('Electron did not create a browser context');
     await expect.poll(() => context.pages().length).toBeGreaterThan(0);
@@ -49,7 +52,9 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     if (page === undefined) throw new Error('Electron did not create a renderer page');
 
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
+    diagnostics.phase('renderer-ready');
     await expect(page.getByTestId('mcp-status')).toHaveText(/Agent พร้อมทำงาน|Agent ready/, { timeout: 30_000 });
+    diagnostics.phase('mcp-ready');
     await expect(page.getByTestId('mcp-endpoint')).toContainText('http://127.0.0.1:', { timeout: 30_000 });
     await page.setViewportSize({ width: 800, height: 600 });
     await expectNoHorizontalOverflow(page);
@@ -100,12 +105,17 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     await browser.close();
     browser = undefined;
   } finally {
+    diagnostics.phase('teardown-start');
     if (browser !== undefined) await browser.close().catch(() => undefined);
+    diagnostics.phase('browser-closed');
     await terminateProcessTree(electronProcess);
+    diagnostics.phase('process-termination-returned');
     await Promise.all([
       removeTemporaryRoot(fixtureRoot),
       removeTemporaryRoot(dataRoot),
     ]);
+    diagnostics.phase('temporary-roots-cleaned');
+    diagnostics.dump();
   }
 });
 
@@ -123,10 +133,10 @@ async function findEphemeralPort(): Promise<number> {
   return address.port;
 }
 
-async function waitForDevTools(port: number, child: ChildProcess, stderr: string[]): Promise<void> {
+async function waitForDevTools(port: number, child: ChildProcess, stderr: () => string): Promise<void> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Electron exited early: ${stderr.join('')}`);
+    if (child.exitCode !== null) throw new Error(`Electron exited early: ${stderr()}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (response.ok) return;
@@ -135,7 +145,7 @@ async function waitForDevTools(port: number, child: ChildProcess, stderr: string
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`Timed out waiting for Electron DevTools: ${stderr.join('')}`);
+  throw new Error(`Timed out waiting for Electron DevTools: ${stderr()}`);
 }
 
 async function terminateProcessTree(child: ChildProcess): Promise<void> {

@@ -670,3 +670,12 @@
 - All three E2Es duplicate Electron spawn/readiness/termination code. The detached killer waits for the root child exit but does not prove descendants, locks, ports, or app lifecycle have settled before the next test.
 - Desktop startup awaits `runtime.autoStartMcp()` before creating the first window even under `LNWJUD_E2E_FIXTURE=1`; this is the second high-priority hypothesis and requires timestamped startup evidence before changing behavior.
 - CI currently uploads no targeted Electron phase/process artifact, so the next correct change is observability and isolated reproduction, not another timeout or retry patch.
+- Node `spawn` creates piped stdout/stderr by default. The three E2Es consumed stderr but left stdout unread, so pipe backpressure is now a falsifiable CI-specific hypothesis; Phase 3C.1 drains both streams while retaining only the latest 64 KiB per stream.
+- Local isolated security E2E passed in 5.2s and the full sequential 3/3 suite passed in 36.9s with phase markers. This validates the diagnostic harness locally but does not close the GitHub-only failure.
+
+## 2026-08-30 Dynamic Lead / authority planning findings
+
+- The domain and UI already recognize LEAD-1 through LEAD-5, and room creation accepts `leadSlots` from 1 to 5.
+- Existing admin operations cannot add a missing slot to an active room. `rebind` explicitly requires the target slot to exist, so LEAD-4 cannot be made real in a three-Lead room by changing prompts or bootstrap text.
+- Dynamic capacity should add an agent slot and one-time join code atomically; it must not pre-create an agent session. `agentSessionId` remains proof of a completed join and must never be inferred from bootstrap material.
+- Extension Pair/Wake must depend on a real Command Room slot and epoch. Letting the extension create authority would duplicate the broker and break the existing room-version/session model.
