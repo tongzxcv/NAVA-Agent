@@ -77,3 +77,28 @@
 - 2026-08-30 v4.12.0 refresh-UI packaging task: cb1d1ea5-47dd-48e7-855d-76d0c0585a89 (durable background); install only after successful package/result gate.
 - Replacement packaging task after missing corepack shim: 91033b12-b659-45a7-9bb0-6dfbcd9a26ff (Node 24 durable background).
 - Installed pilot refresh completed 2026-08-30 08:53 +07. Backup: E:\AI_CACHE\nava-agent-setup\20260830-084613-before-v4120-refresh.sqlite (SHA256 F6CC5E1648853674426A1A02E8861CBC33B99BC050515AA130AB06254840F2EA). Package task 91033b12-b659-45a7-9bb0-6dfbcd9a26ff passed. Installer SHA256 F259B51D2B4DC603CB5446A0C574EA7FD46B87D0345CD458C8FEA92B4B9BF069. Active runtime is D:\Program; synced both D:\Program and D:\Program Files\NAVA Agent; post-restart MCP/tunnel health passed and active payload hashes match the build.
+
+## 2026-08-30 — Phase 3C Windows E2E release gate recovery planned
+
+- GitHub Actions run `33289914127` on commit `c9587dc` passes every authoritative stage before Desktop E2E, then times out in dashboard, MCP-client, and security Electron tests.
+- The prior cleanup fixes did not restore CI, so no root cause is claimed yet. Highest-priority hypotheses are an unsettled owned Electron process tree between tests and external Desktop startup side effects before renderer/preload readiness.
+- Frozen plan: `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md`.
+- Next action is diagnostic-only 3C.1: bounded phase/startup logs, owned process/port snapshots, failure artifact upload, and isolated per-file GitHub reproduction.
+- Phase 3D extension implementation, public v4.12.0 release, and MCP Core changes remain blocked until repeatable GitHub E2E gates pass.
+
+## 2026-08-30 — Phase 3C.1 local diagnostic gate
+
+- All Electron E2Es now emit bounded phase evidence and drain both child output streams; previous tests left stdout piped but unread.
+- GitHub CI will upload process/connection/temp-root snapshots and run isolated per-file E2E diagnosis only when the authoritative gate fails.
+- Portable Node 24.19.0 focused ESLint passed; isolated security E2E passed 1/1 and local sequential E2E passed 3/3 in 36.9s.
+- Roadmap now inserts 3C.5 Dynamic Lead Capacity, 3C.6 Session Authority, and 3C.7 Live State before Phase 3D. Add-slot creates join authority only; a real agent session still requires join/rebind and heartbeat read-back.
+- GitHub runner evidence is still required before claiming the Windows E2E root cause or closing Phase 3C.
+
+## 2026-08-30 — Phase 3C.2/3C.3 deterministic Electron startup fix
+
+- GitHub isolated evidence from run `33292059433` disproved orphan cleanup as the primary startup blocker: dashboard and MCP-client reached DevTools/CDP in about 1–2s but never reached renderer-ready before their 90s/180s deadlines; security reached renderer-ready but missed the default 5s preload-contract poll.
+- Source inspection found the renderer scheduled `getDashboard()` every second without an in-flight guard while each dashboard query could synchronously probe Codex discovery and `health.check_all` external capabilities. On a slower Windows runner, overlapping expensive refreshes could self-amplify before the first dashboard response completed.
+- Renderer refresh is now coalesced to one in-flight request. Under explicit `LNWJUD_E2E_FIXTURE=1`, dashboard startup skips only external Codex/capability probes that are unrelated to the Electron/preload/MCP assertions; production behavior is unchanged. Security preload readiness keeps the real preload contract and uses a bounded 20s poll.
+- Added a focused regression proving fixture capability summary returns static metadata without invoking external health probes. Supported Node 24 verification passes: root TypeScript build, changed-source ESLint, Desktop 40 files / 240 tests, acceptance 16/16, and focused fixture test 1/1.
+- Local `CI=true` Electron E2E passed three consecutive full rounds = 9/9. Phase markers now reach renderer/MCP/preload readiness in about 2s and each full 3-test round finishes in about 17s.
+- GitHub re-verification is the remaining gate. No installed NAVA/Tunnel process was restarted or modified by this source-only fix.

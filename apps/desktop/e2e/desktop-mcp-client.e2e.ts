@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { UPGRADE_TOOL_CATALOG } from '@lnwjud/mcp-server';
 import { chromium, expect, test, type Page } from '@playwright/test';
+import { monitorElectronProcess, type ElectronE2EDiagnostics } from './electron-e2e-diagnostics.js';
 
 const execFileAsync = promisify(execFile);
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,6 +26,7 @@ test('desktop serves the real MCP client development workflow', async () => {
   let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
   let page: Page | undefined;
   let client: Client | undefined;
+  let diagnostics: ElectronE2EDiagnostics | undefined;
 
   try {
     const devToolsPort = await findEphemeralPort();
@@ -45,11 +47,13 @@ test('desktop serves the real MCP client development workflow', async () => {
       LNWJUD_E2E_NODE_PATH: process.execPath,
     },
     });
-    const stderr: string[] = [];
-    electronProcess.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
+    diagnostics = monitorElectronProcess(electronProcess, 'mcp-client');
+    diagnostics.phase(`spawned:pid=${electronProcess.pid ?? 'unknown'}:devtools=${devToolsPort}`);
 
-    await waitForDevTools(devToolsPort, electronProcess, stderr);
+    await waitForDevTools(devToolsPort, electronProcess, diagnostics.stderr);
+    diagnostics.phase('devtools-ready');
     browser = await chromium.connectOverCDP(`http://127.0.0.1:${devToolsPort}`);
+    diagnostics.phase('cdp-connected');
     const context = browser.contexts()[0];
     if (context === undefined) throw new Error('Electron did not create a browser context');
     await expect.poll(() => context.pages().length).toBeGreaterThan(0);
@@ -57,6 +61,7 @@ test('desktop serves the real MCP client development workflow', async () => {
     if (page === undefined) throw new Error('Electron did not create a renderer page');
 
     await expect(page.getByRole('heading', { name: 'ศูนย์ควบคุม Agent' })).toBeVisible({ timeout: 30_000 });
+    diagnostics.phase('renderer-ready');
     await expect(page.getByTestId('workspace-real-root')).toHaveText(fixtureRealRoot, { timeout: 30_000 });
     const workspaceId = (await page.getByTestId('workspace-id').textContent())?.trim();
     if (workspaceId === undefined || workspaceId.length === 0) throw new Error('Desktop did not expose the registered workspace ID');
@@ -67,6 +72,7 @@ test('desktop serves the real MCP client development workflow', async () => {
     const endpoint = new URL(endpointText);
     expect(endpoint.hostname).toBe('127.0.0.1');
     expect(endpoint.pathname).toBe('/mcp');
+    diagnostics.phase('mcp-ready');
 
     client = new Client(
       { name: 'lnwjud-desktop-e2e-client', version: '0.1.0' },
@@ -172,11 +178,16 @@ test('desktop serves the real MCP client development workflow', async () => {
     await browser.close();
     browser = undefined;
   } finally {
+    diagnostics?.phase('teardown-start');
     if (client !== undefined) await client.close().catch(() => undefined);
     if (page !== undefined) await page.evaluate(() => window.lnwjud.stopMcp()).catch(() => undefined);
     if (browser !== undefined) await browser.close().catch(() => undefined);
+    diagnostics?.phase('browser-and-client-closed');
     if (electronProcess !== undefined) await terminateProcessTree(electronProcess);
+    diagnostics?.phase('process-termination-returned');
     await Promise.all([removeTemporaryRoot(fixtureRoot), removeTemporaryRoot(dataRoot)]);
+    diagnostics?.phase('temporary-roots-cleaned');
+    diagnostics?.dump();
   }
 });
 
@@ -212,9 +223,9 @@ async function findEphemeralPort(): Promise<number> {
   return address.port;
 }
 
-async function waitForDevTools(port: number, electronProcess: ChildProcess, stderr: readonly string[]): Promise<void> {
+async function waitForDevTools(port: number, electronProcess: ChildProcess, stderr: () => string): Promise<void> {
   await expect.poll(async () => {
-    if (electronProcess.exitCode !== null) throw new Error(`Electron exited with ${electronProcess.exitCode}: ${stderr.join('')}`);
+    if (electronProcess.exitCode !== null) throw new Error(`Electron exited with ${electronProcess.exitCode}: ${stderr()}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/version`);
       return response.ok;

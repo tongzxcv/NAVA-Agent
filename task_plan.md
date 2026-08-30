@@ -986,3 +986,35 @@ Phase 3 source implementation is active on `feature/command-room-phase3` targeti
 - [x] Update tool guidance: multi-stage research/MT5/ML and uncertain work expected to exceed ~30s should be submitted as durable workflow/background before the first heavy stage.
 - [x] Run the authorized v4.12.0 reliability installed-runtime pilot: pre-migration backup, package, active payload verification, migration 007, restart/tunnel reconnect, 10s wait probe, durable workflow probe, persistent log query, and bounded task-list performance validation all passed.
 - [ ] Phase 3 extension/wake installed pilot remains pending until Desktop + browser-extension implementation and wrong-tab/revoke/retry gates are complete.
+
+## Command Room Phase 3C — Windows E2E release gate recovery — 2026-08-30
+
+- [x] Correlate GitHub Actions run `33289914127` with commit `c9587dc`: non-E2E gates pass; all three Windows Electron E2Es time out.
+- [x] Freeze the next-phase contract in `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md`.
+- [ ] 3C.1 add bounded Electron phase logs, owned-process snapshots, port evidence, and always-upload failure artifacts.
+- [ ] Run each E2E file in an isolated GitHub diagnosis matrix and classify H1 process-lifecycle vs H2 startup-side-effect evidence.
+- [ ] 3C.2 consolidate the three duplicated launch/cleanup helpers and prove owned process-tree settlement without global kills.
+- [ ] 3C.3 make E2E fixture startup deterministic only where evidence identifies an external startup blocker; preserve real Electron/preload/MCP coverage.
+- [ ] Pass each isolated E2E three times, the sequential 3/3 suite three times, and the authoritative Windows release gate twice on GitHub.
+- [ ] Start Phase 3D browser-extension work only after Phase 3C is green.
+
+Current release state: **BLOCKED BY WINDOWS E2E**. Do not raise timeouts, add blind retries, package/public-release v4.12.0, or begin MCP Core changes before the observable failure loop is in place.
+
+Phase 3C errors encountered:
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Default PATH has no `corepack` | 1 | Reused the pinned Node 24.19.0/Corepack toolchain under `E:\AI_CACHE\tools\lnwjud`. |
+| Local Node and Python environments have no YAML parser package | 2 | Stopped parser retries; manually reviewed workflow structure and use the GitHub workflow parser as the authoritative remote check. |
+| Shell policy blocked recursive/non-recursive `Remove-Item` cleanup | 2 | Deleted the three task-owned JSON files through `apply_patch`; only an ignored empty directory remains. |
+| First isolated GitHub jobs lacked workspace `dist/*.d.ts` outputs | 1 | Added root typecheck before filtered Desktop E2E; do not classify this harness failure as an Electron result. |
+
+## Command Room Phase 3C.5–3C.7 capacity and authority plan — 2026-08-30
+
+- [x] Confirm source supports 1–5 Lead slots only at room creation; no admin add-slot mutation exists for an active room.
+- [x] Add the accepted 3C.5 Dynamic Lead, 3C.6 Session Authority, and 3C.7 Live State contracts to the Phase 3C plan.
+- [ ] After Phase 3C CI is green, implement atomic/idempotent MAIN-only add-next-slot through `LEAD-5` without replacing the room.
+- [ ] Preserve session security: add-slot returns one-time join authority but no `agentSessionId`; session exists only after real join/rebind.
+- [ ] Bind `LEAD-4` to HERMES EA / `D:\EA\HERMES EA` after installed verification; keep `LEAD-5` unjoined and available.
+- [ ] Add explicit `SLOT_NOT_FOUND` / `CREATE_SESSION_REQUIRED` recovery outcomes and verify heartbeat + read-back before reporting resume success.
+- [ ] Add deterministic live-state derivation and UI refresh proof before Phase 3D Extension Pair/Wake begins.
