@@ -673,3 +673,11 @@
 - Proposed implementation target is v4.12.0; version remains v4.11.4 until actual Phase 3 source implementation begins.
 - Hard boundaries remain: extension is never the task/checkpoint source of truth, never expands NAVA permissions, never reads cookies/full transcripts/prompt history, never creates chats silently, and does not start Phase 4 provider/quota work.
 - Next source action: start RED tests + migration 007 contract from the Phase 3 plan, while keeping installed v4.11.4 untouched until a separate installed gate.
+
+## 2026-08-30 Phase 3C Windows E2E recovery planned
+
+- Inspected the newly pushed GitHub `main` at `c9587dc` and authoritative run `33289914127`. All gates before Desktop E2E pass; the three Electron E2Es time out.
+- The two recent cleanup-oriented commits improved bounded teardown but did not restore CI, so the next phase is frozen as evidence-first release-gate recovery rather than another speculative cleanup patch.
+- Added `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md` with ranked hypotheses, diagnostic feedback loop, implementation slices, and explicit go/no-go gates.
+- Phase 3D browser-extension work and MCP Core reliability expansion remain blocked until GitHub Windows E2E is green and repeatable.
+- No runtime, installer, Tunnel, production SQLite, extension, or MCP behavior was changed by this planning slice.

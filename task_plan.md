@@ -986,3 +986,16 @@ Phase 3 source implementation is active on `feature/command-room-phase3` targeti
 - [x] Update tool guidance: multi-stage research/MT5/ML and uncertain work expected to exceed ~30s should be submitted as durable workflow/background before the first heavy stage.
 - [x] Run the authorized v4.12.0 reliability installed-runtime pilot: pre-migration backup, package, active payload verification, migration 007, restart/tunnel reconnect, 10s wait probe, durable workflow probe, persistent log query, and bounded task-list performance validation all passed.
 - [ ] Phase 3 extension/wake installed pilot remains pending until Desktop + browser-extension implementation and wrong-tab/revoke/retry gates are complete.
+
+## Command Room Phase 3C — Windows E2E release gate recovery — 2026-08-30
+
+- [x] Correlate GitHub Actions run `33289914127` with commit `c9587dc`: non-E2E gates pass; all three Windows Electron E2Es time out.
+- [x] Freeze the next-phase contract in `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md`.
+- [ ] 3C.1 add bounded Electron phase logs, owned-process snapshots, port evidence, and always-upload failure artifacts.
+- [ ] Run each E2E file in an isolated GitHub diagnosis matrix and classify H1 process-lifecycle vs H2 startup-side-effect evidence.
+- [ ] 3C.2 consolidate the three duplicated launch/cleanup helpers and prove owned process-tree settlement without global kills.
+- [ ] 3C.3 make E2E fixture startup deterministic only where evidence identifies an external startup blocker; preserve real Electron/preload/MCP coverage.
+- [ ] Pass each isolated E2E three times, the sequential 3/3 suite three times, and the authoritative Windows release gate twice on GitHub.
+- [ ] Start Phase 3D browser-extension work only after Phase 3C is green.
+
+Current release state: **BLOCKED BY WINDOWS E2E**. Do not raise timeouts, add blind retries, package/public-release v4.12.0, or begin MCP Core changes before the observable failure loop is in place.

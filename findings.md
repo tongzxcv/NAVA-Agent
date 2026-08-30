@@ -661,3 +661,12 @@
 - A consistent SQLite backup exists independently of the application rollback backup, so room history can be recovered separately from executable rollback if ever needed.
 - The persistent room stores project routing durably through queued READ_ONLY tasks plus LEAD inbox handoffs without consuming LEAD join codes. This keeps all three participant slots ready for their actual chats.
 - The installed renderer bundle itself contains both individual and bulk delete controls in Thai and English, while remote Command Room MCP tools still do not expose permanent room deletion.
+
+## 2026-08-30 GitHub Windows E2E release-blocker findings
+
+- GitHub Actions run `33289914127` at commit `c9587dc` passes lint, typecheck, unit, integration, and acceptance stages; failure is isolated to the three Desktop Electron E2Es.
+- Dashboard times out at 90 seconds, MCP-client at 180 seconds plus trace teardown, and security reaches a renderer but misses the preload/Node-global poll deadline. This is not evidence of an MCP protocol regression by itself.
+- The latest nonblocking detached `taskkill` and best-effort temp cleanup did not fix CI. Therefore cleanup-file locking was an observed symptom, not a proven root cause.
+- All three E2Es duplicate Electron spawn/readiness/termination code. The detached killer waits for the root child exit but does not prove descendants, locks, ports, or app lifecycle have settled before the next test.
+- Desktop startup awaits `runtime.autoStartMcp()` before creating the first window even under `LNWJUD_E2E_FIXTURE=1`; this is the second high-priority hypothesis and requires timestamped startup evidence before changing behavior.
+- CI currently uploads no targeted Electron phase/process artifact, so the next correct change is observability and isolated reproduction, not another timeout or retry patch.

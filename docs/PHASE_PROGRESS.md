@@ -77,3 +77,11 @@
 - 2026-08-30 v4.12.0 refresh-UI packaging task: cb1d1ea5-47dd-48e7-855d-76d0c0585a89 (durable background); install only after successful package/result gate.
 - Replacement packaging task after missing corepack shim: 91033b12-b659-45a7-9bb0-6dfbcd9a26ff (Node 24 durable background).
 - Installed pilot refresh completed 2026-08-30 08:53 +07. Backup: E:\AI_CACHE\nava-agent-setup\20260830-084613-before-v4120-refresh.sqlite (SHA256 F6CC5E1648853674426A1A02E8861CBC33B99BC050515AA130AB06254840F2EA). Package task 91033b12-b659-45a7-9bb0-6dfbcd9a26ff passed. Installer SHA256 F259B51D2B4DC603CB5446A0C574EA7FD46B87D0345CD458C8FEA92B4B9BF069. Active runtime is D:\Program; synced both D:\Program and D:\Program Files\NAVA Agent; post-restart MCP/tunnel health passed and active payload hashes match the build.
+
+## 2026-08-30 — Phase 3C Windows E2E release gate recovery planned
+
+- GitHub Actions run `33289914127` on commit `c9587dc` passes every authoritative stage before Desktop E2E, then times out in dashboard, MCP-client, and security Electron tests.
+- The prior cleanup fixes did not restore CI, so no root cause is claimed yet. Highest-priority hypotheses are an unsettled owned Electron process tree between tests and external Desktop startup side effects before renderer/preload readiness.
+- Frozen plan: `docs/architecture/NAVA_COMMAND_ROOM_PHASE3C_RELEASE_GATE_PLAN_TH.md`.
+- Next action is diagnostic-only 3C.1: bounded phase/startup logs, owned process/port snapshots, failure artifact upload, and isolated per-file GitHub reproduction.
+- Phase 3D extension implementation, public v4.12.0 release, and MCP Core changes remain blocked until repeatable GitHub E2E gates pass.
