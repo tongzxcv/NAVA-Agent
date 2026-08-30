@@ -29,6 +29,8 @@ interface ToolBatchInput {
   readonly groups?: readonly BatchGroupInput[];
 }
 
+const SENSITIVE_AUTHORITY_KEYS = new Set(['agentsessionid', 'joincode']);
+
 class BatchChildError extends Error {
   public constructor(public readonly code: string, message: string) {
     super(message);
@@ -68,14 +70,22 @@ export function batchTools(invoker: BatchToolInvoker): readonly McpToolDefinitio
 }
 
 function normalizePlan(input: ToolBatchInput, invoker: BatchToolInvoker): Result<BatchExecutionPlan> {
-  const directOnlyCall = [
+  const batchCalls = [
     ...(input.calls ?? []),
     ...(input.groups ?? []).flatMap((group) => group.calls),
-  ].find((call) => call.tool.startsWith('command_room_'));
+  ];
+  const directOnlyCall = batchCalls.find((call) => call.tool.startsWith('command_room_'));
   if (directOnlyCall !== undefined) {
     return err({
       code: 'INVALID_INPUT',
       message: `Command Room authority cannot be nested in tool_batch; call ${directOnlyCall.tool} directly. Refresh connector if the direct tool is missing.`,
+      recoverable: true,
+    });
+  }
+  if (batchCalls.some((call) => containsSensitiveAuthorityKey(call.arguments))) {
+    return err({
+      code: 'INVALID_INPUT',
+      message: 'Sensitive Command Room authority keys cannot be nested in tool_batch arguments; call the relevant Command Room tool directly. Refresh connector if the direct tool is missing.',
       recoverable: true,
     });
   }
@@ -110,6 +120,29 @@ function normalizePlan(input: ToolBatchInput, invoker: BatchToolInvoker): Result
     calls,
     ...(groups.length === 0 ? {} : { groups }),
   });
+}
+
+function containsSensitiveAuthorityKey(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  const visited = new WeakSet<object>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current !== 'object' || current === null || visited.has(current)) continue;
+    visited.add(current);
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    for (const [key, nested] of Object.entries(current)) {
+      if (SENSITIVE_AUTHORITY_KEYS.has(normalizeAuthorityKey(key))) return true;
+      pending.push(nested);
+    }
+  }
+  return false;
+}
+
+function normalizeAuthorityKey(key: string): string {
+  return key.replace(/[-_]/g, '').toLowerCase();
 }
 
 function toChildError(response: McpToolResponse): BatchChildError {

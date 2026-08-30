@@ -11,8 +11,9 @@ import { ToolRegistry, type McpApplicationServices } from './tool-registry.js';
 
 export const MCP_RESPONSE_BUDGET_BYTES = 8 * 1024 * 1024;
 export const NAVA_SERVER_INSTRUCTIONS = [
+  'Every command_room_* tool must be called directly, never through tool_batch: command_room_admin, command_room_inbox, command_room_join, command_room_presence, command_room_resource, command_room_send, command_room_status, and command_room_task. Refresh connector if any direct tool is missing.',
   'Use NAVA session continuity for multi-step project work.',
-  'For Command Room authority, call command_room_presence and command_room_status directly; never place a joinCode or agentSessionId inside tool_batch. Refresh connector if either direct tool is missing.',
+  'For Command Room authority, never place a joinCode or agentSessionId inside tool_batch. Refresh connector if a direct tool is missing.',
   'Call session_resume with a stable projectKey before continuing work from another or a new chat.',
   'Call session_checkpoint before a long operation and after meaningful milestones such as file changes, verification, commits, blockers, or a changed next action.',
   'NAVA also saves a bounded automatic checkpoint after successful workspace mutations when workspaceId is present; verify it before the next mutation.',
