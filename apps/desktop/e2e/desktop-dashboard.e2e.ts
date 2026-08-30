@@ -140,16 +140,20 @@ async function waitForDevTools(port: number, child: ChildProcess, stderr: string
 
 async function terminateProcessTree(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.pid === undefined) return;
-  await new Promise<void>((resolve) => {
-    const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true });
-    killer.once('error', () => resolve());
-    killer.once('close', () => resolve());
-  });
+  const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true });
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      killer.once('error', () => resolve());
+      killer.once('close', () => resolve());
+    }),
+    new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+  ]);
+  if (killer.exitCode === null && !killer.killed) killer.kill();
   if (child.exitCode !== null) return;
-  await new Promise<void>((resolve) => {
-    child.once('exit', () => resolve());
-    setTimeout(() => resolve(), 5_000);
-  });
+  await Promise.race([
+    new Promise<void>((resolve) => child.once('exit', () => resolve())),
+    new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+  ]);
 }
 
 async function removeTemporaryRoot(root: string): Promise<void> {

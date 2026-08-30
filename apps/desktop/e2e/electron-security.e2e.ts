@@ -76,11 +76,15 @@ async function waitForDevTools(port: number, electronProcess: ChildProcess, stde
 
 async function terminateProcessTree(process: ChildProcess): Promise<void> {
   if (process.exitCode !== null || process.pid === undefined) return;
-  await new Promise<void>((resolve) => {
-    const killer = spawn('taskkill.exe', ['/PID', String(process.pid), '/T', '/F'], { shell: false, windowsHide: true });
-    killer.once('error', () => resolve());
-    killer.once('close', () => resolve());
-  });
+  const killer = spawn('taskkill.exe', ['/PID', String(process.pid), '/T', '/F'], { shell: false, windowsHide: true });
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      killer.once('error', () => resolve());
+      killer.once('close', () => resolve());
+    }),
+    new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+  ]);
+  if (killer.exitCode === null && !killer.killed) killer.kill();
 }
 
 async function removeTemporaryRoot(root: string): Promise<void> {
