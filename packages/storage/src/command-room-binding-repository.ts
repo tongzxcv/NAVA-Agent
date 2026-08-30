@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   CommandRoomBindingRecord,
   CommandRoomProvider,
   CommandRoomWakeDeliveryRecord,
@@ -49,6 +49,14 @@ export interface EnqueueCommandRoomWakeInput {
 export type EnqueueCommandRoomWakeResult =
   | { readonly outcome: 'queued'; readonly duplicate: boolean; readonly delivery: CommandRoomWakeDeliveryRecord }
   | { readonly outcome: 'binding_not_active' | 'stale_epoch' | 'not_found' };
+
+export interface CommandRoomWakePolicySnapshot {
+  readonly coalescedDelivery: CommandRoomWakeDeliveryRecord | null;
+  readonly bindingWakeCount: number;
+  readonly roomWakeCount: number;
+  readonly unansweredSubmittedCount: number;
+  readonly lastHeartbeatAt?: string;
+}
 
 interface BindingRow {
   readonly id: string;
@@ -170,6 +178,45 @@ export class SqliteCommandRoomBindingRepository {
     return toBinding(this.database.connection.prepare(bindingSelect(
       "WHERE room_id = ? AND agent_id = ? AND connection_epoch = ? AND state = 'PAIRED'",
     )).get(roomId, agentId, connectionEpoch));
+  }
+
+  public async getWakePolicySnapshot(input: {
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly bindingId: string;
+    readonly cooldownSince: string;
+    readonly hourlySince: string;
+  }): Promise<CommandRoomWakePolicySnapshot> {
+    const connection = this.database.connection;
+    const coalescedDelivery = toWake(connection.prepare(wakeSelect(
+      "WHERE binding_id = ? AND (state IN ('QUEUED', 'ATTEMPTING', 'DELIVERED') OR (state = 'SUBMITTED' AND updated_at >= ?)) ORDER BY updated_at DESC LIMIT 1",
+    )).get(input.bindingId, input.cooldownSince));
+    const bindingCountRow = connection.prepare(
+      'SELECT COUNT(*) AS count FROM command_room_wake_deliveries WHERE binding_id = ? AND created_at >= ?',
+    ).get(input.bindingId, input.hourlySince) as { count?: unknown } | undefined;
+    const roomCountRow = connection.prepare(
+      'SELECT COUNT(*) AS count FROM command_room_wake_deliveries WHERE room_id = ? AND created_at >= ?',
+    ).get(input.roomId, input.hourlySince) as { count?: unknown } | undefined;
+    const agentRow = connection.prepare(
+      'SELECT last_heartbeat_at FROM command_room_agents WHERE id = ? AND room_id = ?',
+    ).get(input.agentId, input.roomId) as { last_heartbeat_at?: unknown } | undefined;
+    const bindingRow = connection.prepare(
+      'SELECT paired_at FROM command_room_bindings WHERE id = ? AND room_id = ? AND agent_id = ?',
+    ).get(input.bindingId, input.roomId, input.agentId) as { paired_at?: unknown } | undefined;
+    const lastHeartbeatAt = typeof agentRow?.last_heartbeat_at === 'string' ? agentRow.last_heartbeat_at : undefined;
+    const pairedAt = typeof bindingRow?.paired_at === 'string' ? bindingRow.paired_at : input.hourlySince;
+    const unansweredSince = lastHeartbeatAt !== undefined && lastHeartbeatAt > pairedAt ? lastHeartbeatAt : pairedAt;
+    const unansweredRow = connection.prepare(`
+      SELECT COUNT(*) AS count FROM command_room_wake_deliveries
+      WHERE binding_id = ? AND state = 'SUBMITTED' AND submitted_at IS NOT NULL AND submitted_at > ?
+    `).get(input.bindingId, unansweredSince) as { count?: unknown } | undefined;
+    return {
+      coalescedDelivery,
+      bindingWakeCount: numericCount(bindingCountRow?.count),
+      roomWakeCount: numericCount(roomCountRow?.count),
+      unansweredSubmittedCount: numericCount(unansweredRow?.count),
+      ...(lastHeartbeatAt === undefined ? {} : { lastHeartbeatAt }),
+    };
   }
 
   public async revoke(bindingId: string, revokedAt: string): Promise<CommandRoomBindingRecord | null> {
@@ -411,5 +458,9 @@ function rollbackResult<T>(connection: SqliteDatabase['connection'], result: T):
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function numericCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 

@@ -17,8 +17,8 @@ describe('CommandRoomExtensionService', () => {
   it('returns a one-time raw challenge while persisting only its hash', async () => {
     const repository = new FakeExtensionRepository();
     const service = new CommandRoomExtensionService(repository, {
-      randomId: () => 'binding-1',
-      randomChallenge: () => RAW_CHALLENGE,
+      randomId: (): string => 'binding-1',
+      randomChallenge: (): string => RAW_CHALLENGE,
     });
 
     const response = await service.createPairingChallenge({
@@ -50,8 +50,8 @@ describe('CommandRoomExtensionService', () => {
     const repository = new FakeExtensionRepository();
     repository.activeBinding = pairedBinding();
     const service = new CommandRoomExtensionService(repository, {
-      randomId: () => 'unused',
-      randomChallenge: () => RAW_CHALLENGE,
+      randomId: (): string => 'unused',
+      randomChallenge: (): string => RAW_CHALLENGE,
     });
 
     const result = await service.confirmPairing({
@@ -73,7 +73,7 @@ describe('CommandRoomExtensionService', () => {
 
   it('queues only allowlisted wake reasons against the exact active epoch', async () => {
     const repository = new FakeExtensionRepository();
-    const service = new CommandRoomExtensionService(repository, { randomId: () => 'wake-1' });
+    const service = new CommandRoomExtensionService(repository, { randomId: (): string => 'wake-1' });
 
     expect(await service.queueWake({
       roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 7,
@@ -99,8 +99,8 @@ describe('CommandRoomExtensionService', () => {
   it('bounds pairing TTL and rejects weak identity material before storage', async () => {
     const repository = new FakeExtensionRepository();
     const service = new CommandRoomExtensionService(repository, {
-      randomId: () => 'binding-1',
-      randomChallenge: () => RAW_CHALLENGE,
+      randomId: (): string => 'binding-1',
+      randomChallenge: (): string => RAW_CHALLENGE,
     });
 
     await expect(service.createPairingChallenge({
@@ -115,6 +115,49 @@ describe('CommandRoomExtensionService', () => {
       conversationRefFingerprint: 'hmac:conversation-ref-1', confirmedAt: NOW,
     })).rejects.toThrow('extensionInstallationId must be an opaque identifier');
   });
+
+  it('coalesces within cooldown and enforces persistent wake budgets plus the circuit breaker', async () => {
+    const repository = new FakeExtensionRepository();
+    repository.activeBinding = pairedBinding();
+    const service = new CommandRoomExtensionService(repository, {
+      randomId: (): string => 'wake-policy',
+      wakeCooldownSeconds: 60,
+      wakeMaxPerBindingHour: 2,
+      wakeMaxPerRoomHour: 4,
+      wakeCircuitBreakerThreshold: 2,
+    });
+    repository.wakePolicySnapshot.coalescedDelivery = wakeRecord('wake-existing');
+    await expect(service.queueWake({
+      roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 7,
+      eventKey: 'HANDOFF_READY:2', reason: 'HANDOFF_READY', now: NOW,
+    })).resolves.toMatchObject({ outcome: 'coalesced', delivery: { id: 'wake-existing' } });
+    expect(repository.lastWakeInput).toBeUndefined();
+
+    repository.wakePolicySnapshot.coalescedDelivery = null;
+    repository.wakePolicySnapshot.bindingWakeCount = 2;
+    await expect(service.queueWake({
+      roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 7,
+      eventKey: 'TASK_ASSIGNED:budget', reason: 'TASK_ASSIGNED', now: NOW,
+    })).resolves.toEqual({ outcome: 'binding_budget_exhausted' });
+
+    repository.wakePolicySnapshot.bindingWakeCount = 0;
+    repository.wakePolicySnapshot.roomWakeCount = 4;
+    await expect(service.queueWake({
+      roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 7,
+      eventKey: 'TASK_ASSIGNED:room-budget', reason: 'TASK_ASSIGNED', now: NOW,
+    })).resolves.toEqual({ outcome: 'room_budget_exhausted' });
+
+    repository.wakePolicySnapshot.roomWakeCount = 0;
+    repository.wakePolicySnapshot.unansweredSubmittedCount = 2;
+    await expect(service.queueWake({
+      roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 7,
+      eventKey: 'TASK_ASSIGNED:circuit', reason: 'TASK_ASSIGNED', now: NOW,
+    })).resolves.toEqual({ outcome: 'circuit_open' });
+    await expect(service.queueWake({
+      roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 7,
+      eventKey: 'USER_WAKE:manual-override', reason: 'USER_WAKE', now: NOW,
+    })).resolves.toMatchObject({ outcome: 'queued' });
+  });
 });
 
 class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
@@ -122,6 +165,12 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
   public lastConfirmInput?: Parameters<CommandRoomExtensionRepositoryPort['confirmPairing']>[0];
   public lastWakeInput?: Parameters<CommandRoomExtensionRepositoryPort['enqueueWake']>[0];
   public activeBinding: CommandRoomBindingRecord | null = null;
+  public wakePolicySnapshot: {
+    coalescedDelivery: CommandRoomWakeDeliveryRecord | null;
+    bindingWakeCount: number;
+    roomWakeCount: number;
+    unansweredSubmittedCount: number;
+  } = { coalescedDelivery: null, bindingWakeCount: 0, roomWakeCount: 0, unansweredSubmittedCount: 0 };
 
   public async createChallenge(input: Parameters<CommandRoomExtensionRepositoryPort['createChallenge']>[0]): Promise<CommandRoomBindingRecord> {
     this.lastChallengeInput = input;
@@ -133,7 +182,7 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
     };
   }
 
-  public async confirmPairing(input: Parameters<CommandRoomExtensionRepositoryPort['confirmPairing']>[0]) {
+  public async confirmPairing(input: Parameters<CommandRoomExtensionRepositoryPort['confirmPairing']>[0]): ReturnType<CommandRoomExtensionRepositoryPort['confirmPairing']> {
     this.lastConfirmInput = input;
     return { outcome: 'paired' as const, binding: this.activeBinding ?? pairedBinding() };
   }
@@ -142,7 +191,11 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
     return this.activeBinding?.connectionEpoch === connectionEpoch ? this.activeBinding : null;
   }
 
-  public async enqueueWake(input: Parameters<CommandRoomExtensionRepositoryPort['enqueueWake']>[0]) {
+  public async getWakePolicySnapshot(): ReturnType<CommandRoomExtensionRepositoryPort['getWakePolicySnapshot']> {
+    return this.wakePolicySnapshot;
+  }
+
+  public async enqueueWake(input: Parameters<CommandRoomExtensionRepositoryPort['enqueueWake']>[0]): ReturnType<CommandRoomExtensionRepositoryPort['enqueueWake']> {
     this.lastWakeInput = input;
     const delivery: CommandRoomWakeDeliveryRecord = {
       id: input.id, roomId: input.roomId, agentId: input.agentId, bindingId: input.bindingId,
@@ -172,5 +225,13 @@ function pairedBinding(): CommandRoomBindingRecord {
     extensionInstallationId: 'extension-installation-random-1',
     encryptedConversationRef: 'ciphertext:v1:conversation-ref', conversationRefFingerprint: 'hmac:conversation-ref-1',
     connectionEpoch: 7, state: 'PAIRED', pairedAt: NOW, lastSeenAt: NOW, createdAt: NOW, updatedAt: NOW,
+  };
+}
+
+function wakeRecord(id: string): CommandRoomWakeDeliveryRecord {
+  return {
+    id, roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-1', eventKey: 'TASK_ASSIGNED:existing',
+    reason: 'TASK_ASSIGNED', state: 'SUBMITTED', attemptCount: 1,
+    nextEligibleAt: NOW, deliveredAt: NOW, submittedAt: NOW, createdAt: NOW, updatedAt: NOW,
   };
 }

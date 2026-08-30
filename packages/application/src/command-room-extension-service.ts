@@ -9,6 +9,10 @@ import type {
 const DEFAULT_PAIRING_TTL_SECONDS = 300;
 const MIN_PAIRING_TTL_SECONDS = 30;
 const MAX_PAIRING_TTL_SECONDS = 600;
+const DEFAULT_WAKE_COOLDOWN_SECONDS = 60;
+const DEFAULT_WAKE_MAX_PER_BINDING_HOUR = 12;
+const DEFAULT_WAKE_MAX_PER_ROOM_HOUR = 48;
+const DEFAULT_WAKE_CIRCUIT_BREAKER_THRESHOLD = 3;
 const WAKE_ALLOWLIST = new Set<CommandRoomWakeReason>(['TASK_ASSIGNED', 'HANDOFF_READY', 'USER_WAKE']);
 
 export interface CommandRoomExtensionRepositoryPort {
@@ -38,6 +42,19 @@ export interface CommandRoomExtensionRepositoryPort {
     | { readonly outcome: 'not_found' | 'challenge_mismatch' | 'challenge_expired' | 'stale_epoch' | 'invalid_state' }
   >;
   getActiveBinding(roomId: string, agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null>;
+  getWakePolicySnapshot(input: {
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly bindingId: string;
+    readonly cooldownSince: string;
+    readonly hourlySince: string;
+  }): Promise<{
+    readonly coalescedDelivery: CommandRoomWakeDeliveryRecord | null;
+    readonly bindingWakeCount: number;
+    readonly roomWakeCount: number;
+    readonly unansweredSubmittedCount: number;
+    readonly lastHeartbeatAt?: string;
+  }>;
   enqueueWake(input: {
     readonly id: string;
     readonly roomId: string;
@@ -59,6 +76,10 @@ export interface CommandRoomExtensionRepositoryPort {
 export interface CommandRoomExtensionServiceOptions {
   readonly randomId?: () => string;
   readonly randomChallenge?: () => string;
+  readonly wakeCooldownSeconds?: number;
+  readonly wakeMaxPerBindingHour?: number;
+  readonly wakeMaxPerRoomHour?: number;
+  readonly wakeCircuitBreakerThreshold?: number;
 }
 
 export interface PairingChallengeResponse {
@@ -70,18 +91,31 @@ export interface PairingChallengeResponse {
 
 export type QueueWakeResponse =
   | { readonly outcome: 'queued'; readonly duplicate: boolean; readonly delivery: CommandRoomWakeDeliveryRecord }
-  | { readonly outcome: 'unpaired' | 'binding_not_active' | 'stale_epoch' | 'not_found' };
+  | { readonly outcome: 'coalesced'; readonly delivery: CommandRoomWakeDeliveryRecord }
+  | { readonly outcome: 'unpaired' | 'binding_not_active' | 'stale_epoch' | 'not_found' }
+  | { readonly outcome: 'binding_budget_exhausted' | 'room_budget_exhausted' | 'circuit_open' };
 
 export class CommandRoomExtensionService {
   private readonly randomId: () => string;
   private readonly randomChallenge: () => string;
+  private readonly wakeCooldownSeconds: number;
+  private readonly wakeMaxPerBindingHour: number;
+  private readonly wakeMaxPerRoomHour: number;
+  private readonly wakeCircuitBreakerThreshold: number;
 
   public constructor(
     private readonly repository: CommandRoomExtensionRepositoryPort,
     options: CommandRoomExtensionServiceOptions = {},
   ) {
     this.randomId = options.randomId ?? randomUUID;
-    this.randomChallenge = options.randomChallenge ?? (() => randomBytes(32).toString('base64url'));
+    this.randomChallenge = options.randomChallenge ?? ((): string => randomBytes(32).toString('base64url'));
+    this.wakeCooldownSeconds = requireIntegerOption(options.wakeCooldownSeconds ?? DEFAULT_WAKE_COOLDOWN_SECONDS, 'wakeCooldownSeconds', 60, 3_600);
+    this.wakeMaxPerBindingHour = requireIntegerOption(options.wakeMaxPerBindingHour ?? DEFAULT_WAKE_MAX_PER_BINDING_HOUR, 'wakeMaxPerBindingHour', 1, 120);
+    this.wakeMaxPerRoomHour = requireIntegerOption(options.wakeMaxPerRoomHour ?? DEFAULT_WAKE_MAX_PER_ROOM_HOUR, 'wakeMaxPerRoomHour', 1, 600);
+    this.wakeCircuitBreakerThreshold = requireIntegerOption(
+      options.wakeCircuitBreakerThreshold ?? DEFAULT_WAKE_CIRCUIT_BREAKER_THRESHOLD,
+      'wakeCircuitBreakerThreshold', 1, 20,
+    );
   }
 
   public async createPairingChallenge(input: {
@@ -157,6 +191,19 @@ export class CommandRoomExtensionService {
     if (input.eventKey.trim().length === 0 || input.eventKey.length > 256) throw new Error('Wake eventKey must be 1..256 characters.');
     const binding = await this.repository.getActiveBinding(input.roomId, input.agentId, input.connectionEpoch);
     if (binding === null) return { outcome: 'unpaired' };
+    const policy = await this.repository.getWakePolicySnapshot({
+      roomId: input.roomId,
+      agentId: input.agentId,
+      bindingId: binding.id,
+      cooldownSince: subtractSeconds(input.now, this.wakeCooldownSeconds),
+      hourlySince: subtractSeconds(input.now, 3_600),
+    });
+    if (policy.coalescedDelivery !== null) return { outcome: 'coalesced', delivery: policy.coalescedDelivery };
+    if (input.reason !== 'USER_WAKE' && policy.unansweredSubmittedCount >= this.wakeCircuitBreakerThreshold) {
+      return { outcome: 'circuit_open' };
+    }
+    if (policy.bindingWakeCount >= this.wakeMaxPerBindingHour) return { outcome: 'binding_budget_exhausted' };
+    if (policy.roomWakeCount >= this.wakeMaxPerRoomHour) return { outcome: 'room_budget_exhausted' };
     const result = await this.repository.enqueueWake({
       id: this.randomId(),
       roomId: input.roomId,
@@ -192,6 +239,19 @@ function addSeconds(value: string, seconds: number): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) throw new Error(`Invalid ISO timestamp: ${value}`);
   return new Date(timestamp + seconds * 1_000).toISOString();
+}
+
+function subtractSeconds(value: string, seconds: number): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw new Error(`Invalid ISO timestamp: ${value}`);
+  return new Date(timestamp - seconds * 1_000).toISOString();
+}
+
+function requireIntegerOption(value: number, field: string, minimum: number, maximum: number): number {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${field} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return value;
 }
 
 function requireOpaqueId(value: string, field: string): void {

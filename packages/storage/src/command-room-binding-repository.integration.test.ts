@@ -1,4 +1,4 @@
-﻿import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -206,6 +206,54 @@ describe('SqliteCommandRoomBindingRepository', () => {
     expect(await repository.markWakeDeadLetter('wake-budget', '2026-08-30T00:04:01.000Z', 'ATTEMPT_LIMIT'))
       .toMatchObject({ state: 'DEAD_LETTER', attemptCount: 3, lastErrorCode: 'ATTEMPT_LIMIT' });
 
+    database.close();
+  });
+
+  it('derives coalescing, hourly budgets, and unanswered submissions from persistent state', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-wake-policy-'));
+    cleanup.push(directory);
+    const database = new SqliteDatabase(join(directory, 'nava.db'));
+    seedCommandRoom(database);
+    const repository = new SqliteCommandRoomBindingRepository(database);
+    await repository.createChallenge({
+      id: 'binding-policy', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1', provider: 'CHATGPT',
+      connectionEpoch: 1, challengeHash: 'sha256:policy', challengeExpiresAt: '2026-08-30T00:05:00.000Z', createdAt: NOW,
+    });
+    expect((await repository.confirmPairing({
+      bindingId: 'binding-policy', roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 1,
+      challengeHash: 'sha256:policy', extensionInstallationId: 'ext-policy',
+      encryptedConversationRef: 'ciphertext:v1:policy', conversationRefFingerprint: 'hmac:policy',
+      confirmedAt: '2026-08-30T00:00:01.000Z',
+    })).outcome).toBe('paired');
+    await repository.enqueueWake({
+      id: 'wake-policy-1', roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-policy',
+      eventKey: 'TASK_ASSIGNED:policy-1', taskId: 'task-1', reason: 'TASK_ASSIGNED',
+      nextEligibleAt: '2026-08-30T00:00:10.000Z', createdAt: '2026-08-30T00:00:10.000Z',
+    });
+    await repository.beginWakeAttempt('wake-policy-1', '2026-08-30T00:00:11.000Z', '2026-08-30T00:01:11.000Z');
+    await repository.markWakeDelivered('wake-policy-1', '2026-08-30T00:00:12.000Z');
+    await repository.markWakeSubmitted('wake-policy-1', '2026-08-30T00:00:13.000Z');
+
+    const beforeHeartbeat = await repository.getWakePolicySnapshot({
+      roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-policy',
+      cooldownSince: '2026-08-29T23:59:30.000Z', hourlySince: '2026-08-29T23:00:30.000Z',
+    });
+    expect(beforeHeartbeat).toMatchObject({
+      coalescedDelivery: { id: 'wake-policy-1', state: 'SUBMITTED' },
+      bindingWakeCount: 1, roomWakeCount: 1, unansweredSubmittedCount: 1,
+    });
+
+    database.connection.prepare(
+      "UPDATE command_room_agents SET last_heartbeat_at = ?, updated_at = ? WHERE id = 'lead-1'",
+    ).run('2026-08-30T00:00:20.000Z', '2026-08-30T00:00:20.000Z');
+    const afterHeartbeat = await repository.getWakePolicySnapshot({
+      roomId: 'room-1', agentId: 'lead-1', bindingId: 'binding-policy',
+      cooldownSince: '2026-08-30T00:01:00.000Z', hourlySince: '2026-08-29T23:01:00.000Z',
+    });
+    expect(afterHeartbeat).toMatchObject({
+      coalescedDelivery: null, bindingWakeCount: 1, roomWakeCount: 1,
+      unansweredSubmittedCount: 0, lastHeartbeatAt: '2026-08-30T00:00:20.000Z',
+    });
     database.close();
   });
 });
