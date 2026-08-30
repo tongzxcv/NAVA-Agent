@@ -102,3 +102,14 @@
 - Added a focused regression proving fixture capability summary returns static metadata without invoking external health probes. Supported Node 24 verification passes: root TypeScript build, changed-source ESLint, Desktop 40 files / 240 tests, acceptance 16/16, and focused fixture test 1/1.
 - Local `CI=true` Electron E2E passed three consecutive full rounds = 9/9. Phase markers now reach renderer/MCP/preload readiness in about 2s and each full 3-test round finishes in about 17s.
 - GitHub re-verification is the remaining gate. No installed NAVA/Tunnel process was restarted or modified by this source-only fix.
+
+
+## 2026-08-30 — Phase 3C.5 Dynamic Lead Capacity implementation
+
+- Phase 3C Windows release recovery closed: PR #1 was merged and `main` CI run `33294728864` passed the full Authoritative Release Verification gate after two consecutive green verification attempts.
+- Started Phase 3C.5 from the merged `main` baseline on branch `feature/command-room-dynamic-leads`; installed NAVA/Tunnel remains untouched.
+- `command_room_admin` now supports `action=add_lead` for authenticated MAIN sessions. Existing rooms expand only to the next contiguous slot and stop at `LEAD-5`; non-MAIN, stale room versions, gaps, archived rooms, and over-capacity requests fail closed.
+- Storage adds the new Lead row, room-version increment, and `ADD_LEAD` admin event in one `BEGIN IMMEDIATE` transaction. Idempotent replay returns the already-created slot but never returns the raw one-time join code again. No migration is required because migration 005 already permits additional `(room_id, slot_key)` rows.
+- New slots start `AVAILABLE`, `connectionEpoch=0`, with only a hashed one-time join code. No `agentSessionId` exists until a real `command_room_join` consumes the code at epoch 1.
+- Desktop IPC adds a trusted `addCommandRoomLead` operation and the Command Room UI now exposes **Add Lead** for non-archived rooms below five Leads. The one-time boot prompt is shown only in transient renderer state; overview remains secret-free.
+- Local source verification: root TypeScript build and ESLint passed; focused storage/broker/MCP/Desktop IPC/UI + session-resilience + release-hygiene gates = 41/41 passed. A direct unprepared root Vitest sweep also exposed only harness/precondition failures (missing packaged runtime bundles, tunnel helper contract context, and one concurrency timeout); the authoritative GitHub release workflow remains the final gate because it builds those artifacts in the required order.

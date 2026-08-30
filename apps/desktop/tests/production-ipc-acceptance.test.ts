@@ -113,8 +113,13 @@ describe('production desktop IPC acceptance', () => {
     });
     await expect(requiredHandler(ipcChannels.createCommandRoom)(trusted, { name: '' })).rejects.toThrow('Invalid IPC payload: name');
     await expect(requiredHandler(ipcChannels.createCommandRoom)(trusted, { name: 'x'.repeat(121) })).rejects.toThrow('Invalid IPC payload: name');
+    await expect(requiredHandler(ipcChannels.addCommandRoomLead)(trusted, { roomId: 'room-1', expectedVersion: 7 })).resolves.toMatchObject({
+      slotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: 'one-time-lead-4',
+    });
+    await expect(requiredHandler(ipcChannels.addCommandRoomLead)(trusted, { roomId: 'room-1', expectedVersion: 0 })).rejects.toThrow('Invalid IPC payload: expectedVersion');
 
     expect(services.createCommandRoom).toHaveBeenCalledWith({ name: 'EA Portfolio' });
+    expect(services.addCommandRoomLead).toHaveBeenCalledWith({ roomId: 'room-1', expectedVersion: 7 });
   });
 
   it('routes Command Room Extension opt-in, pairing, wake, and revoke through trusted IPC only', async () => {
@@ -214,6 +219,19 @@ function desktopServices(): DesktopIpcServices {
         tasks: [],
       },
       joinCodes: { MAIN: 'one-time-main' },
+    })),
+    addCommandRoomLead: vi.fn(async (request) => ({
+      duplicate: false,
+      room: {
+        id: request.roomId, name: 'Existing Room', status: 'ACTIVE', version: request.expectedVersion + 1,
+        createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        agents: [
+          { slotKey: 'MAIN', role: 'MAIN', provider: 'CHATGPT', state: 'ONLINE' },
+          { slotKey: 'LEAD-4', role: 'LEAD', provider: 'CHATGPT', state: 'AVAILABLE' },
+        ],
+        tasks: [], writerLeases: [], resources: [], resourceLeases: [], resourceQueueDepth: 0,
+      },
+      slotKey: 'LEAD-4', requiredConnectionEpoch: 1, joinCode: 'one-time-lead-4',
     })),
     deleteCommandRoom: vi.fn(async () => ({ deleted: true })),
     getCommandRoomExtensionOverview: vi.fn(async () => ({

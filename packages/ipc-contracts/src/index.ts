@@ -40,6 +40,7 @@ export const ipcChannels = {
   installUpdate: 'lnwjud:install-update',
   getCommandRoomOverview: 'lnwjud:get-command-room-overview',
   createCommandRoom: 'lnwjud:create-command-room',
+  addCommandRoomLead: 'lnwjud:add-command-room-lead',
   deleteCommandRoom: 'lnwjud:delete-command-room',
   getCommandRoomExtensionOverview: 'lnwjud:get-command-room-extension-overview',
   setCommandRoomExtensionConfig: 'lnwjud:set-command-room-extension-config',
@@ -136,6 +137,20 @@ export interface CreateCommandRoomResult {
   readonly room: CommandRoomSummary;
   /** One-time join codes. Empty on duplicate creation and never returned by overview. */
   readonly joinCodes: Readonly<Record<string, string>>;
+}
+
+export interface AddCommandRoomLeadRequest {
+  readonly roomId: string;
+  readonly expectedVersion: number;
+}
+
+export interface AddCommandRoomLeadResult {
+  readonly duplicate: boolean;
+  readonly room: CommandRoomSummary;
+  readonly slotKey: string;
+  readonly requiredConnectionEpoch: number;
+  /** One-time join code. Omitted on idempotent replay and never returned by overview. */
+  readonly joinCode?: string;
 }
 
 export interface DeleteCommandRoomRequest {
@@ -602,6 +617,7 @@ export interface IpcRequestMap {
   readonly [ipcChannels.installUpdate]: undefined;
   readonly [ipcChannels.getCommandRoomOverview]: undefined;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomRequest;
+  readonly [ipcChannels.addCommandRoomLead]: AddCommandRoomLeadRequest;
   readonly [ipcChannels.deleteCommandRoom]: DeleteCommandRoomRequest;
   readonly [ipcChannels.getCommandRoomExtensionOverview]: undefined;
   readonly [ipcChannels.setCommandRoomExtensionConfig]: SetCommandRoomExtensionConfigRequest;
@@ -649,6 +665,7 @@ export interface IpcResponseMap {
   readonly [ipcChannels.installUpdate]: { readonly accepted: boolean; readonly status: UpdateStatus };
   readonly [ipcChannels.getCommandRoomOverview]: CommandRoomOverview;
   readonly [ipcChannels.createCommandRoom]: CreateCommandRoomResult;
+  readonly [ipcChannels.addCommandRoomLead]: AddCommandRoomLeadResult;
   readonly [ipcChannels.deleteCommandRoom]: { readonly deleted: boolean };
   readonly [ipcChannels.getCommandRoomExtensionOverview]: CommandRoomExtensionOverview;
   readonly [ipcChannels.setCommandRoomExtensionConfig]: CommandRoomExtensionBridgeStatus;
@@ -696,6 +713,7 @@ export interface LnwjudApi {
   installUpdate(): Promise<IpcResponseMap[typeof ipcChannels.installUpdate]>;
   getCommandRoomOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomOverview]>;
   createCommandRoom(request: CreateCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.createCommandRoom]>;
+  addCommandRoomLead(request: AddCommandRoomLeadRequest): Promise<IpcResponseMap[typeof ipcChannels.addCommandRoomLead]>;
   deleteCommandRoom(request: DeleteCommandRoomRequest): Promise<IpcResponseMap[typeof ipcChannels.deleteCommandRoom]>;
   getCommandRoomExtensionOverview(): Promise<IpcResponseMap[typeof ipcChannels.getCommandRoomExtensionOverview]>;
   setCommandRoomExtensionConfig(request: SetCommandRoomExtensionConfigRequest): Promise<IpcResponseMap[typeof ipcChannels.setCommandRoomExtensionConfig]>;

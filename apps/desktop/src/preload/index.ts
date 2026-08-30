@@ -4,6 +4,7 @@ import {
   ipcChannels,
   pushChannels,
   type AddWorkspaceRequest,
+  type AddCommandRoomLeadResult,
   type AgentState,
   type BackupSummary,
   type ClearLogBufferRequest,
@@ -306,6 +307,18 @@ function createCommandRoomResult(value: unknown): CreateCommandRoomResult {
     duplicate: booleanField(value, 'duplicate'),
     room: commandRoomSummary(value.room),
     joinCodes: stringRecordResponse(value.joinCodes),
+  };
+}
+
+function addCommandRoomLeadResult(value: unknown): AddCommandRoomLeadResult {
+  if (!isRecord(value)) throw new Error('Invalid IPC response');
+  const joinCode = optionalStringField(value, 'joinCode');
+  return {
+    duplicate: booleanField(value, 'duplicate'),
+    room: commandRoomSummary(value.room),
+    slotKey: stringField(value, 'slotKey'),
+    requiredConnectionEpoch: numberField(value, 'requiredConnectionEpoch'),
+    ...(joinCode === undefined ? {} : { joinCode }),
   };
 }
 
@@ -906,6 +919,7 @@ const api: LnwjudApi = {
   getDashboard: () => invoke(ipcChannels.getDashboard).then(dashboard),
   getCommandRoomOverview: () => invoke(ipcChannels.getCommandRoomOverview).then(commandRoomOverview),
   createCommandRoom: (request) => invoke(ipcChannels.createCommandRoom, { name: request.name }).then(createCommandRoomResult),
+  addCommandRoomLead: (request) => invoke(ipcChannels.addCommandRoomLead, { roomId: request.roomId, expectedVersion: request.expectedVersion }).then(addCommandRoomLeadResult),
   deleteCommandRoom: (request: DeleteCommandRoomRequest) => invoke(ipcChannels.deleteCommandRoom, { roomId: request.roomId }).then((value) => {
     if (!isRecord(value)) throw new Error('Invalid IPC response');
     return { deleted: booleanField(value, 'deleted') };
