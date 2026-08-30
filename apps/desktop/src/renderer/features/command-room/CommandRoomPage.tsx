@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type { CommandRoomExtensionAgentSummary, CommandRoomExtensionOverview, CommandRoomOverview, CreateCommandRoomPairingResult, CreateCommandRoomResult, UiLocale } from '@lnwjud/ipc-contracts';
 import { copyTextToClipboard } from '../../clipboard.js';
 
@@ -20,8 +20,12 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const refreshInFlight = useRef(false);
 
   const refresh = useCallback(async (): Promise<void> => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
       const [rooms, extension] = await Promise.all([
         window.lnwjud.getCommandRoomOverview(),
@@ -30,14 +34,21 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
       setOverview(rooms);
       setExtensionOverview(extension);
       setExtensionOrigin((current) => current.trim().length > 0 ? current : extension.bridge.allowedOrigins[0] ?? '');
+      setLastRefreshedAt(new Date().toISOString());
       setError(null);
     } catch (cause: unknown) {
       setError(message(cause, text(locale, 'โหลด Command Room ไม่สำเร็จ', 'Could not load Command Rooms')));
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [locale]);
 
   useEffect(() => {
     void refresh();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh();
+    }, 5_000);
+    return (): void => { window.clearInterval(timer); };
   }, [refresh]);
 
   async function deleteRoom(roomId: string, roomName: string): Promise<void> {
@@ -297,7 +308,7 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
         <div className="section-heading">
           <div>
             <h2>{text(locale, 'ห้องทั้งหมด', 'Rooms')}</h2>
-            <p className="hint">{text(locale, 'หน้า overview ไม่มี join code หรือ session secret', 'Overview never contains join codes or session secrets.')}</p>
+            <p className="hint">{text(locale, 'หน้า overview ไม่มี join code หรือ session secret · รีเฟรชอัตโนมัติทุก 5 วินาที', 'Overview never contains join codes or session secrets · auto-refreshes every 5 seconds.')}</p>
           </div>
           <div className="command-room-room-actions">
             <span className="command-room-count">{overview.rooms.length}</span>
@@ -320,7 +331,11 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                 <header>
                   <div>
                     <h3>{room.name}</h3>
-                    <p>{text(locale, 'อัปเดต', 'Updated')} {formatDate(room.updatedAt, locale)}</p>
+                    <p>
+                      {text(locale, 'กิจกรรมล่าสุด', 'Last activity')} {formatDate(room.updatedAt, locale)}
+                      {' · '}
+                      {text(locale, 'รีเฟรชล่าสุด', 'Refreshed')} {lastRefreshedAt === null ? '—' : formatDate(lastRefreshedAt, locale)}
+                    </p>
                   </div>
                   <div className="command-room-room-actions">
                     <span className={`command-room-status status-${room.status.toLowerCase()}`}>{room.status}</span>
@@ -345,6 +360,7 @@ export function CommandRoomPage({ locale }: CommandRoomPageProps): ReactElement 
                         <strong>{agent.slotKey}</strong>
                         <span>{agent.state}</span>
                         <small>{agent.projectKey ?? text(locale, 'ยังไม่ผูกโปรเจกต์', 'No project bound')}</small>
+                        <small>Heartbeat · {agent.lastHeartbeatAt === undefined ? '—' : relativeAge(agent.lastHeartbeatAt, lastRefreshedAt, locale)}</small>
                         <small>Browser · {extensionAgent?.bindingState ?? 'UNPAIRED'} · epoch {extensionAgent?.connectionEpoch ?? 0}</small>
                         {extensionAgent?.lastWake === undefined ? null : (
                           <small>Wake · {extensionAgent.lastWake.state} · attempt {extensionAgent.lastWake.attemptCount}</small>
@@ -447,6 +463,20 @@ function bootPrompt(locale: UiLocale, roomId: string, slotKey: string, joinCode:
     return `คุณคือ ${slotKey} ใน NAVA Command Room ให้เรียก command_room_join ด้วย roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=1 จากนั้นเรียก command_room_presence heartbeat และตรวจ inbox เป็นระยะ ห้ามส่งต่อ joinCode หรือ agentSessionId`;
   }
   return `You are ${slotKey} in a NAVA Command Room. Call command_room_join with roomId="${roomId}", slotKey="${slotKey}", joinCode="${joinCode}", provider="CHATGPT", connectionEpoch=1. Then send command_room_presence heartbeats and check the inbox periodically. Never forward the joinCode or agentSessionId.`;
+}
+
+function relativeAge(value: string, nowValue: string | null, locale: UiLocale): string {
+  const timestamp = Date.parse(value);
+  const now = nowValue === null ? Date.now() : Date.parse(nowValue);
+  if (!Number.isFinite(timestamp) || !Number.isFinite(now)) return formatDate(value, locale);
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1_000));
+  if (seconds < 60) return locale === 'th' ? `${seconds} วิที่แล้ว` : `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return locale === 'th' ? `${minutes} นาทีที่แล้ว` : `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return locale === 'th' ? `${hours} ชม.ที่แล้ว` : `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return locale === 'th' ? `${days} วันที่แล้ว` : `${days}d ago`;
 }
 
 function formatDate(value: string, locale: UiLocale): string {

@@ -10,6 +10,7 @@ describe('Command Room Extension UI', () => {
     expect(markup).toContain('OPT-IN OFF');
     expect(markup).toContain('loopback-only');
     expect(markup).toContain('DELIVERED / SUBMITTED');
+    expect(markup).toContain('auto-refreshes every 5 seconds');
     expect(markup).not.toContain('pairing-secret');
     expect(markup).not.toContain('agentSessionId');
   });
