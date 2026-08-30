@@ -63,3 +63,13 @@
 - Coalescing keeps any pending QUEUED/ATTEMPTING/DELIVERED wake singular and applies the 60s cooldown to SUBMITTED wakes, preventing duplicate pending deliveries after stalls.
 - Verification after both commits: TypeScript build passed; focused Phase 3/release tests 23/23 passed; application + storage + Desktop + packaging/release regression 69 files / 342 tests passed; changed-source ESLint passed.
 - Public GitHub latest remains v4.11.4. This slice is prepared for the next local v4.12.0 installed pilot while Phase 3 Extension Bridge/Desktop/browser-extension work remains unfinished.
+
+## 2026-08-30 — v4.12.0 wake-policy installed pilot
+
+- User authorized the next upgrade window after NAVA became idle. A fresh consistent SQLite backup was created with the Node 24 `node:sqlite` backup API at `E:\AI_CACHE\nava-agent-setup\20260830-072052-before-v4120-wake-policy.sqlite` (SHA-256 `1B26022816ADD522B586A8655A012567467C946DDD5DE3FD44301DE6192B7C20`).
+- Current v4.12.0 installer/package build completed as durable task `1f68b1d6-8d56-41e8-8ab1-ad26bcee3657`. Installer SHA-256: `9E9FFE2E00EF56164285B0AE11317EC7B220E9FD689CF6C2D35B7E684848E1BA`; Authenticode remains `NotSigned` for the local development pilot.
+- Verified final payload was synchronized into the actual active runtime `D:\Program Files\NAVA Agent` while Desktop/stdio/tunnel were stopped. Active hashes: MCP `F6F94325E3EB5A3970ADB4C04ED77DD1953163E0B638C40D6A84DBFBAFAB01F6`, app.asar `70623EFFB5AF46FFB045AD6DA8D552E2DECE98DA543A254A75898F666B052C1A`, Node `3602F2BB1A10F2CBAB4C36886218A33C1AB3DB87290E73B033C46C77147D0237`.
+- Restart validation passed: one NAVA root and one lnwjud tunnel are running; migration 007 and both binding/wake tables remain present; `NAVA EA LAB — ALL-RW` remains ACTIVE with its existing agent bindings/data intact.
+- Installed-runtime reliability probes passed: a 20s foreground process returned `RUNNING + task_id` at the ~10s synchronous boundary and later completed; a two-stage durable workflow completed both stages; bounded completed-task list limit=2 returned in ~424ms; `live_logs_query` reported `source=persistent-mcp`; `search_text` resolved ripgrep successfully.
+- Backend health remains ready for shell/accessibility/input/vision/window/system/notification/file-dialog/clipboard/web-fetch/audio/screen-record/office/scheduler. WSL and remote SSH remain unavailable because they are not configured/ready on this machine.
+- Public GitHub release remains v4.11.4. No v4.12.0 tag/release was published; browser Extension Bridge/Desktop Pair-Wake UI/wrong-tab end-to-end gates remain the next Phase 3 implementation slice.
