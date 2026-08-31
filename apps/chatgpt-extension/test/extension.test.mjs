@@ -86,5 +86,7 @@ test('manifest stays narrow and the Bridge is not a generic MCP proxy', async ()
   const bridgeSource = await readFile(resolve(root, 'src/bridge.js'), 'utf8');
   assert.doesNotMatch(bridgeSource, /\/mcp(?:[/'"]|$)/i);
   const contentSource = await readFile(resolve(root, 'src/content.js'), 'utf8');
+  assert.match(contentSource, /ACK_WAKE_SUBMITTED/);
+  assert.match(contentSource, /ฉันส่งในแชทแล้ว/);
   assert.doesNotMatch(contentSource, /\.submit\s*\(|\.click\s*\(|execCommand|insertText/);
 });

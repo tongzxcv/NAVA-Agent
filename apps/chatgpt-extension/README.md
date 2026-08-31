@@ -15,8 +15,9 @@ shows recoverable wake events in that exact tab.
   an active generation state;
 - calls only the existing pair, wake-list, wake-transition, and touch Bridge
   routes;
-- displays a visible wake banner and lets the user copy a fixed continuation
-  prompt manually;
+- displays a visible wake banner, lets the user copy a fixed continuation
+  prompt manually, and records `SUBMITTED` only after the user explicitly confirms
+  that they already pasted and sent it in the bound ChatGPT conversation;
 - stores the binding/token only as an AES-GCM encrypted local envelope protected
   by a passphrase that is never persisted;
 - polls pending wakes once per minute only while the extension is unlocked and
@@ -55,6 +56,7 @@ The browser restart recovery is intentionally user-unlocked: the passphrase is
 not recoverable by the extension. The local envelope contains no plaintext
 token, cookie, transcript, API key, or browser credential. A wake only creates a
 visible banner and copies a fixed continuation prompt after an explicit click;
-the user must paste and press ChatGPT's Send button. The extension never
-overwrites a draft, submits a message, reads a transcript, or calls generic MCP
-tools. No installed NAVA runtime is changed by this package.
+the user must paste and press ChatGPT's Send button, then explicitly confirm
+`ฉันส่งในแชทแล้ว` so NAVA can transition `DELIVERED -> SUBMITTED`. The
+extension never overwrites a draft, submits a message, reads a transcript, or
+calls generic MCP tools. No installed NAVA runtime is changed by this package.

@@ -43,6 +43,8 @@ async function createHarness() {
   const alarms = { created: [], cleared: [] };
   const fetchCalls = [];
   const tabs = [{ id: 17, url: 'https://chatgpt.com/c/conversation-1' }];
+  const sentMessages = [];
+  let wakes = [];
   let bridgeOnline = true;
 
   const chrome = {
@@ -54,7 +56,7 @@ async function createHarness() {
     storage: { local, session },
     tabs: {
       query: async () => tabs,
-      sendMessage: async () => ({ ok: true }),
+      sendMessage: async (tabId, message) => { sentMessages.push({ tabId, message }); return { ok: true }; },
     },
     alarms: {
       create: async (name, info) => alarms.created.push({ name, info }),
@@ -82,7 +84,7 @@ async function createHarness() {
           binding: { id: 'binding-1234', connectionEpoch: 1 },
         });
       }
-      if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes: [] });
+      if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
       return jsonResponse({ ok: true });
     },
     TextDecoder,
@@ -100,11 +102,11 @@ async function createHarness() {
   const source = await readFile(resolve(root, 'src/background.js'), 'utf8');
   vm.runInNewContext(source, sandbox, { filename: 'src/background.js' });
 
-  async function send(message) {
+  async function send(message, sender = {}) {
     assert.equal(messageListeners.length, 1);
     return new Promise((resolveResponse, reject) => {
       try {
-        const keepChannelOpen = messageListeners[0](message, {}, resolveResponse);
+        const keepChannelOpen = messageListeners[0](message, sender, resolveResponse);
         assert.equal(keepChannelOpen, true);
       } catch (error) {
         reject(error);
@@ -119,7 +121,9 @@ async function createHarness() {
     local,
     send,
     session,
+    sentMessages,
     setBridgeOnline: (value) => { bridgeOnline = value; },
+    setWakes: (value) => { wakes = value; },
     startupListeners,
   };
 
@@ -179,6 +183,37 @@ test('pair persists only an encrypted envelope, unlocks after session loss, and 
   const automatic = await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
   assert.equal(JSON.stringify(automatic), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 0 }));
   assert.equal(harness.fetchCalls.filter((call) => call.url.includes('/wakes?limit=')).length, 2);
+});
+
+
+
+test('delivered wakes wait for explicit exact-tab acknowledgement without redelivery', async () => {
+  const harness = await createHarness();
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  harness.setWakes([{
+    id: 'wake-delivered', bindingId: 'binding-1234', eventKey: 'USER_WAKE:delivered', reason: 'USER_WAKE',
+    state: 'DELIVERED', attemptCount: 1,
+  }]);
+
+  const checked = await harness.send({ type: 'CHECK_WAKES' });
+  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 1 }));
+  assert.equal(harness.sentMessages.length, 0);
+  assert.equal(harness.fetchCalls.some((call) => call.url.includes('/wake-delivered/attempt')), false);
+
+  const wrongTab = await harness.send(
+    { type: 'ACK_WAKE_SUBMITTED', wakeId: 'wake-delivered' },
+    { tab: { id: 18, url: 'https://chatgpt.com/c/other' } },
+  );
+  assert.equal(JSON.stringify(wrongTab), JSON.stringify({ ok: false, code: 'CONVERSATION_MISMATCH' }));
+  assert.equal(harness.fetchCalls.some((call) => call.url.includes('/wake-delivered/submitted')), false);
+
+  const acknowledged = await harness.send(
+    { type: 'ACK_WAKE_SUBMITTED', wakeId: 'wake-delivered' },
+    { tab: { id: 17, url: 'https://chatgpt.com/c/conversation-1' } },
+  );
+  assert.equal(acknowledged.ok, true);
+  assert.equal(acknowledged.wakeId, 'wake-delivered');
+  assert.equal(harness.fetchCalls.filter((call) => call.url.includes('/wake-delivered/submitted')).length, 1);
 });
 
 test('offline polling returns a safe error and does not fabricate delivery', async () => {

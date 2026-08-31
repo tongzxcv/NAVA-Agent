@@ -25,6 +25,8 @@
       #${BANNER_ID} strong { display: block; margin-bottom: 5px; }
       #${BANNER_ID} small { display: block; color: #b5d8d2; margin-bottom: 10px; overflow-wrap: anywhere; }
       #${BANNER_ID} button { border: 0; border-radius: 7px; padding: 7px 10px; background: #62d9c4; color: #06231f; cursor: pointer; font-weight: 700; }
+      #${BANNER_ID} button + button { margin-left: 8px; }
+      #${BANNER_ID} button:disabled { opacity: .55; cursor: default; }
       #${BANNER_ID} button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     `;
     document.head?.appendChild(style);
@@ -51,15 +53,36 @@
     const copyButton = document.createElement('button');
     copyButton.type = 'button';
     copyButton.textContent = 'คัดลอกคำสั่งต่อ';
+    const acknowledgeButton = document.createElement('button');
+    acknowledgeButton.type = 'button';
+    acknowledgeButton.disabled = true;
+    acknowledgeButton.textContent = 'ฉันส่งในแชทแล้ว';
     copyButton.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(NavaExtension.WAKE_PROMPT);
         copyButton.textContent = 'คัดลอกแล้ว — วางและส่งเอง';
+        acknowledgeButton.disabled = false;
       } catch {
         copyButton.textContent = 'คัดลอกไม่ได้ — เปิด Command Room';
       }
     });
-    banner.append(title, detail, copyButton);
+    acknowledgeButton.addEventListener('click', async () => {
+      if (acknowledgeButton.disabled || typeof message.wakeId !== 'string') return;
+      acknowledgeButton.disabled = true;
+      try {
+        const result = await chrome.runtime.sendMessage({ type: 'ACK_WAKE_SUBMITTED', wakeId: message.wakeId });
+        if (result?.ok === true) {
+          removeBanner();
+          return;
+        }
+        acknowledgeButton.textContent = 'ยืนยันไม่สำเร็จ — ลองใหม่';
+        acknowledgeButton.disabled = false;
+      } catch {
+        acknowledgeButton.textContent = 'ยืนยันไม่สำเร็จ — ลองใหม่';
+        acknowledgeButton.disabled = false;
+      }
+    });
+    banner.append(title, detail, copyButton, acknowledgeButton);
     document.body.appendChild(banner);
     const checkNavigation = () => {
       if (NavaExtension.conversationRefFromUrl(location.href) !== expectedConversationRef) removeBanner();

@@ -209,6 +209,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   async function deliverWake(state, tab, wake) {
+    if (wake?.state === 'DELIVERED') return { delivered: false, failed: false, pendingAck: true };
     try {
       await NavaBridge.transition(state, wake.id, 'attempt');
       const response = await chrome.tabs.sendMessage(tab.id, {
@@ -286,11 +287,29 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     }
   }
 
-  async function handleMessage(message) {
+  async function acknowledgeWakeSubmitted(message, sender) {
+    const state = await readState();
+    if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
+    if (!sender?.tab || typeof sender.tab.id !== 'number') return { ok: false, code: 'TAB_UNAVAILABLE' };
+    const conversationRef = NavaExtension.tabConversationRef(sender.tab);
+    if (conversationRef !== state.conversationRef) return { ok: false, code: 'CONVERSATION_MISMATCH' };
+    if (typeof message.wakeId !== 'string' || message.wakeId.length < 1 || message.wakeId.length > 512) {
+      return { ok: false, code: 'EXTENSION_INTERNAL' };
+    }
+    try {
+      await NavaBridge.transition(state, message.wakeId, 'submitted');
+      return { ok: true, wakeId: message.wakeId };
+    } catch (error) {
+      return { ok: false, code: publicError(error) };
+    }
+  }
+
+  async function handleMessage(message, sender) {
     if (!NavaExtension.isRecord(message) || typeof message.type !== 'string') return null;
     if (message.type === 'PAIR_ACTIVE_TAB') return pairActiveTab(message.payloadText, message.passphrase);
     if (message.type === 'UNLOCK_STATE') return unlockState(message.passphrase);
     if (message.type === 'CHECK_WAKES') return checkWakes();
+    if (message.type === 'ACK_WAKE_SUBMITTED') return acknowledgeWakeSubmitted(message, sender);
     if (message.type === 'GET_STATE') {
       const state = await readState();
       if (state !== null) return { ok: true, state: publicState(state) };
@@ -299,9 +318,9 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     return null;
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'GET_STATE'].includes(message.type)) return false;
-    void handleMessage(message).then(sendResponse).catch(() => sendResponse({ ok: false, code: 'EXTENSION_INTERNAL' }));
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'ACK_WAKE_SUBMITTED', 'GET_STATE'].includes(message.type)) return false;
+    void handleMessage(message, sender).then(sendResponse).catch(() => sendResponse({ ok: false, code: 'EXTENSION_INTERNAL' }));
     return true;
   });
 
