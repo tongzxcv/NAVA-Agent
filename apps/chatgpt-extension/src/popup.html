@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NAVA Command Room</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>NAVA Command Room</h1>
+      <p class="muted">จับคู่กับแชท ChatGPT ที่เลือกไว้ แล้วกดตรวจงานที่รอส่งต่อ</p>
+
+      <label for="pairing-payload">Pairing payload จาก NAVA</label>
+      <textarea id="pairing-payload" rows="8" spellcheck="false" placeholder="วาง JSON จากปุ่ม Pair ใน NAVA ที่นี่"></textarea>
+      <button id="pair-button" type="button">จับคู่แท็บนี้</button>
+
+      <section class="status-card" aria-live="polite">
+        <strong>สถานะ</strong>
+        <p id="status">กำลังตรวจสอบ…</p>
+        <p id="binding" class="muted"></p>
+      </section>
+
+      <button id="check-button" class="secondary" type="button">ตรวจ wake ที่รออยู่</button>
+      <button id="copy-origin-button" class="link-button" type="button">คัดลอก Extension Origin</button>
+      <p class="hint">หลังจับคู่ใหม่หลังเปิดเบราว์เซอร์ ให้ตรวจ wake ด้วยปุ่มนี้ ส่วนการวาง/ส่งข้อความต้องทำเองเสมอ</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
