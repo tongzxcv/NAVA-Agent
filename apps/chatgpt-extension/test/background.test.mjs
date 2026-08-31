@@ -44,6 +44,8 @@ async function createHarness() {
   const fetchCalls = [];
   const tabs = [{ id: 17, url: 'https://chatgpt.com/c/conversation-1' }];
   const sentMessages = [];
+  const scriptInjections = [];
+  let sendMessageFailures = 0;
   let wakes = [];
   let bridgeOnline = true;
 
@@ -56,7 +58,17 @@ async function createHarness() {
     storage: { local, session },
     tabs: {
       query: async () => tabs,
-      sendMessage: async (tabId, message) => { sentMessages.push({ tabId, message }); return { ok: true }; },
+      sendMessage: async (tabId, message) => {
+        sentMessages.push({ tabId, message });
+        if (sendMessageFailures > 0) {
+          sendMessageFailures -= 1;
+          throw new Error('Could not establish connection. Receiving end does not exist.');
+        }
+        return { ok: true };
+      },
+    },
+    scripting: {
+      executeScript: async (details) => { scriptInjections.push(details); return []; },
     },
     alarms: {
       create: async (name, info) => alarms.created.push({ name, info }),
@@ -122,6 +134,8 @@ async function createHarness() {
     send,
     session,
     sentMessages,
+    scriptInjections,
+    setSendMessageFailures: (value) => { sendMessageFailures = value; },
     setBridgeOnline: (value) => { bridgeOnline = value; },
     setWakes: (value) => { wakes = value; },
     startupListeners,
@@ -186,6 +200,28 @@ test('pair persists only an encrypted envelope, unlocks after session loss, and 
 });
 
 
+
+test('existing exact tab rehydrates the content listener after extension reload without spending a failed attempt', async () => {
+  const harness = await createHarness();
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  harness.setWakes([{
+    id: 'wake-rehydrate', bindingId: 'binding-1234', eventKey: 'USER_WAKE:rehydrate', reason: 'USER_WAKE',
+    state: 'QUEUED', attemptCount: 0,
+  }]);
+  harness.setSendMessageFailures(1);
+
+  const checked = await harness.send({ type: 'CHECK_WAKES' });
+  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 1, failedCount: 0, pendingCount: 0 }));
+  assert.equal(harness.sentMessages.length, 2);
+  assert.equal(harness.scriptInjections.length, 1);
+  assert.equal(JSON.stringify(harness.scriptInjections[0]), JSON.stringify({
+    target: { tabId: 17 },
+    files: ['src/shared.js', 'src/content.js'],
+  }));
+  assert.equal(harness.fetchCalls.filter((call) => call.url.includes('/wake-rehydrate/attempt')).length, 1);
+  assert.equal(harness.fetchCalls.filter((call) => call.url.includes('/wake-rehydrate/delivered')).length, 1);
+  assert.equal(harness.fetchCalls.some((call) => call.url.includes('/wake-rehydrate/failed')), false);
+});
 
 test('delivered wakes wait for explicit exact-tab acknowledgement without redelivery', async () => {
   const harness = await createHarness();

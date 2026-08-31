@@ -1,7 +1,11 @@
-/* global NavaExtension, chrome, document, location, navigator, window */
+/* global NavaExtension, chrome, document, globalThis, location, navigator, window */
 
 (() => {
   'use strict';
+
+  const CONTENT_SENTINEL = '__navaCommandRoomWakeContentV1';
+  if (globalThis[CONTENT_SENTINEL] === true) return;
+  globalThis[CONTENT_SENTINEL] = true;
 
   const BANNER_ID = 'nava-command-room-wake-banner';
   const STYLE_ID = 'nava-command-room-wake-style';

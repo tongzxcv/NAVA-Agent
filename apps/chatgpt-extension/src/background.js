@@ -208,11 +208,28 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     }
   }
 
+  async function sendWakeMessage(tab, message) {
+    try {
+      return await chrome.tabs.sendMessage(tab.id, message);
+    } catch (firstError) {
+      if (!Number.isInteger(tab?.id)) throw firstError;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['src/shared.js', 'src/content.js'],
+        });
+      } catch {
+        throw firstError;
+      }
+      return chrome.tabs.sendMessage(tab.id, message);
+    }
+  }
+
   async function deliverWake(state, tab, wake) {
     if (wake?.state === 'DELIVERED') return { delivered: false, failed: false, pendingAck: true };
     try {
       await NavaBridge.transition(state, wake.id, 'attempt');
-      const response = await chrome.tabs.sendMessage(tab.id, {
+      const response = await sendWakeMessage(tab, {
         type: 'NAVA_WAKE',
         wakeId: wake.id,
         eventKey: typeof wake.eventKey === 'string' ? wake.eventKey : '',
