@@ -25,3 +25,23 @@
 - The extension will surface a wake and let the user copy a fixed continuation
   prompt manually. It will not overwrite the composer or auto-submit; those
   actions remain a later DOM-contract gate.
+
+## Completion-pass decisions
+
+- Browser restart recovery uses an explicit user passphrase. The binding state
+  and bearer token are encrypted with PBKDF2-SHA-256 derived AES-256-GCM before
+  being written to `chrome.storage.local`; the passphrase itself is never
+  stored. A locked profile cannot poll or call the Bridge until the user
+  unlocks it, and a lost passphrase requires a new NAVA pairing payload.
+- Automatic polling uses the Chrome `alarms` API at one minute and is created
+  only after a successful pair or unlock. Manual checking remains available;
+  exact-tab, duplicate-tab, DOM, offline, and Bridge failure paths remain
+  fail-closed and recoverable.
+- The safe submit contract is intentionally manual: a wake can show and copy a
+  fixed continuation prompt after a user click, but the user pastes and sends
+  it. No transcript scraping, composer overwrite, button click, or fabricated
+  `submitted` transition is added.
+- The source/runtime harness gates are complete. A real authenticated Chrome
+  pilot is intentionally separate because it requires loading the unpacked
+  extension into the user's browser profile; the disposable pilot could not be
+  launched in this environment and did not modify browser state.

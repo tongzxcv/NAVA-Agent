@@ -25,3 +25,23 @@
 - This branch is intentionally not pushed or installed; the next gate is a
   user-authorized browser pilot followed by persistent encrypted material and
   automatic wake/restart acceptance work.
+
+## 2026-08-31 — completion pass started
+
+- Resumed from the committed first slice without changing the original dirty
+  worktree or installed NAVA runtime.
+- Scope is now the remaining extension-only gates: encrypted persistent local
+  state with explicit unlock, bounded automatic polling, and runtime-harness
+  coverage for lock/restart, exact-tab, offline, and manual-submit behavior.
+- Added PBKDF2-SHA-256/AES-256-GCM encrypted binding persistence and explicit
+  unlock handling; the passphrase is cleared from the popup after use.
+- Added a one-minute Chrome alarm with in-flight coalescing; locked/unpaired
+  state cannot call the Bridge, and Bridge/offline failures remain safe.
+- Added crypto and background runtime harnesses. Extension tests pass 9/9;
+  build, typecheck, ESLint, root TypeScript, Bridge 4/4, and Desktop
+  persistence 8/8 pass.
+- The disposable Chrome pilot was not started because the execution sandbox
+  rejected creating the helper process; no user Chrome profile was touched.
+- Scoped completion diff is committed (`feat: complete Command Room extension
+  recovery slice`). The branch remains source-only and is not pushed or
+  installed into the active NAVA runtime.

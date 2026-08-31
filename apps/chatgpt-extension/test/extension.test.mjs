@@ -80,7 +80,7 @@ test('composer guard rejects drafts, active generation, and unsupported DOM', ()
 
 test('manifest stays narrow and the Bridge is not a generic MCP proxy', async () => {
   const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8'));
-  assert.deepEqual(manifest.permissions, ['storage']);
+  assert.deepEqual(manifest.permissions, ['storage', 'alarms']);
   assert.deepEqual(manifest.host_permissions, ['https://chatgpt.com/*', 'http://127.0.0.1/*']);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://chatgpt.com/*']);
   const bridgeSource = await readFile(resolve(root, 'src/bridge.js'), 'utf8');

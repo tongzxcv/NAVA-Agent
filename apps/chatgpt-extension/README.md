@@ -16,7 +16,11 @@ shows recoverable wake events in that exact tab.
 - calls only the existing pair, wake-list, wake-transition, and touch Bridge
   routes;
 - displays a visible wake banner and lets the user copy a fixed continuation
-  prompt manually.
+  prompt manually;
+- stores the binding/token only as an AES-GCM encrypted local envelope protected
+  by a passphrase that is never persisted;
+- polls pending wakes once per minute only while the extension is unlocked and
+  paired.
 
 The extension never reads cookies, transcripts, API keys, files, shells, or
 generic MCP tools. It never overwrites or submits the ChatGPT composer.
@@ -39,12 +43,18 @@ allowlist, enable Extension Wake, and restart/refresh the Bridge if NAVA asks.
 
 Then open the intended ChatGPT conversation, create a Pair payload in NAVA's
 Command Room controls, paste it into the popup, and choose **จับคู่แท็บนี้**.
-Use **ตรวจ wake ที่รออยู่** to deliver pending wake banners.
+Set a local passphrase of at least 12 characters during pairing. Use
+**ตรวจ wake ที่รออยู่** to deliver pending wake banners immediately; otherwise
+the extension checks them every minute. After a browser restart, unlock the
+saved binding with the same passphrase. If the passphrase is lost, create a new
+pairing payload and pair again.
 
-## Deliberate Phase 3D slice boundary
+## Safety boundary
 
-The bearer token is held only in `chrome.storage.session`; the installation
-identity alone is kept in `chrome.storage.local`. A browser restart therefore
-requires pairing again. Persistent encrypted browser material, automatic
-polling, SPA router instrumentation, and an explicit user-submit flow remain
-later acceptance gates. No installed NAVA runtime is changed by this package.
+The browser restart recovery is intentionally user-unlocked: the passphrase is
+not recoverable by the extension. The local envelope contains no plaintext
+token, cookie, transcript, API key, or browser credential. A wake only creates a
+visible banner and copies a fixed continuation prompt after an explicit click;
+the user must paste and press ChatGPT's Send button. The extension never
+overwrites a draft, submits a message, reads a transcript, or calls generic MCP
+tools. No installed NAVA runtime is changed by this package.

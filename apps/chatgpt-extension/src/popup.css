@@ -54,6 +54,17 @@ textarea {
   font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+input[type="password"] {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #274c54;
+  border-radius: 8px;
+  padding: 9px;
+  background: #0b1b24;
+  color: #e7fffa;
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
 button {
   width: 100%;
   margin-top: 9px;
@@ -89,6 +100,14 @@ button:disabled {
   border: 1px solid #274c54;
   border-radius: 9px;
   background: #0b1b24;
+}
+
+.unlock-card {
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid #a88339;
+  border-radius: 9px;
+  background: #211d0f;
 }
 
 .status-card p {

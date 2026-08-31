@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "node scripts/typecheck.mjs",
-    "test": "node --test test/extension.test.mjs"
+    "test": "node --test test/extension.test.mjs test/crypto.test.mjs test/background.test.mjs"
   },
   "license": "MIT"
 }

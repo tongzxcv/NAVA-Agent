@@ -28,6 +28,11 @@ client, exact conversation identity checks, visible manual/automatic wake
 handling, and focused tests. Keep the feature opt-in and leave installed NAVA
 alone until source and packaging gates pass.
 
+## Completion pass
+
+The first source-only slice is committed as `8037dd2`. This pass closes the
+remaining local extension gates without changing the installed NAVA runtime.
+
 ## Phases
 
 - [x] Inspect existing Bridge/IPC contracts and define the extension package seam
@@ -35,7 +40,13 @@ alone until source and packaging gates pass.
 - [x] Add exact conversation/tab/composer/SPA fail-closed logic
 - [x] Add focused unit/contract tests and preserve existing regressions
 - [x] Run typecheck, ESLint, tests, packaging and secret/artifact scans
-- [x] Commit source-only Phase 3D slice; do not push or install without a later explicit request
+- [x] Commit the initial source-only Phase 3D slice
+- [x] Add encrypted persistent binding material with explicit unlock/re-pair fallback
+- [x] Add bounded automatic wake polling that only runs while unlocked and paired
+- [x] Close the manual user-submit flow and SPA/offline/retry contract tests
+- [x] Run the extension runtime harness, repository regressions, packaging, and secret scan
+- [ ] Run the optional authenticated Chrome pilot with the user's explicit browser session
+- [x] Inspect the scoped diff and commit the Phase 3D completion pass
 
 ## Acceptance criteria
 
@@ -43,10 +54,18 @@ alone until source and packaging gates pass.
   key, cookie, transcript, generic MCP, filesystem, shell, or arbitrary tool
   access.
 - Pairing and wake requests use the existing authenticated Extension Bridge.
+- Persistent binding material is encrypted at rest and requires an explicit
+  local passphrase after browser restart; the passphrase is never persisted.
+- Automatic wake polling is bounded to one minute, opt-in through pairing, and
+  stops when the extension is locked, unpaired, offline, ambiguous, or unsafe.
 - Wake is sent only for the exact bound conversation and unambiguous tab.
 - A non-empty composer, generation/edit/voice state, URL/SPA identity change,
   unsupported DOM, or duplicate/ambiguous tab fails closed.
 - Existing repository typecheck, lint, relevant tests, and packaging guards pass.
+- The user must still paste and submit the continuation prompt manually; the
+  extension never overwrites a draft or clicks ChatGPT's Send button.
+- The authenticated Chrome pilot remains an operator installation check: this
+  source pass does not open or alter the user's browser profile.
 - Source diff is small, reviewable, and does not touch the installed runtime,
   original dirty worktree, live EA/MT5 state, Command Room sessions, or epochs.
 

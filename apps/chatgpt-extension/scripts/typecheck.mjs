@@ -11,7 +11,7 @@ const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 if (manifest.manifest_version !== 3) throw new Error('Manifest V3 is required.');
 if (manifest.background?.service_worker !== 'src/background.js') throw new Error('Unexpected background worker.');
 if (manifest.action?.default_popup !== 'src/popup.html') throw new Error('Unexpected popup entry.');
-if (JSON.stringify(manifest.permissions) !== JSON.stringify(['storage'])) throw new Error('Extension permissions widened.');
+if (JSON.stringify(manifest.permissions) !== JSON.stringify(['storage', 'alarms'])) throw new Error('Extension permissions changed unexpectedly.');
 if (JSON.stringify(manifest.host_permissions) !== JSON.stringify(['https://chatgpt.com/*', 'http://127.0.0.1/*'])) {
   throw new Error('Extension host permissions widened or reordered.');
 }
@@ -22,6 +22,7 @@ if (!contentScript || JSON.stringify(contentScript.matches) !== JSON.stringify([
 
 const requiredFiles = [
   'src/shared.js',
+  'src/crypto.js',
   'src/bridge.js',
   'src/background.js',
   'src/content.js',
@@ -36,7 +37,6 @@ for (const relative of requiredFiles) {
 }
 
 const forbiddenPermissions = new Set([
-  'alarms',
   'clipboardRead',
   'cookies',
   'debugger',

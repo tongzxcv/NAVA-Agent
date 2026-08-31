@@ -6,7 +6,10 @@
   const payloadInput = document.getElementById('pairing-payload');
   const pairButton = document.getElementById('pair-button');
   const checkButton = document.getElementById('check-button');
+  const unlockButton = document.getElementById('unlock-button');
   const copyOriginButton = document.getElementById('copy-origin-button');
+  const passphraseInput = document.getElementById('passphrase');
+  const unlockSection = document.getElementById('unlock-section');
   const status = document.getElementById('status');
   const binding = document.getElementById('binding');
 
@@ -25,6 +28,8 @@
     INVALID_BRIDGE_RESPONSE: 'NAVA Bridge ตอบกลับไม่ตรงสัญญา',
     UNPAIRED: 'ยังไม่ได้จับคู่แท็บกับ NAVA',
     PAIRING_MISMATCH: 'NAVA ยืนยัน binding ไม่ตรงกับ payload',
+    INVALID_PASSPHRASE: 'รหัสผ่านไม่ถูกต้อง หรือสั้นกว่า 12 ตัวอักษร',
+    LOCKED: 'สถานะถูกล็อก — กรอกรหัสผ่านเพื่อปลดล็อก',
     EXTENSION_INTERNAL: 'Extension หยุดการทำงานเพื่อป้องกันการส่งผิดแท็บ',
   });
 
@@ -39,9 +44,11 @@
   function renderState(state) {
     if (state === null) {
       binding.textContent = '';
+      unlockSection.hidden = true;
       setStatus(textFor('UNPAIRED'));
       return;
     }
+    unlockSection.hidden = true;
     binding.textContent = `${state.slotKey ?? 'Agent'} · binding ${state.bindingId} · epoch ${state.connectionEpoch}`;
     setStatus('จับคู่แล้ว — กดตรวจ wake ได้');
   }
@@ -50,7 +57,10 @@
     try {
       const result = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
       if (result?.ok === true) renderState(result.state);
-      else setStatus('', result?.code);
+      else {
+        unlockSection.hidden = result?.code !== 'LOCKED';
+        setStatus('', result?.code);
+      }
     } catch {
       setStatus('', 'EXTENSION_INTERNAL');
     }
@@ -60,9 +70,14 @@
     pairButton.disabled = true;
     setStatus('กำลังจับคู่…');
     try {
-      const result = await chrome.runtime.sendMessage({ type: 'PAIR_ACTIVE_TAB', payloadText: payloadInput.value });
+      const result = await chrome.runtime.sendMessage({
+        type: 'PAIR_ACTIVE_TAB',
+        payloadText: payloadInput.value,
+        passphrase: passphraseInput.value,
+      });
       if (result?.ok === true) {
         payloadInput.value = '';
+        passphraseInput.value = '';
         renderState(result.state);
       } else {
         setStatus('', result?.code);
@@ -71,6 +86,24 @@
       setStatus('', 'EXTENSION_INTERNAL');
     } finally {
       pairButton.disabled = false;
+    }
+  });
+
+  unlockButton.addEventListener('click', async () => {
+    unlockButton.disabled = true;
+    setStatus('กำลังปลดล็อก…');
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'UNLOCK_STATE', passphrase: passphraseInput.value });
+      if (result?.ok === true) {
+        passphraseInput.value = '';
+        renderState(result.state);
+      } else {
+        setStatus('', result?.code);
+      }
+    } catch {
+      setStatus('', 'EXTENSION_INTERNAL');
+    } finally {
+      unlockButton.disabled = false;
     }
   });
 

@@ -1,12 +1,15 @@
-/* global NavaBridge, NavaExtension, URL, chrome, crypto, importScripts */
+/* global NavaBridge, NavaCrypto, NavaExtension, URL, chrome, crypto, importScripts */
 
-importScripts('shared.js', 'bridge.js');
+importScripts('shared.js', 'crypto.js', 'bridge.js');
 
 (() => {
   'use strict';
 
   const INSTALLATION_ID_KEY = 'nava.extensionInstallationId';
   const SESSION_STATE_KEY = 'nava.commandRoomBinding';
+  const PERSISTED_STATE_KEY = 'nava.commandRoomBindingEncrypted';
+  const WAKE_ALARM_NAME = 'nava.commandRoomWakePoll';
+  const WAKE_POLL_MINUTES = 1;
   const KNOWN_ERROR_CODES = new Set([
     'INVALID_PAIRING',
     'BRIDGE_URL_INVALID',
@@ -22,8 +25,11 @@ importScripts('shared.js', 'bridge.js');
     'INVALID_BRIDGE_RESPONSE',
     'UNPAIRED',
     'PAIRING_MISMATCH',
+    'INVALID_PASSPHRASE',
+    'LOCKED',
     'EXTENSION_INTERNAL',
   ]);
+  let checkInFlight = null;
 
   function publicError(error) {
     return error && typeof error.code === 'string' && KNOWN_ERROR_CODES.has(error.code)
@@ -32,7 +38,9 @@ importScripts('shared.js', 'bridge.js');
   }
 
   function extensionOrigin() {
-    return new URL(chrome.runtime.getURL('/')).origin;
+    const extensionUrl = chrome.runtime.getURL('/');
+    const origin = new URL(extensionUrl).origin;
+    return origin === 'null' ? extensionUrl.replace(/\/$/, '') : origin;
   }
 
   async function installationId() {
@@ -45,14 +53,95 @@ importScripts('shared.js', 'bridge.js');
     return generated;
   }
 
+  function validState(state) {
+    if (!NavaExtension.isRecord(state)) return false;
+    const required = ['roomId', 'slotKey', 'bindingId', 'authToken', 'conversationRef', 'bridgeUrl'];
+    if (!required.every((key) => typeof state[key] === 'string' && state[key].length > 0 && state[key].length <= 2_048)) return false;
+    if (!Number.isSafeInteger(state.connectionEpoch) || state.connectionEpoch < 1) return false;
+    if (NavaExtension.validateBridgeUrl(state.bridgeUrl) !== state.bridgeUrl) return false;
+    if (!/^nava-v1\.[A-Za-z0-9_-]{16,}$/.test(state.authToken)) return false;
+    return /^chatgpt:https:\/\/chatgpt\.com\/(?:c\/[^/]+|g\/[^/]+\/c\/[^/]+)$/.test(state.conversationRef);
+  }
+
   async function readState() {
     const stored = await chrome.storage.session.get(SESSION_STATE_KEY);
     const state = stored?.[SESSION_STATE_KEY];
-    if (!NavaExtension.isRecord(state)) return null;
-    const required = ['bridgeUrl', 'bindingId', 'authToken', 'conversationRef'];
-    if (!required.every((key) => typeof state[key] === 'string' && state[key].length > 0)) return null;
-    if (!Number.isSafeInteger(state.connectionEpoch) || state.connectionEpoch < 1) return null;
-    return state;
+    return validState(state) ? state : null;
+  }
+
+  async function hasPersistedState() {
+    try {
+      const stored = await chrome.storage.local.get(PERSISTED_STATE_KEY);
+      return NavaCrypto.isEnvelope(stored?.[PERSISTED_STATE_KEY]);
+    } catch {
+      return false;
+    }
+  }
+
+  async function saveState(state, passphrase) {
+    const encrypted = await NavaCrypto.encryptState(state, passphrase);
+    await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: encrypted });
+    await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
+  }
+
+  async function restrictSessionStorage() {
+    if (typeof chrome.storage.session?.setAccessLevel !== 'function') return;
+    try {
+      await chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+    } catch {
+      // The persistent envelope remains encrypted even if this optional guard is unavailable.
+    }
+  }
+
+  async function ensureWakeAlarm() {
+    if (!chrome.alarms || typeof chrome.alarms.create !== 'function') return;
+    try {
+      await chrome.alarms.create(WAKE_ALARM_NAME, { periodInMinutes: WAKE_POLL_MINUTES });
+    } catch {
+      // Manual checking remains available if the browser alarm service is unavailable.
+    }
+  }
+
+  async function clearWakeAlarm() {
+    if (!chrome.alarms || typeof chrome.alarms.clear !== 'function') return;
+    try {
+      await chrome.alarms.clear(WAKE_ALARM_NAME);
+    } catch {
+      // There is no state to recover when the alarm cannot be cleared.
+    }
+  }
+
+  async function syncWakeAlarm() {
+    try {
+      if (await readState()) {
+        await ensureWakeAlarm();
+      } else {
+        await clearWakeAlarm();
+      }
+    } catch {
+      // Storage failures must not create an unhandled service-worker rejection.
+    }
+  }
+
+  async function unlockState(passphrase) {
+    if (!NavaCrypto.validPassphrase(passphrase)) return { ok: false, code: 'INVALID_PASSPHRASE' };
+    let stored;
+    try {
+      stored = await chrome.storage.local.get(PERSISTED_STATE_KEY);
+    } catch {
+      return { ok: false, code: 'EXTENSION_INTERNAL' };
+    }
+    if (!NavaCrypto.isEnvelope(stored?.[PERSISTED_STATE_KEY])) return { ok: false, code: 'UNPAIRED' };
+    let state;
+    try {
+      state = await NavaCrypto.decryptState(stored[PERSISTED_STATE_KEY], passphrase);
+    } catch {
+      return { ok: false, code: 'INVALID_PASSPHRASE' };
+    }
+    if (!validState(state)) return { ok: false, code: 'INVALID_PASSPHRASE' };
+    await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
+    await ensureWakeAlarm();
+    return { ok: true, state: publicState(state) };
   }
 
   function publicState(state) {
@@ -66,7 +155,8 @@ importScripts('shared.js', 'bridge.js');
     };
   }
 
-  async function pairActiveTab(payloadText) {
+  async function pairActiveTab(payloadText, passphrase) {
+    if (!NavaCrypto.validPassphrase(passphrase)) return { ok: false, code: 'INVALID_PASSPHRASE' };
     if (typeof payloadText !== 'string' || payloadText.length === 0 || payloadText.length > 16_384) {
       return { ok: false, code: 'INVALID_PAIRING' };
     }
@@ -106,7 +196,12 @@ importScripts('shared.js', 'bridge.js');
         bridgeUrl: checked.payload.bridgeUrl,
         authToken: paired.authToken,
       };
-      await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
+      try {
+        await saveState(state, passphrase);
+      } catch {
+        return { ok: false, code: 'EXTENSION_INTERNAL' };
+      }
+      await ensureWakeAlarm();
       return { ok: true, state: publicState(state) };
     } catch (error) {
       return { ok: false, code: publicError(error) };
@@ -142,9 +237,9 @@ importScripts('shared.js', 'bridge.js');
     }
   }
 
-  async function checkWakes() {
+  async function runCheckWakes() {
     const state = await readState();
-    if (state === null) return { ok: false, code: 'UNPAIRED' };
+    if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
     let tabs;
     try {
       tabs = await chrome.tabs.query({});
@@ -181,17 +276,42 @@ importScripts('shared.js', 'bridge.js');
     };
   }
 
+  async function checkWakes() {
+    if (checkInFlight !== null) return checkInFlight;
+    checkInFlight = runCheckWakes();
+    try {
+      return await checkInFlight;
+    } finally {
+      checkInFlight = null;
+    }
+  }
+
   async function handleMessage(message) {
     if (!NavaExtension.isRecord(message) || typeof message.type !== 'string') return null;
-    if (message.type === 'PAIR_ACTIVE_TAB') return pairActiveTab(message.payloadText);
+    if (message.type === 'PAIR_ACTIVE_TAB') return pairActiveTab(message.payloadText, message.passphrase);
+    if (message.type === 'UNLOCK_STATE') return unlockState(message.passphrase);
     if (message.type === 'CHECK_WAKES') return checkWakes();
-    if (message.type === 'GET_STATE') return { ok: true, state: publicState(await readState()) };
+    if (message.type === 'GET_STATE') {
+      const state = await readState();
+      if (state !== null) return { ok: true, state: publicState(state) };
+      return (await hasPersistedState()) ? { ok: false, code: 'LOCKED' } : { ok: true, state: null };
+    }
     return null;
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'CHECK_WAKES', 'GET_STATE'].includes(message.type)) return false;
+    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'GET_STATE'].includes(message.type)) return false;
     void handleMessage(message).then(sendResponse).catch(() => sendResponse({ ok: false, code: 'EXTENSION_INTERNAL' }));
     return true;
   });
+
+  if (chrome.alarms?.onAlarm?.addListener) {
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm?.name !== WAKE_ALARM_NAME) return;
+      return checkWakes().catch(() => {});
+    });
+  }
+  if (chrome.runtime.onStartup?.addListener) chrome.runtime.onStartup.addListener(() => void syncWakeAlarm().catch(() => {}));
+  void restrictSessionStorage();
+  void syncWakeAlarm().catch(() => {});
 })();
