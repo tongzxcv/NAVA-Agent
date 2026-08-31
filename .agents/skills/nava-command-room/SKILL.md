@@ -94,6 +94,8 @@ If heartbeat reports lease expiry, the task becomes `WAITING`. Read status, veri
 
 End every bounded work round with a user-visible checkpoint that a fresh chat can use to resume without guessing. Do this even when the round produced no mutation, rejected an experiment, hit a blocker, or ended because tool/run time expired.
 
+When persistence is allowed, call `session_checkpoint` before the final reply and display the returned UUID as `checkpoint <uuid>` in the user-visible block. This durable UUID is the canonical continuity reference for the round. A numbered heading such as `Checkpoint 19`, a phase tracker entry, or `session_handoff` may supplement it but never replaces it. For an active Command Room WRITE task, route this final `session_checkpoint` through the current writer lease.
+
 The checkpoint must be self-contained and should use the project's own terminology. Include, when relevant:
 
 1. **Canonical accepted baseline** — the last state that is actually accepted, plus its version/checkpoint/commit reference. Never silently promote the current experiment.
@@ -101,16 +103,16 @@ The checkpoint must be self-contained and should use the project's own terminolo
 3. **Outcome** — mark important candidates or gates as `ACCEPT`, `REJECT`, or `PENDING`. State the verified evidence or metric that justifies the status.
 4. **Unverified work** — explicitly name compile/tests/replay/deep-run/live acceptance or other gates that have not passed yet. Never write as though a pending gate passed.
 5. **Exact resume point** — the next command, verification, file, candidate, or decision to pick up first. If the run ended mid-operation, state the last completed gate and the next unfinished gate.
-6. **Continuity references** — relevant workspace, branch/worktree, commit, checkpoint reference, durable background `task_id`, candidate/version, and protected artifact path when they materially help resume.
+6. **Continuity references** — relevant workspace, branch/worktree, commit, durable checkpoint UUID, durable background `task_id`, candidate/version, and protected artifact path when they materially help resume.
 7. **Hard invariants** — note safety boundaries that must remain unchanged, such as Production/Live untouched, no rebind/takeover, connection epoch unchanged, read-only scope, frozen thresholds, or unrelated dirty files preserved.
 
-Prefer concise prose plus a small set of bullets, similar to a lab handoff, rather than a giant generic template. A checkpoint may be numbered (`Checkpoint 19`) or use a stable checkpoint reference when the project already has one.
+Prefer concise prose plus a small set of bullets, similar to a lab handoff, rather than a giant generic template.
 
-When writes are permitted and persistence is useful, save the same bounded state through `session_checkpoint` and/or the canonical project phase tracker, then cite that checkpoint reference in the user-visible block. For an active WRITE task, use the writer lease as required. If the user requested read-only/no-write behavior, **do not write a tracker merely to satisfy this contract**; report the checkpoint in chat only.
+The project phase tracker may mirror the same bounded facts when useful, but it is supplementary to the durable checkpoint. If the user explicitly requested read-only/no-write behavior, **do not call `session_checkpoint` and do not write a tracker merely to satisfy this contract**; report the same checkpoint in chat only and state that no durable checkpoint was persisted in that round.
 
 For background work that outlives the round, checkpoint the durable `task_id` immediately so a new chat can read its status/result. Never store secrets, raw session authority, join codes, credentials, or large logs in a checkpoint.
 
-On resume, treat the checkpoint as a locator/evidence summary, not authority. Verify it against current Git/workspace/runtime/task state before the next mutation.
+On resume, treat the checkpoint as a locator/evidence summary, not authority. Call `session_resume` with the stable project key, then verify the returned checkpoint against current Git/workspace/runtime/task state before the next mutation.
 
 ## Shared resources
 
