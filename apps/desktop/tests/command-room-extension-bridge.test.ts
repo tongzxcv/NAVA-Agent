@@ -56,6 +56,56 @@ describe('Command Room Extension Bridge', () => {
     expect(genericProxy.status).toBe(404);
   });
 
+  it('allows Chrome MV3 originless authenticated reads while keeping other routes origin-bound', async () => {
+    const service = new FakeBridgeService();
+    const handle = await startBridge(service);
+    const paired = await pair(handle);
+    const token = String(paired.body.authToken);
+    service.wake = {
+      id: 'wake-originless',
+      roomId: 'room-1',
+      agentId: 'lead-1',
+      bindingId: 'binding-1',
+      eventKey: 'USER_WAKE:originless',
+      reason: 'USER_WAKE',
+      state: 'QUEUED',
+      attemptCount: 0,
+      nextEligibleAt: NOW,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+
+    const originlessStatus = await fetch(`${handle.url}/v1/bindings/binding-1/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(originlessStatus.status).toBe(200);
+
+    const originlessWakes = await fetch(`${handle.url}/v1/bindings/binding-1/wakes?limit=5`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(originlessWakes.status).toBe(200);
+    expect(await jsonObject(originlessWakes)).toMatchObject({
+      ok: true,
+      wakes: [{ id: 'wake-originless', state: 'QUEUED' }],
+    });
+
+    const originlessHealth = await fetch(`${handle.url}/v1/health`);
+    expect(originlessHealth.status).toBe(403);
+    expect(await jsonObject(originlessHealth)).toEqual({ ok: false, code: 'ORIGIN_DENIED' });
+
+    const wrongOriginRead = await fetch(`${handle.url}/v1/bindings/binding-1/status`, {
+      headers: { Origin: OTHER_ORIGIN, Authorization: `Bearer ${token}` },
+    });
+    expect(wrongOriginRead.status).toBe(403);
+
+    const originlessTouch = await fetch(`${handle.url}/v1/bindings/binding-1/touch`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(originlessTouch.status).toBe(403);
+  });
+
   it('keeps wake delivery bounded to the authenticated binding and invalidates auth after revoke', async () => {
     const service = new FakeBridgeService();
     const handle = await startBridge(service);
