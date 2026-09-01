@@ -15,11 +15,12 @@ describe('PowerShell tunnel launcher ownership contract', () => {
       $dotSources=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.InvocationOperator -eq [Management.Automation.Language.TokenKind]::Dot},$true) | ForEach-Object { $_.Extent.Text })
       $commands=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst]},$true) | ForEach-Object { $_.GetCommandName() })
       $helperSideEffects=@($helperAst.EndBlock.Statements | Where-Object {$_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}).Count
-      [pscustomobject]@{ errors=$errors.Count; helperErrors=$helperErrors.Count; helperSideEffects=$helperSideEffects; functions=$functions; dotSources=$dotSources; enter=(@($commands | Where-Object {$_ -eq 'Enter-LnwjudTunnelLock'}).Count); release=(@($commands | Where-Object {$_ -eq 'Release-LnwjudTunnelLock'}).Count) } | ConvertTo-Json -Compress
+      $raw=Get-Content -Raw '${starter}'
+      [pscustomobject]@{ errors=$errors.Count; helperErrors=$helperErrors.Count; helperSideEffects=$helperSideEffects; functions=$functions; dotSources=$dotSources; helperPathResolved=$raw.Contains('lnwjud-tunnel-lock.ps1'); enter=(@($commands | Where-Object {$_ -eq 'Enter-LnwjudTunnelLock'}).Count); release=(@($commands | Where-Object {$_ -eq 'Release-LnwjudTunnelLock'}).Count) } | ConvertTo-Json -Compress
     `);
 
-    expect(JSON.parse(result)).toMatchObject({ errors: 0, helperErrors: 0, helperSideEffects: 0, functions: 0, enter: 1, release: 1 });
-    expect(JSON.parse(result).dotSources).toEqual(expect.arrayContaining([expect.stringContaining('lnwjud-tunnel-lock.ps1')]));
+    expect(JSON.parse(result)).toMatchObject({ errors: 0, helperErrors: 0, helperSideEffects: 0, functions: 0, helperPathResolved: true, enter: 1, release: 1 });
+    expect(JSON.parse(result).dotSources).toEqual(expect.arrayContaining([expect.stringContaining('$lockHelperResolved')]));
   });
 });
 
