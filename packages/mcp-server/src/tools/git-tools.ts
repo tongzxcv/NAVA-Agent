@@ -53,6 +53,7 @@ export function gitTools(context: McpToolContext): McpToolDefinition[] {
           ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
           ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
           ...(input.timeoutSeconds === undefined ? {} : { timeoutMs: Math.floor(input.timeoutSeconds * 1000) }),
+          ...(input.userConfirmed === undefined ? {} : { userConfirmed: input.userConfirmed }),
         }, signal),
     }),
   ];

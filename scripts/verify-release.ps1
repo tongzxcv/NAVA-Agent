@@ -13,7 +13,7 @@ function Invoke-ReleaseStage {
     )
 
     Write-Host "==> $Name"
-    & corepack pnpm@10.15.0 @Arguments
+    & pnpm @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Release stage '$Name' failed with exit code $LASTEXITCODE"
     }
@@ -50,6 +50,7 @@ try {
     Invoke-ReleaseStage 'docs:tools:check' @('docs:tools:check')
     Invoke-ReleaseStage 'test:packaging' @('test:packaging')
     Invoke-ReleaseStage 'test:release-gate' @('test:release-gate')
+    Invoke-ReleaseStage 'test:release-extras' @('test:release-extras')
     Invoke-ReleaseStage 'package:windows' @('package:windows')
 
     $installerDirectory = Join-Path $repositoryRoot 'apps\desktop\dist\installers'

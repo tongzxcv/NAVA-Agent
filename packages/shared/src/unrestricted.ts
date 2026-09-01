@@ -21,11 +21,11 @@ export function unrestrictedFromSetting(value: string | null | undefined): boole
   return parseFlag(value) === true;
 }
 
-/** Missing env+setting defaults to ON so agents can use every local drive. */
+/** Missing env+setting defaults to OFF so a lost settings database cannot silently grant every local drive. */
 export function isUnrestricted(env: ProcessEnvLike, settingValue: string | null | undefined): boolean {
   const fromEnv = parseFlag(env.LNWJUD_UNRESTRICTED);
   if (fromEnv !== undefined) return fromEnv;
   const fromSetting = parseFlag(settingValue);
   if (fromSetting !== undefined) return fromSetting;
-  return true;
+  return false;
 }

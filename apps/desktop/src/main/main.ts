@@ -1018,7 +1018,7 @@ function bootstrapMcpStdio(): void {
   app.commandLine.appendSwitch('disable-software-rasterizer');
   const dataPath = configureDataPath();
   void app.whenReady().then(async () => {
-    const runtime = createDesktopRuntime(dataPath, { permissionProfile: 'full' });
+    const runtime = createDesktopRuntime(dataPath);
     desktopRuntime = runtime;
     const workspacePath = readArgValue('--workspace')
       ?? process.env.LNWJUD_WORKSPACE
