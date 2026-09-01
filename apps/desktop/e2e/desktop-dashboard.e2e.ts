@@ -47,7 +47,7 @@ test('control center auto-starts MCP and supports project + doctor journey', asy
     diagnostics.phase('cdp-connected');
     const context = browser.contexts()[0];
     if (context === undefined) throw new Error('Electron did not create a browser context');
-    await expect.poll(() => context.pages().length).toBeGreaterThan(0);
+    await expect.poll(() => context.pages().length, { timeout: 15_000, interval: 250 }).toBeGreaterThan(0);
     const page = context.pages()[0];
     if (page === undefined) throw new Error('Electron did not create a renderer page');
 

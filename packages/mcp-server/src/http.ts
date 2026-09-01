@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 import {
   createMcpHandler,
@@ -20,6 +20,8 @@ export interface McpHttpServerOptions extends McpServerOptions {
   readonly port: number;
   readonly maxBodyBytes?: number;
   readonly originPolicy?: OriginPolicy;
+  /** When set, every /mcp request must present this bearer token; unset keeps the loopback-only behavior. */
+  readonly bearerToken?: string | undefined;
 }
 
 export interface McpHttpServerAddress {
@@ -86,6 +88,16 @@ function sendStatus(response: ServerResponse, status: number, message: string): 
   response.statusCode = status;
   response.setHeader('content-type', 'text/plain; charset=utf-8');
   response.end(message);
+}
+
+/** Compares the presented bearer token with the configured one without leaking length or prefix information. */
+function isAuthorizedRequest(request: IncomingMessage, bearerToken: string): boolean {
+  const header = request.headers.authorization ?? '';
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (match === null || match[1] === undefined) return false;
+  const provided = createHash('sha256').update(match[1]).digest();
+  const expected = createHash('sha256').update(bearerToken).digest();
+  return timingSafeEqual(provided, expected);
 }
 
 function waitForDrainOrClose(response: ServerResponse): Promise<boolean> {
@@ -233,10 +245,16 @@ async function handleRequest(
   handler: McpHttpHandler,
   originPolicy: OriginPolicy,
   maxBodyBytes: number,
+  bearerToken: string | undefined,
 ): Promise<void> {
   const requestedPath = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
   if (requestedPath !== '/mcp') {
     sendStatus(response, 404, 'Not found');
+    return;
+  }
+
+  if (bearerToken !== undefined && !isAuthorizedRequest(request, bearerToken)) {
+    sendStatus(response, 401, 'Unauthorized');
     return;
   }
 
@@ -286,7 +304,7 @@ export async function startMcpHttp(options: McpHttpServerOptions): Promise<McpHt
   const handler = createSessionfulMcpHandler(options);
   const originPolicy = options.originPolicy ?? createOriginPolicy();
   const server = createServer((request, response) => {
-    void handleRequest(request, response, handler, originPolicy, maxBodyBytes).catch((error: unknown) => {
+    void handleRequest(request, response, handler, originPolicy, maxBodyBytes, options.bearerToken).catch((error: unknown) => {
       writeDiagnostic(error instanceof Error ? error : new Error('Unhandled MCP HTTP request error'));
       if (!response.headersSent) sendStatus(response, 500, 'Internal server error');
       else response.destroy();

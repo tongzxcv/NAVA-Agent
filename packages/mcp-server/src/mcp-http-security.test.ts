@@ -75,3 +75,50 @@ describe('MCP localhost HTTP security boundary', () => {
     expect(mismatch.status).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe('MCP localhost HTTP bearer token', () => {
+  let handle: McpHttpServerHandle;
+
+  beforeEach(async () => {
+    handle = await startMcpHttp({
+      port: 0,
+      services: {},
+      actor: { clientId: 'http-security-test', clientName: 'http-security-test' },
+      bearerToken: 'expected-runtime-token',
+    });
+  });
+
+  afterEach(async () => {
+    await handle.close();
+  });
+
+  it('rejects requests without or with the wrong bearer token', async () => {
+    const anonymous = await fetch(handle.endpoint, { headers: { Origin: 'http://localhost' } });
+    const wrong = await fetch(handle.endpoint, { headers: { Origin: 'http://localhost', Authorization: 'Bearer nope' } });
+
+    expect(anonymous.status).toBe(401);
+    expect(wrong.status).toBe(401);
+  });
+
+  it('accepts requests presenting the configured bearer token', async () => {
+    const authorized = await fetch(handle.endpoint, {
+      headers: { Origin: 'http://localhost', Authorization: 'Bearer expected-runtime-token' },
+    });
+
+    expect(authorized.status).not.toBe(401);
+  });
+
+  it('keeps the endpoint open when no token is configured', async () => {
+    const open = await startMcpHttp({
+      port: 0,
+      services: {},
+      actor: { clientId: 'http-security-test', clientName: 'http-security-test' },
+    });
+    try {
+      const response = await fetch(open.endpoint, { headers: { Origin: 'http://localhost' } });
+      expect(response.status).not.toBe(401);
+    } finally {
+      await open.close();
+    }
+  });
+});

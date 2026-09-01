@@ -46,6 +46,8 @@ describe('public repository hygiene', () => {
       new RegExp(['rsn-ayb-', 'pc-planning'].join(''), 'i'),
       new RegExp(['C:', '\\\\', 'Users', '\\\\', 'developer'].join(''), 'i'),
       new RegExp(['\\.gemini', '\\\\', 'antigravity'].join(''), 'i'),
+      new RegExp(['C:', '\\\\', 'Users', '\\\\', 'Endless', 'ly'].join(''), 'i'),
+      new RegExp(['ISYOUR', 'GODZ'].join(''), 'i'),
     ];
     const leaks: string[] = [];
 

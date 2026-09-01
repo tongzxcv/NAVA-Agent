@@ -375,6 +375,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       // Prefer a dedicated loopback port so we never collide with common app ports (e.g. 5000).
       // startMcpHttp falls back to an ephemeral port when the preferred bind is busy.
       port: mcpPort,
+      bearerToken: (settingsRepository.get(USER_SETTING_KEYS.mcpHttpToken) ?? '').trim() || undefined,
       services: mcpServices,
       actor: mcpActor,
       activityTracker,
