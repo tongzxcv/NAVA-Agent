@@ -70,40 +70,60 @@ export class SqliteWorkspaceLeaseRepository {
   }
 
   public async renew(workspaceId: string, leaseId: string, ttlSeconds: number): Promise<Result<WorkspaceLease>> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
     try {
       this.deleteExpired();
-      const current = this.read(workspaceId);
-      if (current === null || current.leaseId !== leaseId) {
-        return err(appError('PERMISSION_REQUIRED', 'Workspace lease is missing, expired, or owned by another chat', true));
-      }
       const heartbeatAt = this.now().toISOString();
       const expiresAt = new Date(Date.parse(heartbeatAt) + ttlSeconds * 1_000).toISOString();
-      this.database.connection.prepare('UPDATE workspace_leases SET heartbeat_at = ?, expires_at = ? WHERE workspace_id = ? AND lease_id = ?')
-        .run(heartbeatAt, expiresAt, workspaceId, leaseId);
+      // The conditional UPDATE closes the read-then-write window: a lease that
+      // expires or is replaced between two racing calls can never be renewed.
+      const updated = connection.prepare('UPDATE workspace_leases SET heartbeat_at = ?, expires_at = ? WHERE workspace_id = ? AND lease_id = ? AND expires_at > ?')
+        .run(heartbeatAt, expiresAt, workspaceId, leaseId, heartbeatAt);
+      const current = updated.changes === 1 ? this.read(workspaceId) : null;
+      if (current === null || current.leaseId !== leaseId) {
+        connection.exec('ROLLBACK;');
+        return err(appError('PERMISSION_REQUIRED', 'Workspace lease is missing, expired, or owned by another chat', true));
+      }
+      connection.exec('COMMIT;');
       return ok({ ...current, heartbeatAt, expiresAt });
     } catch (error: unknown) {
+      rollback(connection);
       return err(appError('INTERNAL_ERROR', error instanceof Error ? error.message : 'Workspace lease renewal failed', true));
     }
   }
 
   public async release(workspaceId: string, leaseId: string): Promise<Result<{ readonly released: boolean }>> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
     try {
       this.deleteExpired();
-      const result = this.database.connection.prepare('DELETE FROM workspace_leases WHERE workspace_id = ? AND lease_id = ?').run(workspaceId, leaseId);
-      return result.changes === 1
-        ? ok({ released: true })
-        : err(appError('PERMISSION_REQUIRED', 'Workspace lease is missing, expired, or owned by another chat', true));
+      const result = connection.prepare('DELETE FROM workspace_leases WHERE workspace_id = ? AND lease_id = ?').run(workspaceId, leaseId);
+      if (result.changes !== 1) {
+        connection.exec('ROLLBACK;');
+        return err(appError('PERMISSION_REQUIRED', 'Workspace lease is missing, expired, or owned by another chat', true));
+      }
+      connection.exec('COMMIT;');
+      return ok({ released: true });
     } catch (error: unknown) {
+      rollback(connection);
       return err(appError('INTERNAL_ERROR', error instanceof Error ? error.message : 'Workspace lease release failed', true));
     }
   }
 
   public async assertMutationAllowed(workspaceId: string, leaseId?: string): Promise<Result<void>> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
     try {
       const active = this.readActive(workspaceId);
-      if (active === null || active.leaseId === leaseId) return ok(undefined);
+      if (active === null || active.leaseId === leaseId) {
+        connection.exec('COMMIT;');
+        return ok(undefined);
+      }
+      connection.exec('ROLLBACK;');
       return err(appError('PERMISSION_REQUIRED', conflictMessage(active), true));
     } catch (error: unknown) {
+      rollback(connection);
       return err(appError('INTERNAL_ERROR', error instanceof Error ? error.message : 'Workspace lease check failed', true));
     }
   }

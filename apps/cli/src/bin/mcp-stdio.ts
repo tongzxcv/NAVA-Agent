@@ -54,12 +54,14 @@ async function main(): Promise<void> {
   const rawWorkspaceRepository = new SqliteWorkspaceRepository(database);
   const settingsRepository = new SqliteSettingsRepository(database);
 
-  const profileName = parseStdioPermissionProfile(
-    readArg('--profile')
-      ?? process.env.LNWJUD_STDIO_PROFILE
-      ?? settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY),
-    'full',
-  );
+  const configuredProfile = readArg('--profile')
+    ?? process.env.LNWJUD_STDIO_PROFILE
+    ?? settingsRepository.get(STDIO_PERMISSION_PROFILE_SETTING_KEY);
+  const profileName = parseStdioPermissionProfile(configuredProfile, 'full');
+  // Persist the effective profile so the fallback is an explicit stored choice, not an implicit one.
+  if (configuredProfile === null || configuredProfile === undefined || configuredProfile.trim().length === 0) {
+    settingsRepository.set(STDIO_PERMISSION_PROFILE_SETTING_KEY, profileName);
+  }
   const strictRootsEnabled = hasFlag('--strict-roots')
     || (process.env.LNWJUD_STRICT_ROOTS !== undefined
       ? parseBooleanSetting(process.env.LNWJUD_STRICT_ROOTS, false)

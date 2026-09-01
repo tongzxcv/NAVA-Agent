@@ -19,6 +19,8 @@
 
 ---
 
+> **Status (2026-09-02):** the deployed local runtime is v4.12.0 built from `main` at commit `5a12a08` (unsigned pilot, not published); the published stable release remains **v4.11.4**. Source `main` can therefore be ahead of the published installer. Next phase in progress: 3D browser extension integration (unmerged work on `feature/command-room-phase3d`).
+
 ## What is NAVA Agent?
 
 NAVA Agent is a Windows-first local development gateway that exposes trusted local

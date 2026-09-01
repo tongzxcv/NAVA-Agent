@@ -200,7 +200,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     console.error(`Automatic database backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
   });
   const workspaceService = new WorkspaceService(workspaceRepository);
-  const gitService = new GitService(workspaceRepository);
+  const gitService = new GitService(workspaceRepository, undefined, undefined, { profileProvider: (): PermissionProfile => activePermissionProfile() });
   let cachedGitSummary: {
     readonly workspaceId: string;
     readonly expiresAt: number;
@@ -388,6 +388,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     getClientPath: (): string | null => settingsRepository.get(CLIENT_PATH_SETTING),
     setClientPath: (value: string): void => { settingsRepository.set(CLIENT_PATH_SETTING, value); },
     getDataPath: (): string => dataPath,
+    getUnrestrictedSetting: (): boolean | undefined => {
+      const raw = settingsRepository.get(UNRESTRICTED_SETTING_KEY);
+      return raw === null ? undefined : parseBooleanSetting(raw, false);
+    },
     getStdioLauncherPath: (): string | null => {
       const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
       const cmdPath = resolveStdioLauncherPath([
