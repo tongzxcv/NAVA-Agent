@@ -337,6 +337,6 @@ NAVA อาจซ่อนไปที่ System Tray ตามค่าปั�
 - โปรแกรม: `D:\Program Files\NAVA Agent`
 - Shortcut: `C:\Users\Public\Desktop\NAVA Agent.lnk`
 - Local MCP: `http://127.0.0.1:18765/mcp`
-- คู่มือ PDF: `C:\Users\Endlessly\Desktop\คู่มือ NAVA Agent.pdf`
+- คู่มือ PDF: `%USERPROFILE%\Desktop\คู่มือ NAVA Agent.pdf`
 
 ถ้าสถานะไม่ตรงคู่มือนี้ ให้บอกข้อความ error ตามที่เห็นในหน้า NAVA หรือ Doctor โดยไม่ส่ง Runtime API key

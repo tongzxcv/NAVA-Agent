@@ -138,7 +138,7 @@
 
 ## 2026-09-02 — Security hardening: fail-closed defaults, Git permission fence, lease transactions, runner robustness
 
-- Backfill record: PR #6 (`5cea9ee`) and PR #7 (`9241555`, merged as `5a12a08`) are merged on `main`; the 2026-08-31 deployment installed an unsigned v4.12.0 payload built from `5a12a08` to `D:\Program` and `D:\Program Files\NAVA Agent` (server 4.12.0, `healthz`/`readyz`/`mcp_health` verified). Deployment evidence lives in the untracked `C:\Users\Endlessly\NAVA-deployment-20260831` folder; preserve it or import it here.
+- Backfill record: PR #6 (`5cea9ee`) and PR #7 (`9241555`, merged as `5a12a08`) are merged on `main`; the 2026-08-31 deployment installed an unsigned v4.12.0 payload built from `5a12a08` to the local install roots (server 4.12.0, `healthz`/`readyz`/`mcp_health` verified). Deployment evidence lives in the operator's external, untracked deployment-notes folder; preserve it or import it here.
 - `isUnrestricted` now defaults to OFF when both env and setting are missing, so a lost settings database can no longer silently expose every fixed drive. The live install stores `unrestricted_mode=true` explicitly, so its behavior is unchanged.
 - Tunnel-spawned stdio children no longer hard-code `LNWJUD_UNRESTRICTED=1`: `tunnelClientEnv` pins the flag from the stored Unrestricted Mode setting ('1' when on, '0' when off/unknown), so the Desktop toggle now governs remote sessions.
 - Desktop `--mcp-stdio` no longer hard-codes the `full` permission profile; it uses the stored profile exactly like the Desktop runtime (which persists the effective value on first run). The CLI stdio entry point also persists the effective stdio profile when nothing is configured.
