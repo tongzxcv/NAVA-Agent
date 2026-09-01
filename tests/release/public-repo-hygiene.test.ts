@@ -66,7 +66,7 @@ describe('public repository hygiene', () => {
     expect(typeof rootPackage.version).toBe('string');
 
     expect(readme).toContain(`## Current source target: v${rootPackage.version as string} (Phase 3 development)`);
-    expect(readme).toContain('current published stable installer remains `v4.11.4`');
+    expect(readme).toContain('current published stable installer remains `v4.12.1`');
     expect(readme).toContain(`The default branch now tracks \`v${rootPackage.version as string}\` Phase 3 development`);
     expect(readme).toContain('227 configurable tools');
     expect(readme).toContain('221 are advertised by default');

@@ -6,7 +6,7 @@ $installerDirectory = Join-Path $desktopDirectory 'dist\installers'
 
 Push-Location $repositoryRoot
 try {
-    & corepack pnpm@10.15.0 --filter @lnwjud/desktop package:windows
+    & pnpm --filter @lnwjud/desktop package:windows
     if ($LASTEXITCODE -ne 0) {
         throw "Windows packaging failed with exit code $LASTEXITCODE"
     }
