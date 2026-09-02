@@ -11,7 +11,7 @@ import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { protectWithWindowsDpapi, unprotectLegacyWindowsSecureString, unprotectWithWindowsDpapi } from '@lnwjud/shared';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
-import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
+import { posixPath, rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -147,7 +147,10 @@ export class TunnelController {
         '--sample', 'sample_mcp_stdio_local',
         '--profile', PROFILE_NAME,
         '--tunnel-id', normalizedTunnelId,
-        '--mcp-command', launcher,
+        '--force',
+        // tunnel-client parses this value before NAVA can rewrite the YAML;
+        // POSIX separators keep Windows absolute paths intact during preflight.
+        '--mcp-command', posixPath(launcher),
       ], {
         env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath(), this.options.getUnrestrictedSetting?.()),
         windowsHide: true,
@@ -932,7 +935,7 @@ function isLiveHealthBody(body: string): boolean {
 export function classifyTunnelControlPlaneLog(log: string): TunnelHealthLayer {
   const tail = log.slice(-MAX_HEALTH_METADATA_BYTES).toLowerCase();
   const failureSignals = [...tail.matchAll(/exceptiongroup|transport error|error in message stream|client_internal|bad gateway|\b502\b|connection refused|connection reset|unauthorized|forbidden|probe_timeout/gi)];
-  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|health[^\r\n]{0,80}\blive\b/gi)];
+  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|health[^\r\n]{0,80}\blive\b|tunnel\s+metadata\s+fetched/gi)];
   const latestFailure = failureSignals.at(-1)?.index ?? -1;
   const latestLive = liveSignals.at(-1)?.index ?? -1;
   if (latestFailure >= 0 && latestFailure >= latestLive) {

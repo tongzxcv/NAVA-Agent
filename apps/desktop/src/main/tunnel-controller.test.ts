@@ -7,6 +7,8 @@ describe('tunnel gateway health', () => {
       .toEqual({ state: 'unhealthy', message: 'Tunnel log contains a recent transport or control-plane failure signal' });
     expect(classifyTunnelControlPlaneLog('tunnel established; health status=live'))
       .toEqual({ state: 'live', message: 'Tunnel log contains a recent connected/ready signal' });
+    expect(classifyTunnelControlPlaneLog('tunnel metadata fetched; tunnel-client started'))
+      .toEqual({ state: 'live', message: 'Tunnel log contains a recent connected/ready signal' });
     expect(classifyTunnelControlPlaneLog('ordinary startup metadata'))
       .toEqual({ state: 'unknown', message: 'No bounded tunnel log signal proves control-plane health' });
   });
