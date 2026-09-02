@@ -1067,3 +1067,16 @@ Phase 3C errors encountered:
 - [ ] Bind `LEAD-4` to HERMES EA / `D:\EA\HERMES EA` after installed verification; keep `LEAD-5` unjoined and available.
 - [ ] Add explicit `SLOT_NOT_FOUND` / `CREATE_SESSION_REQUIRED` recovery outcomes and verify heartbeat + read-back before reporting resume success.
 - [ ] Add deterministic live-state derivation and UI refresh proof before Phase 3D Extension Pair/Wake begins.
+
+
+## Command Room Phase 3D installed-pilot closure — 2026-09-03
+
+- [x] Verify the Phase 3D source baseline is merged on canonical `nava/main` (PR #12) and start closure documentation from the current remote main.
+- [x] Pair the new-account MAIN ChatGPT conversation through trusted Desktop/Extension pairing while preserving connection epoch 1; do not rejoin, rebind, take over MAIN, or create epoch 2.
+- [x] Pass correct-tab/duplicate/wrong-tab browser identity gates, including three distinct wrong conversations and exact-conversation duplicate fail-closed behavior.
+- [x] Pass composer draft preservation and generation/edit/voice fail-closed gates plus SPA conversation identity-change abort.
+- [x] Verify expired/revoked/replaced/stale binding rejection, retry <= 3, cooldown >= 60 seconds, coalescing, hourly budgets, circuit breaker, bridge-offline fallback, restart recovery, and browser-state/task-claim separation through focused baseline tests.
+- [x] Confirm default UI/overview remains secret-free and the loopback Extension Bridge is not a generic MCP/tool proxy.
+- [x] Remove temporary Electron CDP exposure after acceptance by restarting only NAVA normally; verify port 9223 closed while local MCP, Extension Bridge, tunnel, settings, workspaces, and MAIN epoch-1 pairing are preserved.
+- [x] Record the installed-pilot result as **ACCEPT** without starting Phase 4/5A work.
+- [x] Prepare this documentation-only closure record from the current canonical remote main; authoritative PR/CI/merge verification is performed by the closure workflow after the installed-pilot acceptance matrix is complete.
