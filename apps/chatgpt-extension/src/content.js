@@ -1,4 +1,4 @@
-/* global NavaExtension, chrome, document, globalThis, location, navigator, window */
+/* global NavaExtension, chrome, document, location, navigator, window */
 
 (() => {
   'use strict';
