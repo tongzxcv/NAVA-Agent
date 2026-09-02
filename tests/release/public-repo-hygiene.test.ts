@@ -46,6 +46,8 @@ describe('public repository hygiene', () => {
       new RegExp(['rsn-ayb-', 'pc-planning'].join(''), 'i'),
       new RegExp(['C:', '\\\\', 'Users', '\\\\', 'developer'].join(''), 'i'),
       new RegExp(['\\.gemini', '\\\\', 'antigravity'].join(''), 'i'),
+      new RegExp(['C:', '\\\\', 'Users', '\\\\', 'Endless', 'ly'].join(''), 'i'),
+      new RegExp(['ISYOUR', 'GODZ'].join(''), 'i'),
     ];
     const leaks: string[] = [];
 
@@ -64,7 +66,7 @@ describe('public repository hygiene', () => {
     expect(typeof rootPackage.version).toBe('string');
 
     expect(readme).toContain(`## Current source target: v${rootPackage.version as string} (Phase 3 development)`);
-    expect(readme).toContain('current published stable installer remains `v4.11.4`');
+    expect(readme).toContain('current published stable installer remains `v4.12.1`');
     expect(readme).toContain(`The default branch now tracks \`v${rootPackage.version as string}\` Phase 3 development`);
     expect(readme).toContain('227 configurable tools');
     expect(readme).toContain('221 are advertised by default');

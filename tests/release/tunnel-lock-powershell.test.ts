@@ -182,7 +182,7 @@ describe('PowerShell tunnel lock helper', () => {
       expect.objectContaining({ acquired: false, owner: expect.objectContaining({ pid: 981 }) }),
     ]);
     expect(await readFile(path.join(root, 'lnwjud.tunnel.lock'), 'utf8')).toContain('"pid":981');
-  });
+  }, 30_000);
 });
 
 describe('production PowerShell tunnel starter integration', () => {

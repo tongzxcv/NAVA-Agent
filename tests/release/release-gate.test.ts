@@ -61,7 +61,8 @@ describe('MVP release verification gate', () => {
     for (const workflowName of ['ci.yml', 'release.yml']) {
       const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', workflowName), 'utf8');
       expect(workflow).toContain('Install ripgrep for E2E search');
-      expect(workflow).toContain('choco install ripgrep -y --no-progress');
+      expect(workflow).toContain('scripts/ensure-ripgrep.ps1');
+      expect(workflow).not.toContain('choco install ripgrep');
       expect(workflow.indexOf('Install ripgrep for E2E search')).toBeLessThan(workflow.indexOf('Run authoritative verification gate'));
     }
   });

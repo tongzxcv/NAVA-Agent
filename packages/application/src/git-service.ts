@@ -1,6 +1,7 @@
 import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { appError, err, ok, type Result } from '@lnwjud/domain';
+import { DefaultPermissionEngine, type PermissionEngine, type PermissionProfile } from '@lnwjud/permissions';
 import {
   GitAdapter,
   type GitCommandResult,
@@ -19,13 +20,22 @@ export interface GitRunRequest {
   readonly workspaceId?: string;
   readonly cwd?: string;
   readonly timeoutMs?: number;
+  readonly userConfirmed?: boolean;
+}
+
+export interface GitServiceGate {
+  readonly profileProvider: () => PermissionProfile;
+  readonly permissionEngine?: PermissionEngine;
 }
 
 export class GitService {
+  private readonly permissionEngine: PermissionEngine = new DefaultPermissionEngine();
+
   public constructor(
     private readonly workspaces: WorkspaceRepository,
     private readonly guard: WorkspacePathGuard = new WorkspacePathGuard(),
     private readonly adapter: GitAdapter = new GitAdapter(),
+    private readonly gate?: GitServiceGate,
   ) {}
 
   public async status(actor: FileActor, workspaceId: string, signal?: AbortSignal): Promise<Result<GitStatusResult>> {
@@ -78,8 +88,29 @@ export class GitService {
 
   public async run(actor: FileActor, request: GitRunRequest, signal?: AbortSignal): Promise<Result<GitCommandResult>> {
     void actor;
+    const forbidden = forbiddenGitArg(request.args);
+    if (forbidden !== null) return err(appError('PERMISSION_DENIED', `Git argument is not permitted: ${forbidden}`));
+    const destructive = isDestructiveGitCommand(request.args);
     const cwd = await this.resolveCwd(request.workspaceId, request.cwd);
     if (!cwd.ok) return cwd;
+    if (this.gate !== undefined) {
+      const profile = this.gate.profileProvider();
+      const decision = (this.gate.permissionEngine ?? this.permissionEngine).decide(profile, {
+        action: 'git_run',
+        level: destructive ? 'DANGEROUS' : 'EXECUTE',
+        workspaceId: request.workspaceId ?? '',
+        target: cwd.value,
+        executable: 'git',
+        destructive,
+      });
+      if (decision === 'DENY') return err(appError('PERMISSION_DENIED', 'Git execution is denied by the permission profile'));
+      if (decision === 'ASK' && request.userConfirmed !== true) {
+        return err(appError('PERMISSION_REQUIRED', 'Git execution requires permission; rerun with userConfirmed: true'));
+      }
+    }
+    if (destructive && request.userConfirmed !== true) {
+      return err(appError('PERMISSION_REQUIRED', 'Destructive Git operation requires explicit chat confirmation; rerun with userConfirmed: true'));
+    }
     return this.adapter.run(cwd.value, request.args, request.timeoutMs, signal);
   }
 
@@ -116,5 +147,41 @@ export class GitService {
   private async getWorkspace(workspaceId: string): Promise<Result<Workspace>> {
     const workspace = await this.workspaces.get(workspaceId);
     return workspace === null ? err(appError('WORKSPACE_NOT_FOUND', 'Workspace was not found')) : ok(workspace);
+  }
+}
+
+/** git -c key=value can enable protocol.ext and turn fetch/push into arbitrary command execution. */
+export function forbiddenGitArg(args: readonly string[]): string | null {
+  for (const arg of args) {
+    if (arg === '-c' || arg.startsWith('--config') || arg.startsWith('--exec-path')) return arg;
+    if (arg.includes('::')) return arg;
+  }
+  return null;
+}
+
+/** Destructive git subcommands always require explicit chat confirmation via userConfirmed. */
+export function isDestructiveGitCommand(args: readonly string[]): boolean {
+  const subcommandIndex = args.findIndex((arg) => !arg.startsWith('-'));
+  if (subcommandIndex < 0) return false;
+  const subcommand = args[subcommandIndex];
+  const rest = args.slice(subcommandIndex + 1);
+  switch (subcommand) {
+    case 'clean':
+    case 'filter-branch':
+    case 'filter-repo':
+    case 'rm':
+      return true;
+    case 'reset':
+      return rest.some((arg) => arg === '--hard');
+    case 'push':
+      return rest.some((arg) => arg === '--force' || arg === '-f' || arg.startsWith('--force-'));
+    case 'reflog':
+      return rest.some((arg) => arg === 'delete' || arg === 'expire');
+    case 'branch':
+      return rest.some((arg) => arg === '-D');
+    case 'stash':
+      return rest.some((arg) => arg === 'drop' || arg === 'clear');
+    default:
+      return false;
   }
 }

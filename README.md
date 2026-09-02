@@ -19,6 +19,8 @@
 
 ---
 
+> **Status (2026-09-02):** the published stable release is now **v4.12.1**, which is also the version deployed on the operator's local runtime. Source `main` tracks `v4.12.1` Phase 3 development. Next phase in progress: 3D browser extension integration (unmerged work on `feature/command-room-phase3d`).
+
 ## What is NAVA Agent?
 
 NAVA Agent is a Windows-first local development gateway that exposes trusted local
@@ -40,16 +42,34 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current source target: v4.12.0 (Phase 3 development)
+## Current source target: v4.12.1 (Phase 3 development)
 
-The current published stable installer remains `v4.11.4`. The default branch now tracks `v4.12.0` Phase 3 development, so source on `main` can be newer than the latest stable GitHub Release. The default runtime advertises
+The current published stable installer remains `v4.12.1`. The default branch now tracks `v4.12.1` Phase 3 development, so source on `main` can be newer than the latest stable GitHub Release. The default runtime advertises
 **221 MCP tools**; enabling Command Room adds its 8 opt-in `command_room_*` tools.
 The earlier 184-tool snapshot remains only as the compatibility baseline used by
 the v4 architecture; new v4 gateway capabilities are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
 
-### What's new in v4.12.0 development — Command Room Phase 3 + runtime reliability
+### What's new in v4.12.1 — Security hardening and release reliability
+
+- Fail-closed security defaults: unrestricted mode defaults to OFF when both the
+  environment flag and the stored setting are missing, the Unrestricted Mode
+  toggle now governs tunnel-spawned sessions, and the Desktop `--mcp-stdio`
+  entry point uses the stored permission profile.
+- The `git` tool is inside the permission fence: destructive subcommands
+  (`clean`, `reset --hard`, `push --force`, and friends) require
+  `userConfirmed: true`, `-c`/`ext::` config-injection arguments are rejected,
+  and execution routes through the permission engine.
+- Workspace writer leases renew/release transactionally, closing the
+  check-then-act window against a competing acquire.
+- Opt-in bearer token for the local MCP HTTP endpoint (`mcp_http_token`
+  setting); unset keeps the loopback-only behavior.
+- Repository hygiene: oversized session logs pruned, a release test now fails
+  CI on user-identifying paths, and the previously orphaned tunnel-lock suites
+  run in CI. Test scripts no longer require corepack.
+
+### What's new in v4.12.0 — Command Room Phase 3 + runtime reliability
 
 - Adds durable multi-stage workflows for long research/build/MT5/ML work, with a
   short synchronous wait budget so the chat can return `RUNNING + task_id` while
@@ -64,8 +84,6 @@ the v4 architecture; new v4 gateway capabilities are additive.
 - Makes the Command Room overview auto-refresh every 5 seconds, separates room
   activity time from UI refresh time, and surfaces per-agent heartbeat age.
 - Hardens Windows CI/E2E cleanup and moves GitHub Actions verification to Node.js 24.
-- The browser-extension exact-conversation / wrong-tab / composer-safety acceptance
-  gate is still in development, so `v4.12.0` is not yet the published stable release.
 
 ### What's new in v4.11.4 — Command Room Phase 2B
 
@@ -366,7 +384,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current published stable release is `nava-agent-Setup-4.11.4.exe`; `main` targets `4.12.0` Phase 3 development and is not yet the stable public installer.
+   The current published stable release is `nava-agent-Setup-4.12.1.exe`; `main` targets `4.12.1` Phase 3 development.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -613,7 +631,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.12.0.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.12.1.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -962,7 +980,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (227 configurable tools; 221 advertised by default)
 
-This index is generated from the current v4.12.0 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.12.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

@@ -55,4 +55,23 @@ describe('SqliteWorkspaceLeaseRepository', () => {
     await expect(leases.status('ws-1')).resolves.toEqual({ ok: true, value: [] });
     database.close();
   });
+
+  it('refuses to renew an expired lease and stops it from blocking mutations', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nava-lease-'));
+    temporaryRoots.push(root);
+    const filename = path.join(root, 'state.db');
+    await new SqliteDatabase(filename).close();
+    const database = new SqliteDatabase(filename);
+    await new SqliteWorkspaceRepository(database).insert({ id: 'ws-1', displayName: 'One', rootPath: 'C:\\one', realRootPath: 'C:\\one', createdAt: new Date(0).toISOString() });
+    let now = new Date('2026-09-01T00:00:00.000Z');
+    const leases = new SqliteWorkspaceLeaseRepository(database, () => now);
+    const acquired = await leases.acquire('ws-1', 'chat-a', 300);
+    if (!acquired.ok) throw new Error('lease should be acquired');
+
+    now = new Date('2026-09-01T00:06:00.000Z');
+    await expect(leases.renew('ws-1', acquired.value.leaseId, 300)).resolves.toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    await expect(leases.assertMutationAllowed('ws-1')).resolves.toEqual({ ok: true, value: undefined });
+    await expect(leases.acquire('ws-1', 'chat-b', 300)).resolves.toMatchObject({ ok: true, value: { owner: 'chat-b' } });
+    database.close();
+  });
 });

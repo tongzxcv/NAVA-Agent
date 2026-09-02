@@ -121,7 +121,7 @@ export function createStdioMcpRuntime(
     trustedWorkspaceAccess: !strictRoots,
     allowDeleteWithoutConfirmation: allowAiDeleteProvider,
   });
-  const gitService = new GitService(workspaceRepository);
+  const gitService = new GitService(workspaceRepository, undefined, undefined, { profileProvider });
   const workspaceQuery = new WorkspaceQueryService(workspaceRepository, pathGuard);
   const extensions = createLocalExtensionsService({
     settingsJson: settingsRepository.get(EXTENSIONS_SETTINGS_KEY),

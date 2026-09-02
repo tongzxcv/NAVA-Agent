@@ -29,9 +29,9 @@ describe('unrestrictedFromEnv', () => {
 });
 
 describe('isUnrestricted', () => {
-  it('defaults to on when neither env nor settings set a value', () => {
-    expect(isUnrestricted({}, null)).toBe(true);
-    expect(isUnrestricted({}, undefined)).toBe(true);
+  it('defaults to off when neither env nor settings set a value', () => {
+    expect(isUnrestricted({}, null)).toBe(false);
+    expect(isUnrestricted({}, undefined)).toBe(false);
   });
 
   it('honors an explicit off setting or env override', () => {

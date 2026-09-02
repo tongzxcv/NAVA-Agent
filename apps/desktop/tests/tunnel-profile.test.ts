@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
-import { packagedStdioLauncherCandidates, preferredTunnelMcpCommand, resolveStdioLauncherPath, rewriteTunnelYamlMcpCommand } from '../src/main/tunnel-profile.js';
+import { packagedStdioLauncherCandidates, posixPath, preferredTunnelMcpCommand, resolveStdioLauncherPath, rewriteTunnelYamlMcpCommand } from '../src/main/tunnel-profile.js';
 
 const temporaryRoots: string[] = [];
 
@@ -12,6 +12,10 @@ afterEach(async () => {
 });
 
 describe('tunnel profile MCP command', () => {
+  it('normalizes a Windows launcher path before tunnel-client init preflight', () => {
+    expect(posixPath('D:\\Program\\lnwjud-mcp-stdio.cmd')).toBe('D:/Program/lnwjud-mcp-stdio.cmd');
+  });
+
   it('rewrites the tunnel MCP command to the supplied launcher', () => {
     const yaml = [
       'mcp:',

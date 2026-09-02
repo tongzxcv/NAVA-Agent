@@ -11,7 +11,7 @@ import { probeProcessStart, type ProcessProbeResult } from '@lnwjud/mcp-server';
 import { protectWithWindowsDpapi, unprotectLegacyWindowsSecureString, unprotectWithWindowsDpapi } from '@lnwjud/shared';
 import { formatTunnelExitMessage, tunnelExitHintFromLog } from './tunnel-exit.js';
 import { acquireTunnelLock, readTunnelLock, type TunnelLockAcquisition, type TunnelLockOwner } from './tunnel-lock.js';
-import { rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
+import { posixPath, rewriteTunnelYamlMcpCommand } from './tunnel-profile.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -44,6 +44,7 @@ export interface TunnelControllerOptions {
   readonly getClientPath: () => string | null;
   readonly setClientPath: (value: string) => void;
   readonly getDataPath: () => string;
+  readonly getUnrestrictedSetting?: () => boolean | undefined;
   readonly getStdioLauncherPath?: () => string | null;
   readonly isExternalTunnelRunning?: () => Promise<boolean>;
   readonly verifiedExternalTunnelPids?: () => Promise<readonly number[]>;
@@ -146,9 +147,12 @@ export class TunnelController {
         '--sample', 'sample_mcp_stdio_local',
         '--profile', PROFILE_NAME,
         '--tunnel-id', normalizedTunnelId,
-        '--mcp-command', launcher,
+        '--force',
+        // tunnel-client parses this value before NAVA can rewrite the YAML;
+        // POSIX separators keep Windows absolute paths intact during preflight.
+        '--mcp-command', posixPath(launcher),
       ], {
-        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
+        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath(), this.options.getUnrestrictedSetting?.()),
         windowsHide: true,
         encoding: 'utf8',
         timeout: 60_000,
@@ -158,7 +162,7 @@ export class TunnelController {
       throw new Error(detail.length > 0 ? detail : 'tunnel-client init failed');
     }
     await this.preferPackagedStdioCommand();
-    await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+    await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath(), this.options.getUnrestrictedSetting?.());
     return this.profilePath();
   }
 
@@ -286,7 +290,7 @@ export class TunnelController {
       throwIfStartCancelled(signal);
       await this.preferPackagedStdioCommand();
       throwIfStartCancelled(signal);
-      await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath());
+      await runTunnelDoctor(clientPath, apiKey, this.profileDirectory(), this.options.getDataPath(), this.options.getUnrestrictedSetting?.());
       throwIfStartCancelled(signal);
       this.spawnRun(clientPath, apiKey);
       this.state = 'running';
@@ -540,7 +544,7 @@ export class TunnelController {
         '--mcp.connection-max-ttl', MCP_CONNECTION_MAX_TTL,
       ],
       {
-        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath()),
+        env: tunnelClientEnv(apiKey, this.profileDirectory(), this.options.getDataPath(), this.options.getUnrestrictedSetting?.()),
         windowsHide: true,
         // detached:true on Windows gives the child its own console window.
         detached: false,
@@ -678,14 +682,16 @@ export async function decryptRuntimeSecret(encrypted: string): Promise<string> {
     : unprotectLegacyWindowsSecureString(trimmed);
 }
 
-export function tunnelClientEnv(apiKey: string, profileDirectory: string, dataPath: string): NodeJS.ProcessEnv {
+export function tunnelClientEnv(apiKey: string, profileDirectory: string, dataPath: string, unrestrictedSetting: boolean | undefined): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const userProfile = process.env.USERPROFILE ?? os.homedir();
   const appData = process.env.APPDATA ?? path.join(userProfile, 'AppData', 'Roaming');
   env.CONTROL_PLANE_API_KEY = apiKey.trim();
   env.MCP_CONNECTION_MAX_TTL = MCP_CONNECTION_MAX_TTL;
   env.LNWJUD_DATA_PATH = dataPath;
-  env.LNWJUD_UNRESTRICTED = '1';
+  // The child shares the settings database, but pin the flag explicitly so the
+  // stored Unrestricted Mode toggle always wins over the old forced-on default.
+  env.LNWJUD_UNRESTRICTED = unrestrictedSetting === true ? '1' : '0';
   env.TUNNEL_CLIENT_PROFILE = PROFILE_NAME;
   env.TUNNEL_CLIENT_PROFILE_DIR = profileDirectory;
   env.USERPROFILE = userProfile;
@@ -695,10 +701,10 @@ export function tunnelClientEnv(apiKey: string, profileDirectory: string, dataPa
   return env;
 }
 
-async function runTunnelDoctor(clientPath: string, apiKey: string, profileDirectory: string, dataPath: string): Promise<void> {
+async function runTunnelDoctor(clientPath: string, apiKey: string, profileDirectory: string, dataPath: string, unrestrictedSetting: boolean | undefined): Promise<void> {
   try {
     await execFileAsync(clientPath, ['doctor', '--profile', PROFILE_NAME, '--profile-dir', profileDirectory, '--explain'], {
-      env: tunnelClientEnv(apiKey, profileDirectory, dataPath),
+      env: tunnelClientEnv(apiKey, profileDirectory, dataPath, unrestrictedSetting),
       windowsHide: true,
       encoding: 'utf8',
       timeout: 60_000,
@@ -929,7 +935,7 @@ function isLiveHealthBody(body: string): boolean {
 export function classifyTunnelControlPlaneLog(log: string): TunnelHealthLayer {
   const tail = log.slice(-MAX_HEALTH_METADATA_BYTES).toLowerCase();
   const failureSignals = [...tail.matchAll(/exceptiongroup|transport error|error in message stream|client_internal|bad gateway|\b502\b|connection refused|connection reset|unauthorized|forbidden|probe_timeout/gi)];
-  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|health[^\r\n]{0,80}\blive\b/gi)];
+  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|health[^\r\n]{0,80}\blive\b|tunnel\s+metadata\s+fetched/gi)];
   const latestFailure = failureSignals.at(-1)?.index ?? -1;
   const latestLive = liveSignals.at(-1)?.index ?? -1;
   if (latestFailure >= 0 && latestFailure >= latestLive) {
