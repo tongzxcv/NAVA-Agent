@@ -51,6 +51,8 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.13)(@types/node@24.13.3)
 
+  apps/chatgpt-extension: {}
+
   apps/cli:
     dependencies:
       '@lnwjud/application':

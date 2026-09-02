@@ -77,12 +77,17 @@ async function handleRequest(
   now: () => Date,
 ): Promise<void> {
   const origin = request.headers.origin;
-  if (typeof origin !== 'string' || !allowedOrigin(options.allowedOrigins(), origin)) {
+  const originAllowed = typeof origin === 'string' && allowedOrigin(options.allowedOrigins(), origin);
+  if (typeof origin === 'string' && !originAllowed) {
     sendJson(response, 403, { ok: false, code: 'ORIGIN_DENIED' });
     return;
   }
-  applyCors(response, origin);
+  if (originAllowed) applyCors(response, origin);
   if (request.method === 'OPTIONS') {
+    if (!originAllowed) {
+      sendJson(response, 403, { ok: false, code: 'ORIGIN_DENIED' });
+      return;
+    }
     response.statusCode = 204;
     response.end();
     return;
@@ -93,6 +98,13 @@ async function handleRequest(
   }
 
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  const originlessAuthenticatedRead = origin === undefined
+    && request.method === 'GET'
+    && /^\/v1\/bindings\/[^/]+(?:\/(?:status|wakes))?$/.test(url.pathname);
+  if (origin === undefined && !originlessAuthenticatedRead) {
+    sendJson(response, 403, { ok: false, code: 'ORIGIN_DENIED' });
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/v1/health') {
     sendJson(response, 200, { ok: true, service: 'command-room-extension-bridge', protocolVersion: 1 });
     return;

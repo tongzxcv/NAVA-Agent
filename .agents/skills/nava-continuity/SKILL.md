@@ -63,7 +63,10 @@ Call `session_checkpoint`:
 - after a meaningful file change plus its verification;
 - after a commit or decision;
 - when a blocker/error changes the next action;
-- before yielding control or whenever the task changes phase.
+- before yielding control or whenever the task changes phase;
+- before the final reply of every bounded project work round when persistence is allowed.
+
+For that final round checkpoint, use the returned UUID as the canonical continuity reference and show it to the user as `checkpoint <uuid>`. A numbered chat heading, project tracker entry, or `session_handoff` is supplementary and never replaces the durable checkpoint UUID. If the user explicitly requires read-only/no-write behavior, do not call `session_checkpoint` in that round; provide the same bounded checkpoint in chat and state that no durable checkpoint was persisted.
 
 Use this bounded shape:
 

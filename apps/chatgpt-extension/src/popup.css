@@ -1,0 +1,115 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #071018;
+  color: #e7fffa;
+}
+
+body {
+  width: 360px;
+  margin: 0;
+  background: #071018;
+}
+
+main {
+  padding: 18px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+p {
+  margin: 7px 0;
+}
+
+.muted,
+.hint {
+  color: #9dc1be;
+}
+
+.hint {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+label {
+  display: block;
+  margin-top: 16px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #274c54;
+  border-radius: 8px;
+  padding: 9px;
+  background: #0b1b24;
+  color: #e7fffa;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+input[type="password"] {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #274c54;
+  border-radius: 8px;
+  padding: 9px;
+  background: #0b1b24;
+  color: #e7fffa;
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
+button {
+  width: 100%;
+  margin-top: 9px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #62d9c4;
+  color: #06231f;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.secondary {
+  background: #18323c;
+  color: #e7fffa;
+  border: 1px solid #37616a;
+}
+
+.link-button {
+  background: transparent;
+  color: #8ce9da;
+  font-size: 12px;
+}
+
+.status-card {
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid #274c54;
+  border-radius: 9px;
+  background: #0b1b24;
+}
+
+.unlock-card {
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid #a88339;
+  border-radius: 9px;
+  background: #211d0f;
+}
+
+.status-card p {
+  overflow-wrap: anywhere;
+}

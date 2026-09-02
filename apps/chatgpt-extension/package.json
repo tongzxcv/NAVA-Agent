@@ -1,0 +1,13 @@
+{
+  "name": "@lnwjud/chatgpt-extension",
+  "version": "4.12.0",
+  "private": true,
+  "description": "Opt-in ChatGPT tab wake client for the NAVA Command Room Extension Bridge.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "node --test test/extension.test.mjs test/crypto.test.mjs test/background.test.mjs"
+  },
+  "license": "MIT"
+}
