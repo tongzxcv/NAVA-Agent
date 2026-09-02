@@ -28,12 +28,12 @@
 |---|---|
 | `mcp-command preflight failed: ... D:Programlnwjud-mcp-stdio.cmd was not found` | Normalize the `--mcp-command` argument before invoking `tunnel-client init`; post-init YAML rewrite is too late. |
 | Package script detected Node `25.8.2` | Run the pinned Node 24 runtime first in PATH; the project intentionally rejects Node 25 for packaged stdio. |
-| NSIS packaging could not extract `winCodeSign` symlinks (`A required privilege is not held by the client`) | Use electron-builder `win-unpacked` packaging for the local install; signing is not required to validate the runtime fix. |
+| NSIS packaging could not extract `winCodeSign` symlinks (`A required privilege is not held by the client`) | Enabled Windows Developer Mode; a subsequent non-elevated NSIS build completed successfully. Keep `win-unpacked` as the fast local fallback. |
 
 ## Final handoff
 
 - Tunnel `tunnel_6a97c6052c388191b4fa0525df725ae3` is associated with the new ChatGPT workspace.
 - ChatGPT custom app `NAVA Agent` was created in development mode and connected with no auth; the connector discovered the NAVA tool catalog.
 - The runtime API key is stored only through NAVA's encrypted Windows DPAPI setting and is not written to source, planning files, logs, or this handoff.
-- Installed unpacked runtime is `D:\Program\NAVA Agent.exe`; the second packaged destination remains `D:\Program Files\NAVA Agent`.
+- Installed unpacked runtime is `D:\Program\NAVA Agent.exe`; the second packaged destination remains `D:\Program Files\NAVA Agent`. A signed NSIS package was later generated at `apps\desktop\dist\installers\nava-agent-Setup-4.12.1.exe` after Developer Mode was enabled.
 - Current verification: `/healthz=200 live`, `/readyz=200 ready`, one tunnel-client child, and the poller recovered after transient network warnings.

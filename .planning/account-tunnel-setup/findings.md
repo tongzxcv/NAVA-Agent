@@ -11,3 +11,4 @@
 - ChatGPT created and connected the `NAVA Agent` development app from the selected tunnel. The app page displays the discovered NAVA tools and `Authorization used: None`.
 - The installed runtime now recognizes `tunnel metadata fetched` as a connected/live signal, preventing a false `unknown` health state after a successful metadata bootstrap.
 - A short network/DNS interruption produced poll warnings at 14:49, then the tunnel client logged `poller recovered; polling operational`; later dispatcher requests were forwarded to the MCP server.
+- Developer Mode is now enabled (`AllowDevelopmentWithoutDevLicense=1`). A normal, non-elevated Node 24/electron-builder run completed the NSIS target without the previous symlink privilege error and produced the 4.12.1 installer plus blockmap.
