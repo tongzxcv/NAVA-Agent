@@ -43,7 +43,7 @@ jobs:
 
       - name: Install ripgrep for E2E search
         shell: powershell
-        run: choco install ripgrep -y --no-progress
+        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/ensure-ripgrep.ps1
 
       - name: Run authoritative verification gate
         shell: powershell
