@@ -43,6 +43,8 @@ async function createHarness() {
   const alarms = { created: [], cleared: [] };
   const fetchCalls = [];
   const tabs = [{ id: 17, url: 'https://chatgpt.com/c/conversation-1' }];
+  let activeTabId = 17;
+  const createdTabUrls = [];
   const sentMessages = [];
   const scriptInjections = [];
   let sendMessageFailures = 0;
@@ -52,6 +54,10 @@ async function createHarness() {
   let recoveryBindings = [];
   let terminalRecoveryResponse = { body: { ok: true, outcome: 'wait', reason: 'NO_SAFE_CHECKPOINT' }, status: 200 };
   let continuationSubmitResponse = null;
+  let submitNavigationDelayMs = 0;
+  let supervisorDelayMs = 0;
+  let continuationChallengeHook = null;
+  const inspectResponsesByTab = new Map();
   let inspectResponse = { ok: true, conversationRef: 'chatgpt:https://chatgpt.com/c/conversation-1', limit: { ok: true, maxLength: false }, composer: { ok: true } };
 
   const chrome = {
@@ -62,8 +68,14 @@ async function createHarness() {
     },
     storage: { local, session },
     tabs: {
-      query: async () => tabs,
-      create: async ({ url }) => { const created = { id: 30, url }; tabs.push(created); return created; },
+      query: async (query = {}) => query?.active === true ? tabs.filter((item) => item.id === activeTabId) : tabs,
+      create: async ({ url, active = false }) => {
+        const created = { id: 30 + createdTabUrls.length, url };
+        tabs.push(created);
+        createdTabUrls.push(url);
+        if (active) activeTabId = created.id;
+        return created;
+      },
       get: async (tabId) => tabs.find((item) => item.id === tabId),
       sendMessage: async (tabId, message) => {
         sentMessages.push({ tabId, message });
@@ -71,11 +83,28 @@ async function createHarness() {
           sendMessageFailures -= 1;
           throw new Error('Could not establish connection. Receiving end does not exist.');
         }
-        if (message?.type === 'NAVA_INSPECT_CHAT_STATE') return inspectResponse;
+        if (message?.type === 'NAVA_INSPECT_CHAT_STATE') return inspectResponsesByTab.get(tabId) ?? inspectResponse;
         if (message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP') {
-          if (continuationSubmitResponse !== null) return continuationSubmitResponse;
+          if (continuationSubmitResponse !== null) {
+            return typeof continuationSubmitResponse === 'function'
+              ? continuationSubmitResponse({ tabId, message, tabs, session, local })
+              : continuationSubmitResponse;
+          }
           const target = tabs.find((item) => item.id === tabId);
-          if (target) target.url = 'https://chatgpt.com/g/g-p-project/c/conversation-2';
+          const validation = await dispatchRuntimeMessage({
+            type: 'NAVA_VALIDATE_CONTINUATION_SUBMISSION',
+            attemptId: message.submissionAttemptId,
+            sourceBindingId: message.sourceBindingId,
+          }, { tab: target === undefined ? undefined : { ...target } });
+          if (!validation || validation.ok !== true) {
+            return { ok: false, errorCode: validation?.code ?? 'CONVERSATION_MISMATCH' };
+          }
+          if (target) {
+            const base = String(message.expectedProjectRef).replace(/^chatgpt-project:/, '');
+            const nextUrl = base + '/c/conversation-' + tabId;
+            if (submitNavigationDelayMs > 0) setTimeout(() => { target.url = nextUrl; }, submitNavigationDelayMs);
+            else target.url = nextUrl;
+          }
           return { ok: true, submitted: true, projectRef: message.expectedProjectRef };
         }
         return { ok: true };
@@ -114,9 +143,21 @@ async function createHarness() {
       }
       if (String(url).endsWith('/recover')) return jsonResponse({ ok: true, bindings: recoveryBindings });
       if (String(url).endsWith('/terminal-recovery')) return jsonResponse(terminalRecoveryResponse.body, terminalRecoveryResponse.status);
-      if (String(url).endsWith('/supervisor')) return jsonResponse(supervisorResponse.body, supervisorResponse.status);
+      if (String(url).endsWith('/supervisor')) {
+        if (supervisorDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, supervisorDelayMs));
+        return jsonResponse(supervisorResponse.body, supervisorResponse.status);
+      }
       if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
-      if (String(url).endsWith('/v1/bindings/binding-1234/continuation')) return jsonResponse({ continuation: { bindingId: 'binding-continuation', challenge: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1 } });
+      const continuationMatch = String(url).match(/\/v1\/bindings\/([^/]+)\/continuation$/);
+      if (continuationMatch) {
+        if (typeof continuationChallengeHook === 'function') await continuationChallengeHook({
+          sourceBindingId: continuationMatch[1], session, local, tabs,
+        });
+        const continuationBindingId = continuationMatch[1] === 'binding-1234'
+          ? 'binding-continuation'
+          : continuationMatch[1] + '-continuation';
+        return jsonResponse({ continuation: { bindingId: continuationBindingId, challenge: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1 } });
+      }
       return jsonResponse({ ok: true });
     },
     TextDecoder,
@@ -134,6 +175,18 @@ async function createHarness() {
 
   const source = await readFile(resolve(root, 'src/background.js'), 'utf8');
   vm.runInNewContext(source, sandbox, { filename: 'src/background.js' });
+
+  async function dispatchRuntimeMessage(message, sender = {}) {
+    assert.equal(messageListeners.length, 1);
+    return new Promise((resolveResponse, reject) => {
+      try {
+        const keepChannelOpen = messageListeners[0](message, sender, resolveResponse);
+        if (keepChannelOpen !== true) resolveResponse(undefined);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
 
   async function send(message, sender = {}) {
     assert.equal(messageListeners.length, 1);
@@ -162,10 +215,19 @@ async function createHarness() {
     setRecoveryBindings: (value) => { recoveryBindings = value; },
     setTerminalRecoveryResponse: (body, status = 200) => { terminalRecoveryResponse = { body, status }; },
     setContinuationSubmitResponse: (value) => { continuationSubmitResponse = value; },
-    setTabs: (value) => { tabs.splice(0, tabs.length, ...value); },
+    setSubmitNavigationDelay: (value) => { submitNavigationDelayMs = value; },
+    setSupervisorDelay: (value) => { supervisorDelayMs = value; },
+    setContinuationChallengeHook: (value) => { continuationChallengeHook = value; },
+    setTabs: (value) => {
+      tabs.splice(0, tabs.length, ...value);
+      if (!tabs.some((item) => item.id === activeTabId)) activeTabId = tabs[0]?.id ?? null;
+    },
+    setActiveTab: (tabId) => { activeTabId = tabId; },
     getTabs: () => tabs.map((item) => ({ ...item })),
+    getCreatedTabUrls: () => [...createdTabUrls],
     setInspectResponse: (value) => { inspectResponse = value; },
-    setTabUrl: (value) => { tabs[0].url = value; },
+    setInspectResponseForTab: (tabId, value) => { inspectResponsesByTab.set(tabId, value); },
+    setTabUrl: (value) => { tabs[0].url = value; activeTabId = tabs[0].id; },
     setWakes: (value) => { wakes = value; },
     startupListeners,
   };
@@ -191,6 +253,58 @@ const payload = JSON.stringify({
   connectionEpoch: 1,
   allowedOrigins: [`chrome-extension://${'a'.repeat(32)}`],
 });
+
+async function createFiveBindingHarness() {
+  const harness = await createHarness();
+  const refs = {
+    lead1: 'https://chatgpt.com/g/g-p-beelzebub/c/lead1-old',
+    lead2: 'https://chatgpt.com/g/g-p-ratchet/c/lead2-old',
+    lead3: 'https://chatgpt.com/g/g-p-autobots/c/lead3-old',
+    lead4: 'https://chatgpt.com/g/g-p-hermes/c/lead4-old',
+    main: 'https://chatgpt.com/c/main-old',
+  };
+  const testPassphrase = 'unit-test-passphrase-1234';
+  harness.setTabUrl(refs.lead1);
+  const paired = await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: testPassphrase });
+  assert.equal(paired.ok, true, JSON.stringify(paired));
+
+  harness.setTabs([
+    { id: 17, url: refs.lead1 },
+    { id: 18, url: refs.lead2 },
+    { id: 19, url: refs.lead3 },
+    { id: 20, url: refs.lead4 },
+    { id: 21, url: refs.main },
+  ]);
+  harness.setActiveTab(17);
+  harness.setRecoveryBindings([
+    {
+      conversationRef: 'chatgpt:' + refs.lead2,
+      binding: { id: 'binding-lead2', roomId: 'room-1', slotKey: 'LEAD-2', connectionEpoch: 1, state: 'PAIRED' },
+      authToken: 'nava-v1.recovered-lead2-token-123456',
+    },
+    {
+      conversationRef: 'chatgpt:' + refs.lead3,
+      binding: { id: 'binding-lead3', roomId: 'room-1', slotKey: 'LEAD-3', connectionEpoch: 1, state: 'PAIRED' },
+      authToken: 'nava-v1.recovered-lead3-token-123456',
+    },
+    {
+      conversationRef: 'chatgpt:' + refs.lead4,
+      binding: { id: 'binding-lead4', roomId: 'room-1', slotKey: 'LEAD-4', connectionEpoch: 1, state: 'PAIRED' },
+      authToken: 'nava-v1.recovered-lead4-token-123456',
+    },
+    {
+      conversationRef: 'chatgpt:' + refs.main,
+      binding: { id: 'binding-main', roomId: 'room-1', slotKey: 'MAIN', connectionEpoch: 1, state: 'PAIRED' },
+      authToken: 'nava-v1.recovered-main-token-123456',
+    },
+  ]);
+  await harness.session.clear();
+  const unlocked = await harness.send({ type: 'UNLOCK_STATE', passphrase: testPassphrase });
+  assert.equal(unlocked.ok, true, JSON.stringify(unlocked));
+  harness.setActiveTab(17);
+  return { harness, refs };
+}
+
 
 test('pair persists only an encrypted envelope, unlocks after session loss, and starts one-minute polling', async () => {
   const harness = await createHarness();
@@ -376,9 +490,12 @@ test('continuation readiness is fail-closed and requests a same-epoch challenge 
   const ready = await harness.send({ type: 'CHECK_CONTINUATION_READY' });
   assert.equal(ready.ok, true);
   assert.equal(ready.ready, true);
-  assert.equal(ready.sameEpoch, true);
-  assert.equal(ready.connectionEpoch, 1);
-  assert.equal(ready.continuation.connectionEpoch, 1);
+  assert.equal(ready.plan.source.slotKey, 'LEAD-1');
+  assert.equal(ready.plan.source.bindingId, 'binding-1234');
+  assert.equal(ready.plan.source.connectionEpoch, 1);
+  assert.equal(ready.plan.source.conversationRef, 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1');
+  assert.equal(ready.plan.terminalKind, 'EXACT_MAX_LENGTH');
+  assert.equal(ready.plan.continuation.connectionEpoch, 1);
   assert.equal(harness.fetchCalls.filter((call) => call.url.endsWith('/continuation')).length, 1);
 });
 
@@ -564,12 +681,14 @@ test('auto continuation creates a same-project conversation, atomically pairs th
   assert.equal(result.connectionEpoch, 1);
   assert.equal(result.supervisorSync, 'OK');
   assert.equal(result.projectRef, 'chatgpt-project:https://chatgpt.com/g/g-p-project');
-  assert.equal(result.conversationRef, 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-2');
+  assert.equal(result.conversationRef, 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-30');
   const state = harness.session.values.get('nava.commandRoomBinding');
   assert.equal(state.bindingId, 'binding-continuation');
   assert.equal(state.connectionEpoch, 1);
   assert.equal(state.conversationRef, result.conversationRef);
-  assert.equal(state.supervisorSync, 'OK');
+  assert.equal(state.supervisorSync, 'DEGRADED');
+  const registry = harness.session.values.get('nava.commandRoomBindings');
+  assert.equal(registry.bindings.find((entry) => entry.bindingId === 'binding-continuation').supervisorSync, 'OK');
   assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/v1/bindings/binding-continuation/supervisor')), true);
   const envelope = harness.local.values.get('nava.commandRoomBindingEncrypted');
   assert.equal(JSON.stringify(envelope).includes('nava-v1.continuation-token-value-123456'), false);
@@ -596,6 +715,165 @@ test('supervisor synchronization degrades or fails closed without blocking paire
   const state = await harness.send({ type: 'GET_STATE' });
   assert.equal(state.ok, true);
   assert.equal(state.state.supervisorSync, 'FAILED');
+});
+
+
+test('background supervisor sync updates registry metadata without rotating selected session state', async () => {
+  const { harness } = await createFiveBindingHarness();
+  const before = harness.session.values.get('nava.commandRoomBinding');
+  assert.equal(before.bindingId, 'binding-1234');
+  await harness.send({ type: 'SYNC_SUPERVISOR_STATE' });
+  const after = harness.session.values.get('nava.commandRoomBinding');
+  assert.equal(after.bindingId, 'binding-1234');
+  assert.equal(after.conversationRef, before.conversationRef);
+  const registry = harness.session.values.get('nava.commandRoomBindings');
+  assert.equal(registry.bindings.length, 5);
+  assert.equal(registry.bindings.every((state) => state.slotKey === 'MAIN' || state.supervisorSync === 'OK'), true);
+});
+
+test('immutable continuation plan stays LEAD-1 when selected session state changes after challenge issuance', async () => {
+  const { harness, refs } = await createFiveBindingHarness();
+  harness.setInspectResponseForTab(17, {
+    ok: true,
+    conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
+  });
+  harness.setContinuationChallengeHook(async ({ sourceBindingId, session }) => {
+    assert.equal(sourceBindingId, 'binding-1234');
+    const registry = session.values.get('nava.commandRoomBindings');
+    const lead2 = registry.bindings.find((state) => state.bindingId === 'binding-lead2');
+    await session.set({ 'nava.commandRoomBinding': lead2 });
+  });
+
+  const result = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.slotKey, 'LEAD-1');
+  assert.equal(result.projectRef, 'chatgpt-project:https://chatgpt.com/g/g-p-beelzebub');
+  assert.deepEqual(harness.getCreatedTabUrls(), ['https://chatgpt.com/g/g-p-beelzebub/project']);
+  assert.equal(harness.getCreatedTabUrls().some((url) => /ratchet|autobots|hermes/.test(url)), false);
+});
+
+
+test('continuation fails closed before tab creation if the inspected source binding identity changes in the registry', async () => {
+  const { harness, refs } = await createFiveBindingHarness();
+  harness.setInspectResponseForTab(17, {
+    ok: true,
+    conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
+  });
+  harness.setContinuationChallengeHook(async ({ sourceBindingId, session }) => {
+    assert.equal(sourceBindingId, 'binding-1234');
+    const registry = session.values.get('nava.commandRoomBindings');
+    const mutated = {
+      ...registry,
+      bindings: registry.bindings.map((state) => state.bindingId === 'binding-1234'
+        ? { ...state, conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-beelzebub/c/changed-source' }
+        : state),
+    };
+    await session.set({ 'nava.commandRoomBindings': mutated });
+  });
+  const result = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'CONVERSATION_MISMATCH');
+  assert.deepEqual(harness.getCreatedTabUrls(), []);
+});
+
+test('concurrent alarm supervisor polling cannot cross-route a LEAD-1 terminal continuation', async () => {
+  const { harness, refs } = await createFiveBindingHarness();
+  harness.setSupervisorDelay(10);
+  harness.setInspectResponseForTab(17, {
+    ok: true,
+    conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
+  });
+  for (const tabId of [18, 19, 20, 21]) {
+    const ref = ({18: refs.lead2, 19: refs.lead3, 20: refs.lead4, 21: refs.main})[tabId];
+    harness.setInspectResponseForTab(tabId, {
+      ok: true, conversationRef: 'chatgpt:' + ref, limit: { ok: true, maxLength: false }, composer: { ok: true },
+    });
+  }
+
+  const selectedBefore = harness.session.values.get('nava.commandRoomBinding').bindingId;
+  const alarmResult = await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
+  assert.equal(alarmResult.ok, true);
+  assert.equal(selectedBefore, 'binding-1234');
+  assert.deepEqual(harness.getCreatedTabUrls(), ['https://chatgpt.com/g/g-p-beelzebub/project']);
+  assert.equal(harness.getCreatedTabUrls().some((url) => /ratchet|autobots|hermes/.test(url)), false);
+});
+
+test('two terminal LEADs receive independent binding-scoped continuations without identity mixing', async () => {
+  const { harness, refs } = await createFiveBindingHarness();
+  harness.setInspectResponseForTab(17, {
+    ok: true, conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' }, composer: { ok: true },
+  });
+  harness.setInspectResponseForTab(18, {
+    ok: true, conversationRef: 'chatgpt:' + refs.lead2,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' }, composer: { ok: true },
+  });
+  for (const [tabId, ref] of [[19, refs.lead3], [20, refs.lead4], [21, refs.main]]) {
+    harness.setInspectResponseForTab(tabId, {
+      ok: true, conversationRef: 'chatgpt:' + ref, limit: { ok: true, maxLength: false }, composer: { ok: true },
+    });
+  }
+
+  await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
+  const homes = harness.getCreatedTabUrls().sort();
+  assert.deepEqual(homes, [
+    'https://chatgpt.com/g/g-p-beelzebub/project',
+    'https://chatgpt.com/g/g-p-ratchet/project',
+  ]);
+  assert.equal(homes.some((url) => /autobots|hermes/.test(url)), false);
+  const registry = harness.session.values.get('nava.commandRoomBindings');
+  assert.equal(registry.bindings.some((state) => state.bindingId === 'binding-continuation' && state.slotKey === 'LEAD-1'), true);
+  assert.equal(registry.bindings.some((state) => state.bindingId === 'binding-lead2-continuation' && state.slotKey === 'LEAD-2'), true);
+});
+
+test('alarm repeat after exact-max submit failure does not create another tab or cycle projects', async () => {
+  const { harness, refs } = await createFiveBindingHarness();
+  harness.setInspectResponseForTab(17, {
+    ok: true, conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' }, composer: { ok: true },
+  });
+  for (const [tabId, ref] of [[18, refs.lead2], [19, refs.lead3], [20, refs.lead4], [21, refs.main]]) {
+    harness.setInspectResponseForTab(tabId, {
+      ok: true, conversationRef: 'chatgpt:' + ref, limit: { ok: true, maxLength: false }, composer: { ok: true },
+    });
+  }
+  harness.setContinuationSubmitResponse({ ok: false, errorCode: 'SUBMIT_FAILED' });
+
+  await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
+  await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
+  assert.deepEqual(harness.getCreatedTabUrls(), ['https://chatgpt.com/g/g-p-beelzebub/project']);
+  assert.equal(harness.getCreatedTabUrls().some((url) => /ratchet|autobots|hermes/.test(url)), false);
+  const attempts = harness.local.values.get('nava.continuationAttemptLedgerV2');
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].bindingId, 'binding-1234');
+});
+
+test('slow new-conversation navigation does not cause a second bootstrap or second click path', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'unit-test-passphrase-1234' });
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
+  });
+  harness.setSubmitNavigationDelay(100);
+
+  const first = harness.send({ type: 'CONTINUE_CONVERSATION' });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const second = harness.send({ type: 'CONTINUE_CONVERSATION' });
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.ok, true, JSON.stringify(a));
+  assert.equal(b.ok, true, JSON.stringify(b));
+  assert.equal(harness.sentMessages.filter((entry) => entry.message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP').length, 1);
+  assert.equal(harness.getCreatedTabUrls().length, 1);
 });
 
 test('offline polling returns a safe error and does not fabricate delivery', async () => {

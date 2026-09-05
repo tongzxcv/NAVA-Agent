@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const sharedSource = await readFile(resolve(root, 'src/shared.js'), 'utf8');
+const contentVmSource = await readFile(resolve(root, 'src/content.js'), 'utf8');
 const api = (() => {
   const sandbox = { console, Date, URL };
   sandbox.globalThis = sandbox;
@@ -32,6 +33,107 @@ function documentWith(control, busy = null) {
   return {
     querySelectorAll: () => [control],
     querySelector: () => busy,
+  };
+}
+
+
+function contentControl(text = '') {
+  return {
+    tagName: 'DIV',
+    hidden: false,
+    disabled: false,
+    textContent: text,
+    get innerText() { return this.textContent; },
+    getAttribute: () => null,
+    getClientRects: () => [{}],
+    getBoundingClientRect: () => ({ width: 10, height: 10 }),
+    focus() {},
+    dispatchEvent() {},
+  };
+}
+
+function sendButton(disabled = false) {
+  return {
+    hidden: false,
+    disabled,
+    clickCount: 0,
+    getAttribute: (name) => name === 'aria-disabled' ? (disabled ? 'true' : 'false') : null,
+    getClientRects: () => [{}],
+    click() { this.clickCount += 1; },
+  };
+}
+
+async function createContentHarness() {
+  const listeners = [];
+  const validationMessages = [];
+  const state = {
+    composers: [contentControl('')],
+    buttons: [],
+    validation: { ok: true },
+  };
+  const document = {
+    querySelectorAll(selector) {
+      if (String(selector).startsWith('[contenteditable')) return state.composers;
+      if (String(selector).startsWith('button[')) return state.buttons;
+      return [];
+    },
+    querySelector: () => null,
+    execCommand(_command, _ui, data) {
+      if (state.composers.length !== 1) return false;
+      state.composers[0].textContent = data;
+      return true;
+    },
+    getElementById: () => null,
+    createElement: () => ({ setAttribute() {}, append() {}, addEventListener() {} }),
+    head: null,
+    body: { appendChild() {} },
+  };
+  const location = { href: 'https://chatgpt.com/g/g-p-project/project' };
+  const chrome = {
+    runtime: {
+      onMessage: { addListener: (listener) => listeners.push(listener) },
+      sendMessage: async (message) => {
+        validationMessages.push(message);
+        return state.validation;
+      },
+    },
+  };
+  class TestEvent { constructor(type, init = {}) { this.type = type; Object.assign(this, init); } }
+  const sandbox = {
+    chrome,
+    console,
+    Date,
+    document,
+    Event: TestEvent,
+    InputEvent: TestEvent,
+    location,
+    navigator: { clipboard: { writeText: async () => {} } },
+    URL,
+    window: { setTimeout, clearTimeout, setInterval, clearInterval },
+  };
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(sharedSource, sandbox, { filename: 'src/shared.js' });
+  vm.runInNewContext(contentVmSource, sandbox, { filename: 'src/content.js' });
+
+  async function submit(message) {
+    assert.equal(listeners.length, 1);
+    return new Promise((resolveResponse, reject) => {
+      try {
+        const open = listeners[0](message, {}, resolveResponse);
+        assert.equal(open, true);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  return {
+    state,
+    location,
+    validationMessages,
+    submit,
+    makeControl: contentControl,
+    makeButton: sendButton,
   };
 }
 
@@ -130,6 +232,178 @@ test('composer guard rejects drafts, active generation, and unsupported DOM', ()
   assert.equal(api.inspectComposer({ querySelectorAll: () => [] }).errorCode, 'DOM_MISMATCH');
 });
 
+
+test('continuation bootstrap waits for a send button that appears asynchronously and clicks exactly once', async () => {
+  const harness = await createContentHarness();
+  const bootstrap = 'SYSTEM BOOTSTRAP';
+  const button = harness.makeButton(false);
+  setTimeout(() => { harness.state.buttons = [button]; }, 10);
+  const result = await harness.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-async-button',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.submitted, true);
+  assert.equal(button.clickCount, 1);
+  assert.equal(harness.state.composers[0].textContent, bootstrap);
+  assert.equal(harness.validationMessages.length, 1);
+});
+
+test('continuation bootstrap waits for a disabled send button to become enabled', async () => {
+  const harness = await createContentHarness();
+  const bootstrap = 'SYSTEM BOOTSTRAP';
+  const button = harness.makeButton(true);
+  harness.state.buttons = [button];
+  setTimeout(() => {
+    button.disabled = false;
+    button.getAttribute = (name) => name === 'aria-disabled' ? 'false' : null;
+  }, 10);
+  const result = await harness.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-enabled-later',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(button.clickCount, 1);
+});
+
+test('continuation bootstrap tolerates React replacing the contenteditable when the exact bootstrap is preserved', async () => {
+  const harness = await createContentHarness();
+  const bootstrap = 'SYSTEM BOOTSTRAP';
+  const button = harness.makeButton(false);
+  setTimeout(() => {
+    harness.state.composers = [harness.makeControl(bootstrap)];
+    harness.state.buttons = [button];
+  }, 10);
+  const result = await harness.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-react-rerender',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(harness.state.composers[0].textContent, bootstrap);
+  assert.equal(button.clickCount, 1);
+});
+
+test('continuation bootstrap fails closed if a user draft appears while waiting', async () => {
+  const harness = await createContentHarness();
+  const bootstrap = 'SYSTEM BOOTSTRAP';
+  setTimeout(() => { harness.state.composers = [harness.makeControl('user draft')]; }, 10);
+  const result = await harness.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-user-draft',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'COMPOSER_NOT_EMPTY');
+  assert.equal(harness.validationMessages.length, 0);
+});
+
+test('continuation bootstrap submission attempt identity prevents a second click', async () => {
+  const harness = await createContentHarness();
+  const bootstrap = 'SYSTEM BOOTSTRAP';
+  const button = harness.makeButton(false);
+  harness.state.buttons = [button];
+  const message = {
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-dedup-click',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap,
+  };
+  const first = await harness.submit(message);
+  const second = await harness.submit(message);
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.equal(second.duplicate, true);
+  assert.equal(button.clickCount, 1);
+  assert.equal(harness.validationMessages.length, 1);
+});
+
+test('continuation bootstrap fails closed if the project changes before submit', async () => {
+  const harness = await createContentHarness();
+  const bootstrap = 'SYSTEM BOOTSTRAP';
+  const button = harness.makeButton(false);
+  setTimeout(() => {
+    harness.location.href = 'https://chatgpt.com/g/g-p-other/project';
+    harness.state.buttons = [button];
+  }, 10);
+  const result = await harness.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-project-change',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'PROJECT_MISMATCH');
+  assert.equal(button.clickCount, 0);
+});
+
+
+test('continuation bootstrap refuses to click when background authority validation rejects the source binding', async () => {
+  const harness = await createContentHarness();
+  const button = harness.makeButton(false);
+  harness.state.buttons = [button];
+  harness.state.validation = { ok: false, code: 'CONVERSATION_MISMATCH' };
+  const result = await harness.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-source-rejected',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap: 'SYSTEM BOOTSTRAP',
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.errorCode, 'CONVERSATION_MISMATCH');
+  assert.equal(button.clickCount, 0);
+});
+
+test('continuation bootstrap fails closed for ambiguous send controls and expired authority', async () => {
+  const ambiguous = await createContentHarness();
+  ambiguous.state.buttons = [ambiguous.makeButton(false), ambiguous.makeButton(false)];
+  const ambiguousResult = await ambiguous.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-ambiguous-send',
+    authorityExpiresAt: '2099-01-01T00:00:00.000Z',
+    bootstrap: 'SYSTEM BOOTSTRAP',
+  });
+  assert.equal(ambiguousResult.ok, false);
+  assert.equal(ambiguousResult.errorCode, 'DOM_MISMATCH');
+  assert.equal(ambiguous.state.buttons.reduce((sum, button) => sum + button.clickCount, 0), 0);
+
+  const expired = await createContentHarness();
+  expired.state.buttons = [expired.makeButton(false)];
+  const expiredResult = await expired.submit({
+    type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+    expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
+    sourceBindingId: 'binding-1',
+    submissionAttemptId: 'attempt-expired-authority',
+    authorityExpiresAt: '2020-01-01T00:00:00.000Z',
+    bootstrap: 'SYSTEM BOOTSTRAP',
+  });
+  assert.equal(expiredResult.ok, false);
+  assert.equal(expiredResult.errorCode, 'PAIRING_EXPIRED');
+  assert.equal(expired.state.buttons[0].clickCount, 0);
+});
+
 test('manifest stays narrow and the Bridge is not a generic MCP proxy', async () => {
   const manifest = JSON.parse(await readFile(resolve(root, 'manifest.json'), 'utf8'));
   assert.deepEqual(manifest.permissions, ['storage', 'alarms', 'scripting']);
@@ -154,6 +428,8 @@ test('manifest stays narrow and the Bridge is not a generic MCP proxy', async ()
   const backgroundSource = await readFile(resolve(root, 'src/background.js'), 'utf8');
   assert.match(backgroundSource, /Do NOT retry, replay, or resubmit the failed user turn/);
   assert.doesNotMatch(backgroundSource, /Retry button|aria-label[^\n]*Retry/i);
-  const wakeOnly = contentSource.slice(0, contentSource.indexOf('function submitContinuationBootstrap'));
+  const wakeOnly = contentSource.slice(0, contentSource.indexOf('const continuationSubmissionAttempts'));
   assert.doesNotMatch(wakeOnly, /execCommand|button\[data-testid="send-button"\]/);
+  assert.match(contentSource, /NAVA_VALIDATE_CONTINUATION_SUBMISSION/);
+  assert.match(contentSource, /continuationSubmissionAttempts/);
 });

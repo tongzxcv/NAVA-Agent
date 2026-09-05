@@ -95,58 +95,165 @@
     return { ok: true, delivery: 'shown' };
   }
 
-  function submitContinuationBootstrap(message) {
+  const continuationSubmissionAttempts = new Set();
+
+  function visibleComposerControls() {
+    return [...document.querySelectorAll('[contenteditable="true"], textarea')].filter((element) => {
+      if (element.hidden === true) return false;
+      if (typeof element.getAttribute === 'function' && element.getAttribute('aria-hidden') === 'true') return false;
+      if (typeof element.getClientRects === 'function' && element.getClientRects().length === 0) return false;
+      return true;
+    });
+  }
+
+  function composerValue(control) {
+    if (control?.tagName === 'TEXTAREA') return typeof control.value === 'string' ? control.value : '';
+    if (typeof control?.innerText === 'string') return control.innerText;
+    return typeof control?.textContent === 'string' ? control.textContent : '';
+  }
+
+  function enabledSendButtons() {
+    return [...document.querySelectorAll('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"], button[aria-label="Send"]')]
+      .filter((button) => (
+        button.hidden !== true
+        && button.disabled !== true
+        && button.getAttribute?.('aria-disabled') !== 'true'
+        && (typeof button.getClientRects !== 'function' || button.getClientRects().length > 0)
+      ));
+  }
+
+  function projectHomeStillMatches(expectedProjectRef) {
+    return NavaExtension.projectRefFromUrl(location.href) === expectedProjectRef
+      && NavaExtension.conversationRefFromUrl(location.href) === null;
+  }
+
+  function insertBootstrap(control, bootstrap) {
+    control.focus?.();
+    if (control.tagName === 'TEXTAREA') {
+      control.value = bootstrap;
+      control.dispatchEvent?.(new Event('input', { bubbles: true }));
+      return;
+    }
+    let inserted = false;
+    if (typeof document.execCommand === 'function') inserted = document.execCommand('insertText', false, bootstrap) === true;
+    if (!inserted) {
+      control.textContent = bootstrap;
+      control.dispatchEvent?.(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: bootstrap }));
+    }
+  }
+
+  async function submitContinuationBootstrap(message) {
     if (typeof message.expectedProjectRef !== 'string' || typeof message.bootstrap !== 'string'
-      || message.bootstrap.trim().length === 0 || message.bootstrap.length > 32_768) {
+      || message.bootstrap.trim().length === 0 || message.bootstrap.length > 32_768
+      || typeof message.submissionAttemptId !== 'string' || message.submissionAttemptId.length < 8
+      || typeof message.sourceBindingId !== 'string' || message.sourceBindingId.length < 1
+      || typeof message.authorityExpiresAt !== 'string') {
       return { ok: false, errorCode: 'DOM_MISMATCH' };
     }
-    if (NavaExtension.projectRefFromUrl(location.href) !== message.expectedProjectRef
-      || NavaExtension.conversationRefFromUrl(location.href) !== null) {
-      return { ok: false, errorCode: 'PROJECT_MISMATCH' };
+    const authorityExpiresAt = Date.parse(message.authorityExpiresAt);
+    if (!Number.isFinite(authorityExpiresAt) || Date.now() >= authorityExpiresAt) {
+      return { ok: false, errorCode: 'PAIRING_EXPIRED' };
     }
+    if (!projectHomeStillMatches(message.expectedProjectRef)) return { ok: false, errorCode: 'PROJECT_MISMATCH' };
+    if (continuationSubmissionAttempts.has(message.submissionAttemptId)) {
+      return { ok: true, submitted: true, duplicate: true, projectRef: message.expectedProjectRef };
+    }
+
     const guarded = NavaExtension.inspectComposer(document);
     if (!guarded.ok) return guarded;
     let controls;
     try {
-      controls = [...document.querySelectorAll('[contenteditable="true"], textarea')].filter((element) => {
-        if (element.hidden === true) return false;
-        if (typeof element.getAttribute === 'function' && element.getAttribute('aria-hidden') === 'true') return false;
-        if (typeof element.getClientRects === 'function' && element.getClientRects().length === 0) return false;
-        return true;
-      });
+      controls = visibleComposerControls();
     } catch {
       return { ok: false, errorCode: 'DOM_MISMATCH' };
     }
     if (controls.length !== 1) return { ok: false, errorCode: 'DOM_MISMATCH' };
-    const control = controls[0];
+    if (composerValue(controls[0]).trim().length !== 0) return { ok: false, errorCode: 'COMPOSER_NOT_EMPTY' };
     try {
-      control.focus?.();
-      if (control.tagName === 'TEXTAREA') {
-        control.value = message.bootstrap;
-        control.dispatchEvent?.(new Event('input', { bubbles: true }));
-      } else {
-        let inserted = false;
-        if (typeof document.execCommand === 'function') inserted = document.execCommand('insertText', false, message.bootstrap) === true;
-        if (!inserted) {
-          control.textContent = message.bootstrap;
-          control.dispatchEvent?.(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: message.bootstrap }));
-        }
-      }
-      const buttons = [...document.querySelectorAll('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send message"], button[aria-label="Send"]')]
-        .filter((button) => button.hidden !== true && button.disabled !== true && button.getAttribute?.('aria-disabled') !== 'true');
-      if (buttons.length !== 1) return { ok: false, errorCode: 'SUBMIT_FAILED' };
-      buttons[0].click();
-      return { ok: true, submitted: true, projectRef: message.expectedProjectRef };
+      insertBootstrap(controls[0], message.bootstrap);
     } catch {
       return { ok: false, errorCode: 'SUBMIT_FAILED' };
     }
+
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      if (Date.now() >= authorityExpiresAt) return { ok: false, errorCode: 'PAIRING_EXPIRED' };
+      if (!projectHomeStillMatches(message.expectedProjectRef)) return { ok: false, errorCode: 'PROJECT_MISMATCH' };
+
+      let currentControls;
+      let buttons;
+      try {
+        currentControls = visibleComposerControls();
+        buttons = enabledSendButtons();
+      } catch {
+        return { ok: false, errorCode: 'DOM_MISMATCH' };
+      }
+      if (currentControls.length !== 1) return { ok: false, errorCode: 'DOM_MISMATCH' };
+      const value = composerValue(currentControls[0]);
+      if (value !== message.bootstrap) {
+        if (value.trim().length > 0) return { ok: false, errorCode: 'COMPOSER_NOT_EMPTY' };
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        continue;
+      }
+      if (buttons.length > 1) return { ok: false, errorCode: 'DOM_MISMATCH' };
+      if (buttons.length === 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        continue;
+      }
+
+      let authority;
+      try {
+        authority = await chrome.runtime.sendMessage({
+          type: 'NAVA_VALIDATE_CONTINUATION_SUBMISSION',
+          attemptId: message.submissionAttemptId,
+          sourceBindingId: message.sourceBindingId,
+        });
+      } catch {
+        return { ok: false, errorCode: 'EXTENSION_INTERNAL' };
+      }
+      if (!authority || authority.ok !== true) {
+        return { ok: false, errorCode: NavaExtension.FAILURE_CODES.includes(authority?.code) ? authority.code : 'CONVERSATION_MISMATCH' };
+      }
+
+      if (!projectHomeStillMatches(message.expectedProjectRef)) return { ok: false, errorCode: 'PROJECT_MISMATCH' };
+      let finalControls;
+      let finalButtons;
+      try {
+        finalControls = visibleComposerControls();
+        finalButtons = enabledSendButtons();
+      } catch {
+        return { ok: false, errorCode: 'DOM_MISMATCH' };
+      }
+      if (finalControls.length !== 1 || composerValue(finalControls[0]) !== message.bootstrap) {
+        const finalValue = finalControls.length === 1 ? composerValue(finalControls[0]) : '';
+        return { ok: false, errorCode: finalValue.trim().length > 0 ? 'COMPOSER_NOT_EMPTY' : 'DOM_MISMATCH' };
+      }
+      if (finalButtons.length !== 1) return { ok: false, errorCode: 'DOM_MISMATCH' };
+      if (continuationSubmissionAttempts.has(message.submissionAttemptId)) {
+        return { ok: true, submitted: true, duplicate: true, projectRef: message.expectedProjectRef };
+      }
+      continuationSubmissionAttempts.add(message.submissionAttemptId);
+      try {
+        finalButtons[0].click();
+      } catch {
+        return { ok: false, errorCode: 'SUBMIT_FAILED' };
+      }
+      return {
+        ok: true,
+        submitted: true,
+        submissionAttemptId: message.submissionAttemptId,
+        projectRef: message.expectedProjectRef,
+      };
+    }
+    return { ok: false, errorCode: 'SUBMIT_FAILED' };
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!NavaExtension.isRecord(message)) return false;
     if (message.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP') {
-      sendResponse(submitContinuationBootstrap(message));
-      return false;
+      void submitContinuationBootstrap(message)
+        .then(sendResponse)
+        .catch(() => sendResponse({ ok: false, errorCode: 'SUBMIT_FAILED' }));
+      return true;
     }
     if (message.type === 'NAVA_INSPECT_CHAT_STATE') {
       try {
