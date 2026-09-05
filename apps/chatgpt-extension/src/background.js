@@ -7,8 +7,11 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
 
   const INSTALLATION_ID_KEY = 'nava.extensionInstallationId';
   const SESSION_STATE_KEY = 'nava.commandRoomBinding';
+  const SESSION_REGISTRY_KEY = 'nava.commandRoomBindings';
   const PERSISTED_STATE_KEY = 'nava.commandRoomBindingEncrypted';
   const SESSION_REWRAP_KEY = 'nava.commandRoomBindingRewrapKey';
+  const REGISTRY_VERSION = 1;
+  const MAX_BINDINGS = 32;
   const WAKE_ALARM_NAME = 'nava.commandRoomWakePoll';
   const WAKE_POLL_MINUTES = 1;
   const KNOWN_ERROR_CODES = new Set([
@@ -73,10 +76,87 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     return /^chatgpt:https:\/\/chatgpt\.com\/(?:c\/[^/]+|g\/[^/]+\/c\/[^/]+)$/.test(state.conversationRef);
   }
 
+  function validRegistry(value) {
+    if (!NavaExtension.isRecord(value) || value.registryVersion !== REGISTRY_VERSION || !Array.isArray(value.bindings)) return false;
+    if (value.bindings.length < 1 || value.bindings.length > MAX_BINDINGS || !value.bindings.every(validState)) return false;
+    const slots = new Set();
+    const ids = new Set();
+    for (const state of value.bindings) {
+      const slotIdentity = state.roomId + '\0' + state.slotKey;
+      if (slots.has(slotIdentity) || ids.has(state.bindingId)) return false;
+      slots.add(slotIdentity);
+      ids.add(state.bindingId);
+    }
+    return true;
+  }
+
+  function registryFromValue(value) {
+    if (validRegistry(value)) return { registryVersion: REGISTRY_VERSION, bindings: [...value.bindings] };
+    if (validState(value)) return { registryVersion: REGISTRY_VERSION, bindings: [value] };
+    return null;
+  }
+
+  function upsertRegistryState(registry, state) {
+    const bindings = registry.bindings.filter((entry) => (
+      !(entry.roomId === state.roomId && entry.slotKey === state.slotKey)
+      && entry.bindingId !== state.bindingId
+    ));
+    bindings.push(state);
+    if (bindings.length > MAX_BINDINGS) bindings.splice(0, bindings.length - MAX_BINDINGS);
+    return { registryVersion: REGISTRY_VERSION, bindings };
+  }
+
+  async function readRegistry() {
+    const stored = await chrome.storage.session.get([SESSION_REGISTRY_KEY, SESSION_STATE_KEY]);
+    return registryFromValue(stored?.[SESSION_REGISTRY_KEY]) ?? registryFromValue(stored?.[SESSION_STATE_KEY]);
+  }
+
+  async function stateForActiveTab(registry, fallback = null) {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tabs.length === 1) {
+        const conversationRef = NavaExtension.tabConversationRef(tabs[0]);
+        if (conversationRef !== null) {
+          const exact = registry.bindings.find((state) => state.conversationRef === conversationRef);
+          if (exact !== undefined) return exact;
+        }
+      }
+    } catch {
+      // Fall back to the previously selected state.
+    }
+    if (validState(fallback)) {
+      const exact = registry.bindings.find((state) => state.bindingId === fallback.bindingId);
+      if (exact !== undefined) return exact;
+    }
+    return registry.bindings[0] ?? null;
+  }
+
+  async function writeSessionRegistry(registry, currentState = null, sessionKey = undefined) {
+    const selected = await stateForActiveTab(registry, currentState);
+    await chrome.storage.session.set({
+      [SESSION_REGISTRY_KEY]: registry,
+      ...(selected === null ? {} : { [SESSION_STATE_KEY]: selected }),
+      ...(typeof sessionKey === 'string' ? { [SESSION_REWRAP_KEY]: sessionKey } : {}),
+    });
+    return selected;
+  }
+
   async function readState() {
     const stored = await chrome.storage.session.get(SESSION_STATE_KEY);
-    const state = stored?.[SESSION_STATE_KEY];
-    return validState(state) ? state : null;
+    const registry = await readRegistry();
+    if (registry === null) return null;
+    return stateForActiveTab(registry, validState(stored?.[SESSION_STATE_KEY]) ? stored[SESSION_STATE_KEY] : null);
+  }
+
+  async function updateSessionState(state) {
+    const registry = await readRegistry();
+    if (registry === null) {
+      await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
+      return state;
+    }
+    const nextRegistry = upsertRegistryState(registry, state);
+    await writeSessionRegistry(nextRegistry, state);
+    return state;
   }
 
   async function hasPersistedState() {
@@ -89,25 +169,33 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   async function saveState(state, passphrase) {
-    const unlocked = await NavaCrypto.createUnlockedEnvelope(state, passphrase);
+    let registry = { registryVersion: REGISTRY_VERSION, bindings: [state] };
+    const stored = await chrome.storage.local.get(PERSISTED_STATE_KEY);
+    const envelope = stored?.[PERSISTED_STATE_KEY];
+    if (NavaCrypto.isEnvelope(envelope)) {
+      const existing = await NavaCrypto.unlockState(envelope, passphrase);
+      const existingRegistry = registryFromValue(existing.state);
+      if (existingRegistry === null) throw new Error('LOCKED');
+      registry = upsertRegistryState(existingRegistry, state);
+    }
+    const unlocked = await NavaCrypto.createUnlockedEnvelope(registry, passphrase);
     await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: unlocked.envelope });
-    await chrome.storage.session.set({
-      [SESSION_STATE_KEY]: state,
-      [SESSION_REWRAP_KEY]: unlocked.sessionKey,
-    });
+    await writeSessionRegistry(registry, state, unlocked.sessionKey);
   }
 
   async function saveContinuationState(state) {
-    const [localStored, sessionStored] = await Promise.all([
+    const [localStored, sessionStored, registry] = await Promise.all([
       chrome.storage.local.get(PERSISTED_STATE_KEY),
       chrome.storage.session.get(SESSION_REWRAP_KEY),
+      readRegistry(),
     ]);
     const envelope = localStored?.[PERSISTED_STATE_KEY];
     const sessionKey = sessionStored?.[SESSION_REWRAP_KEY];
-    if (!NavaCrypto.isEnvelope(envelope) || typeof sessionKey !== 'string') throw new Error('LOCKED');
-    const encrypted = await NavaCrypto.encryptStateWithSessionKey(envelope, state, sessionKey);
+    if (!NavaCrypto.isEnvelope(envelope) || typeof sessionKey !== 'string' || registry === null) throw new Error('LOCKED');
+    const nextRegistry = upsertRegistryState(registry, state);
+    const encrypted = await NavaCrypto.encryptStateWithSessionKey(envelope, nextRegistry, sessionKey);
     await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: encrypted });
-    await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
+    await writeSessionRegistry(nextRegistry, state);
   }
 
   async function restrictSessionStorage() {
@@ -139,7 +227,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
 
   async function syncWakeAlarm() {
     try {
-      if (await readState()) {
+      if (await readRegistry()) {
         await ensureWakeAlarm();
       } else {
         await clearWakeAlarm();
@@ -150,6 +238,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   async function syncSupervisorState(state) {
+    if (state.slotKey === 'MAIN') return { ok: true, response: null, supervisorSync: 'OK', state };
     let supervisorSync = 'DEGRADED';
     let response = null;
     try {
@@ -161,7 +250,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       supervisorSync = error?.status === 401 || error?.status === 409 ? 'FAILED' : 'DEGRADED';
       const nextState = { ...state, supervisorSync };
       try {
-        await chrome.storage.session.set({ [SESSION_STATE_KEY]: nextState });
+        await updateSessionState(nextState);
       } catch {
         // Supervisor synchronization is advisory plumbing and must never block core work.
       }
@@ -169,11 +258,80 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     }
     const nextState = { ...state, supervisorSync };
     try {
-      await chrome.storage.session.set({ [SESSION_STATE_KEY]: nextState });
+      await updateSessionState(nextState);
     } catch {
       // Keep core work available even when supervisor state cannot be mirrored locally.
     }
     return { ok: true, response, supervisorSync, state: nextState };
+  }
+
+  async function recoverRegistry(registry) {
+    const seed = registry.bindings.find((state) => validState(state));
+    if (seed === undefined) return registry;
+    let tabs;
+    try {
+      tabs = await chrome.tabs.query({});
+    } catch {
+      return registry;
+    }
+    const conversationRefs = [...new Set(tabs.map((tab) => NavaExtension.tabConversationRef(tab)).filter((value) => value !== null))];
+    if (conversationRefs.length === 0) return registry;
+    let response;
+    try {
+      response = await NavaBridge.recoverBindings(seed, conversationRefs.slice(0, MAX_BINDINGS));
+    } catch {
+      return registry;
+    }
+    const recovered = Array.isArray(response?.bindings) ? response.bindings : [];
+    let next = registry;
+    for (const item of recovered) {
+      if (!NavaExtension.isRecord(item) || !NavaExtension.isRecord(item.binding)) continue;
+      const conversationRef = item.conversationRef;
+      const binding = item.binding;
+      if (
+        typeof conversationRef !== 'string'
+        || typeof item.authToken !== 'string'
+        || typeof binding.id !== 'string'
+        || typeof binding.roomId !== 'string'
+        || typeof binding.slotKey !== 'string'
+        || !Number.isSafeInteger(binding.connectionEpoch)
+      ) continue;
+      const projectRef = NavaExtension.projectRefFromConversationRef(conversationRef);
+      const state = {
+        roomId: binding.roomId,
+        slotKey: binding.slotKey,
+        bindingId: binding.id,
+        connectionEpoch: binding.connectionEpoch,
+        conversationRef,
+        ...(projectRef === null ? {} : { projectRef }),
+        bridgeUrl: seed.bridgeUrl,
+        authToken: item.authToken,
+        supervisorSync: 'DEGRADED',
+      };
+      if (validState(state)) next = upsertRegistryState(next, state);
+    }
+    return next;
+  }
+
+  function mergeSupervisorSync(left, right) {
+    if (left === 'FAILED' || right === 'FAILED') return 'FAILED';
+    if (left === 'DEGRADED' || right === 'DEGRADED') return 'DEGRADED';
+    return 'OK';
+  }
+
+  async function syncAllSupervisorStates(registry) {
+    let supervisorSync = 'OK';
+    let ok = true;
+    let code;
+    for (const state of registry.bindings) {
+      const result = await syncSupervisorState(state);
+      supervisorSync = mergeSupervisorSync(supervisorSync, result.supervisorSync);
+      if (result.ok !== true) {
+        ok = false;
+        if (code === undefined) code = result.code;
+      }
+    }
+    return { ok, ...(code === undefined ? {} : { code }), supervisorSync };
   }
 
   async function unlockState(passphrase) {
@@ -191,16 +349,16 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     } catch {
       return { ok: false, code: 'INVALID_PASSPHRASE' };
     }
-    const state = unlocked.state;
-    if (!validState(state)) return { ok: false, code: 'INVALID_PASSPHRASE' };
-    if (unlocked.upgraded === true) await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: unlocked.envelope });
-    await chrome.storage.session.set({
-      [SESSION_STATE_KEY]: state,
-      [SESSION_REWRAP_KEY]: unlocked.sessionKey,
-    });
+    let registry = registryFromValue(unlocked.state);
+    if (registry === null) return { ok: false, code: 'INVALID_PASSPHRASE' };
+    registry = await recoverRegistry(registry);
+    const encrypted = await NavaCrypto.encryptStateWithSessionKey(unlocked.envelope, registry, unlocked.sessionKey);
+    await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: encrypted });
+    const selected = await writeSessionRegistry(registry, registry.bindings[0] ?? null, unlocked.sessionKey);
     await ensureWakeAlarm();
-    const supervisor = await syncSupervisorState({ ...state, supervisorSync: state.supervisorSync ?? 'DEGRADED' });
-    return { ok: true, state: publicState(supervisor.state) };
+    await syncAllSupervisorStates(registry);
+    const refreshed = await readState();
+    return { ok: true, state: publicState(refreshed ?? selected) };
   }
 
   function publicState(state) {
@@ -505,44 +663,56 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   async function runCheckWakes() {
-    const state = await readState();
-    if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
-    const supervisor = await syncSupervisorState(state);
+    const registry = await readRegistry();
+    if (registry === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
     let tabs;
     try {
       tabs = await chrome.tabs.query({});
     } catch {
       return { ok: false, code: 'TAB_NOT_FOUND' };
     }
-    const target = NavaExtension.selectExactTab(tabs, state.conversationRef);
-    if (!target.ok) return { ok: false, code: target.errorCode, pending: true };
-    let response;
-    try {
-      response = await NavaBridge.listWakes(state);
-    } catch (error) {
-      return { ok: false, code: publicError(error) };
-    }
-    const wakes = Array.isArray(response.wakes) ? response.wakes : [];
     let deliveredCount = 0;
     let failedCount = 0;
-    for (const wake of wakes) {
-      if (!NavaExtension.isRecord(wake) || typeof wake.id !== 'string') continue;
-      const result = await deliverWake(state, target.tab, wake);
-      if (result.delivered) deliveredCount += 1;
-      if (result.failed) failedCount += 1;
+    let pendingCount = 0;
+    let supervisorSync = 'OK';
+    let anyCoreSuccess = false;
+    let firstError = null;
+    for (const state of registry.bindings) {
+      const supervisor = await syncSupervisorState(state);
+      supervisorSync = mergeSupervisorSync(supervisorSync, supervisor.supervisorSync);
+      const target = NavaExtension.selectExactTab(tabs, state.conversationRef);
+      if (!target.ok) {
+        pendingCount += 1;
+        if (firstError === null) firstError = target.errorCode;
+        continue;
+      }
+      let response;
+      try {
+        response = await NavaBridge.listWakes(state);
+      } catch (error) {
+        if (firstError === null) firstError = publicError(error);
+        continue;
+      }
+      anyCoreSuccess = true;
+      const wakes = Array.isArray(response.wakes) ? response.wakes : [];
+      let handled = 0;
+      for (const wake of wakes) {
+        if (!NavaExtension.isRecord(wake) || typeof wake.id !== 'string') continue;
+        const result = await deliverWake(state, target.tab, wake);
+        if (result.delivered) deliveredCount += 1;
+        if (result.failed) failedCount += 1;
+        if (result.pendingAck) pendingCount += 1;
+        handled += 1;
+      }
+      pendingCount += Math.max(0, wakes.length - handled);
+      try {
+        await NavaBridge.touch(state);
+      } catch {
+        // A wake result remains authoritative; a heartbeat can be retried later.
+      }
     }
-    try {
-      await NavaBridge.touch(state);
-    } catch {
-      // A wake result remains authoritative; a heartbeat can be retried later.
-    }
-    return {
-      ok: true,
-      deliveredCount,
-      failedCount,
-      pendingCount: Math.max(0, wakes.length - deliveredCount - failedCount),
-      supervisorSync: supervisor.supervisorSync,
-    };
+    if (!anyCoreSuccess && firstError !== null) return { ok: false, code: firstError };
+    return { ok: true, deliveredCount, failedCount, pendingCount, supervisorSync };
   }
 
   async function checkWakes() {
@@ -556,11 +726,12 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   async function acknowledgeWakeSubmitted(message, sender) {
-    const state = await readState();
-    if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
+    const registry = await readRegistry();
+    if (registry === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
     if (!sender?.tab || typeof sender.tab.id !== 'number') return { ok: false, code: 'TAB_UNAVAILABLE' };
     const conversationRef = NavaExtension.tabConversationRef(sender.tab);
-    if (conversationRef !== state.conversationRef) return { ok: false, code: 'CONVERSATION_MISMATCH' };
+    const state = conversationRef === null ? null : registry.bindings.find((entry) => entry.conversationRef === conversationRef) ?? null;
+    if (state === null) return { ok: false, code: 'CONVERSATION_MISMATCH' };
     if (typeof message.wakeId !== 'string' || message.wakeId.length < 1 || message.wakeId.length > 512) {
       return { ok: false, code: 'EXTENSION_INTERNAL' };
     }
@@ -578,10 +749,9 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     if (message.type === 'UNLOCK_STATE') return unlockState(message.passphrase);
     if (message.type === 'CHECK_WAKES') return checkWakes();
     if (message.type === 'SYNC_SUPERVISOR_STATE') {
-      const state = await readState();
-      if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED', supervisorSync: 'DEGRADED' };
-      const result = await syncSupervisorState(state);
-      return { ok: result.ok, ...(result.ok ? {} : { code: result.code }), supervisorSync: result.supervisorSync };
+      const registry = await readRegistry();
+      if (registry === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED', supervisorSync: 'DEGRADED' };
+      return syncAllSupervisorStates(registry);
     }
     if (message.type === 'CHECK_CONTINUATION_READY') return inspectContinuationReady();
     if (message.type === 'CONTINUE_CONVERSATION') return autoContinueConversation();

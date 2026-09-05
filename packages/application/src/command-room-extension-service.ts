@@ -45,6 +45,7 @@ export interface CommandRoomExtensionRepositoryPort {
   >;
   getActiveBinding(roomId: string, agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null>;
   getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null>;
+  listActiveBindingsForInstallation(extensionInstallationId: string): Promise<readonly CommandRoomBindingRecord[]>;
   getAgentAuthority(roomId: string, agentId: string): Promise<{
     readonly roomId: string;
     readonly agentId: string;
@@ -306,6 +307,25 @@ export class CommandRoomExtensionService {
     if (binding === null || binding.state !== 'PAIRED' || binding.extensionInstallationId !== extensionInstallationId) return null;
     const active = await this.repository.getActiveBinding(binding.roomId, binding.agentId, binding.connectionEpoch);
     return active?.id === binding.id ? active : null;
+  }
+
+  public async recoverBindingsForInstallation(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly conversationRefFingerprints: readonly string[];
+  }): Promise<readonly CommandRoomBindingRecord[] | null> {
+    const authenticated = await this.authenticateBinding(input.bindingId, input.extensionInstallationId);
+    if (authenticated === null) return null;
+    const wanted = new Set(input.conversationRefFingerprints.filter((value) => typeof value === 'string' && value.length > 0));
+    if (wanted.size === 0) return [];
+    const candidates = await this.repository.listActiveBindingsForInstallation(input.extensionInstallationId);
+    const recovered: CommandRoomBindingRecord[] = [];
+    for (const binding of candidates) {
+      if (binding.conversationRefFingerprint === undefined || !wanted.has(binding.conversationRefFingerprint)) continue;
+      const active = await this.repository.getActiveBinding(binding.roomId, binding.agentId, binding.connectionEpoch);
+      if (active?.id === binding.id) recovered.push(binding);
+    }
+    return recovered;
   }
 
   public async syncSupervisorState(input: {

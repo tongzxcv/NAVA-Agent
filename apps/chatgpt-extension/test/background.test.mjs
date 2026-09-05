@@ -49,6 +49,7 @@ async function createHarness() {
   let wakes = [];
   let bridgeOnline = true;
   let supervisorResponse = { body: { ok: true, outcome: 'published', supervisorSync: 'OK' }, status: 200 };
+  let recoveryBindings = [];
   let inspectResponse = { ok: true, conversationRef: 'chatgpt:https://chatgpt.com/c/conversation-1', limit: { ok: true, maxLength: false }, composer: { ok: true } };
 
   const chrome = {
@@ -108,6 +109,7 @@ async function createHarness() {
           binding: { id: requestedBindingId, connectionEpoch: 1 },
         });
       }
+      if (String(url).endsWith('/recover')) return jsonResponse({ ok: true, bindings: recoveryBindings });
       if (String(url).endsWith('/supervisor')) return jsonResponse(supervisorResponse.body, supervisorResponse.status);
       if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
       if (String(url).endsWith('/v1/bindings/binding-1234/continuation')) return jsonResponse({ continuation: { bindingId: 'binding-continuation', challenge: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1 } });
@@ -153,6 +155,8 @@ async function createHarness() {
     setSendMessageFailures: (value) => { sendMessageFailures = value; },
     setBridgeOnline: (value) => { bridgeOnline = value; },
     setSupervisorResponse: (body, status = 200) => { supervisorResponse = { body, status }; },
+    setRecoveryBindings: (value) => { recoveryBindings = value; },
+    setTabs: (value) => { tabs.splice(0, tabs.length, ...value); },
     setInspectResponse: (value) => { inspectResponse = value; },
     setTabUrl: (value) => { tabs[0].url = value; },
     setWakes: (value) => { wakes = value; },
@@ -218,6 +222,68 @@ test('pair persists only an encrypted envelope, unlocks after session loss, and 
 });
 
 
+
+test('unlock migrates a legacy singleton into a multi-binding registry and recovers open same-installation bindings without re-pair', async () => {
+  const harness = await createHarness();
+  const lead3Payload = JSON.stringify({
+    protocolVersion: 1,
+    bridgeUrl: 'http://127.0.0.1:18766',
+    roomId: 'room-1',
+    slotKey: 'LEAD-3',
+    bindingId: 'binding-3',
+    challenge: 'y'.repeat(32),
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    connectionEpoch: 1,
+    allowedOrigins: [`chrome-extension://${'a'.repeat(32)}`],
+  });
+  harness.setTabs([{ id: 33, url: 'https://chatgpt.com/c/conversation-3' }]);
+  const paired = await harness.send({
+    type: 'PAIR_ACTIVE_TAB',
+    payloadText: lead3Payload,
+    passphrase: 'correct horse battery',
+  });
+  assert.equal(paired.ok, true);
+  assert.equal(paired.state.bindingId, 'binding-3');
+
+  harness.setTabs([
+    { id: 17, url: 'https://chatgpt.com/c/conversation-1' },
+    { id: 33, url: 'https://chatgpt.com/c/conversation-3' },
+  ]);
+  harness.setRecoveryBindings([{
+    conversationRef: 'chatgpt:https://chatgpt.com/c/conversation-1',
+    binding: {
+      id: 'binding-1234',
+      roomId: 'room-1',
+      slotKey: 'LEAD-1',
+      connectionEpoch: 1,
+      state: 'PAIRED',
+    },
+    authToken: 'nava-v1.recovered-token-value-123456',
+  }]);
+
+  const pairCallsBefore = harness.fetchCalls.filter((call) => call.url.endsWith('/v1/pair/confirm')).length;
+  await harness.session.clear();
+  const unlocked = await harness.send({ type: 'UNLOCK_STATE', passphrase: 'correct horse battery' });
+  assert.equal(unlocked.ok, true, JSON.stringify(unlocked));
+
+  const registry = harness.session.values.get('nava.commandRoomBindings');
+  assert.equal(registry.registryVersion, 1);
+  assert.equal(
+    JSON.stringify(registry.bindings.map((state) => state.bindingId).sort()),
+    JSON.stringify(['binding-1234', 'binding-3']),
+  );
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.url.endsWith('/v1/pair/confirm')).length,
+    pairCallsBefore,
+  );
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/v1/bindings/binding-3/recover')), true);
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/v1/bindings/binding-1234/supervisor')), true);
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/v1/bindings/binding-3/supervisor')), true);
+
+  const sync = await harness.send({ type: 'SYNC_SUPERVISOR_STATE' });
+  assert.equal(sync.ok, true);
+  assert.equal(sync.supervisorSync, 'OK');
+});
 
 test('existing exact tab rehydrates the content listener after extension reload without spending a failed attempt', async () => {
   const harness = await createHarness();

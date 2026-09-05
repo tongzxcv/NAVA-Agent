@@ -290,6 +290,12 @@ export class SqliteCommandRoomBindingRepository {
     return toBinding(this.database.connection.prepare(bindingSelect('WHERE id = ?')).get(bindingId));
   }
 
+  public async listActiveBindingsForInstallation(extensionInstallationId: string): Promise<readonly CommandRoomBindingRecord[]> {
+    return this.database.connection.prepare(
+      `${bindingSelect("WHERE extension_installation_id = ? AND state = 'PAIRED'")} ORDER BY slot_key, updated_at DESC`,
+    ).all(extensionInstallationId).flatMap((row) => { const binding = toBinding(row); return binding === null ? [] : [binding]; });
+  }
+
   public async enqueueWake(input: EnqueueCommandRoomWakeInput): Promise<EnqueueCommandRoomWakeResult> {
     const connection = this.database.connection;
     connection.exec('BEGIN IMMEDIATE;');

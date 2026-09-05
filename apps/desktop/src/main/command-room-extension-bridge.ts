@@ -22,6 +22,7 @@ export type CommandRoomExtensionBridgeService = Pick<CommandRoomExtensionService
   | 'markWakeAttemptFailed'
   | 'touchBinding'
   | 'syncSupervisorState'
+  | 'recoverBindingsForInstallation'
   | 'revoke'
 >;
 
@@ -135,7 +136,7 @@ async function handleRequest(
     return;
   }
 
-  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation|supervisor))?$/.exec(url.pathname);
+  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation|supervisor|recover))?$/.exec(url.pathname);
   if (bindingMatch !== null) {
     const bindingId = decodePathSegment(bindingMatch[1]);
     const action = bindingMatch[2] ?? 'status';
@@ -159,6 +160,39 @@ async function handleRequest(
         return;
       }
       sendJson(response, 200, { ok: true, continuation });
+      return;
+    }
+    if (action === 'recover' && request.method === 'POST') {
+      const body = await readJsonObject(request);
+      const conversationRefs = requiredOpaqueStringArray(body, 'conversationRefs', 1, 32, 8, 2_048);
+      const protectedRefs = conversationRefs.map((conversationRef) => ({
+        conversationRef,
+        ...protectConversationRef(options.authKey, conversationRef),
+      }));
+      const recovered = await options.service.recoverBindingsForInstallation({
+        bindingId,
+        extensionInstallationId: requireInstallationId(authenticated),
+        conversationRefFingerprints: protectedRefs.map((entry) => entry.conversationRefFingerprint),
+      });
+      if (recovered === null) {
+        sendJson(response, 401, { ok: false, code: 'UNAUTHORIZED_BINDING' });
+        return;
+      }
+      const recoveredByFingerprint = new Map(recovered.flatMap((binding) => (
+        binding.conversationRefFingerprint === undefined ? [] : [[binding.conversationRefFingerprint, binding] as const]
+      )));
+      sendJson(response, 200, {
+        ok: true,
+        bindings: protectedRefs.flatMap((entry) => {
+          const binding = recoveredByFingerprint.get(entry.conversationRefFingerprint);
+          if (binding === undefined || binding.extensionInstallationId === undefined) return [];
+          return [{
+            conversationRef: entry.conversationRef,
+            binding: safeBinding(binding),
+            authToken: deriveAuthToken(options.authKey, binding.id, binding.extensionInstallationId, binding.connectionEpoch),
+          }];
+        }),
+      });
       return;
     }
     if (action === 'supervisor' && request.method === 'POST') {
@@ -455,6 +489,28 @@ function requiredWakeFailureCode(value: Record<string, unknown>): string {
     throw new HttpInputError(400, 'INVALID_WAKE_FAILURE_CODE', 'Wake failure code is invalid.');
   }
   return code;
+}
+
+function requiredOpaqueStringArray(
+  value: Record<string, unknown>,
+  field: string,
+  minItems: number,
+  maxItems: number,
+  minLength: number,
+  maxLength: number,
+): string[] {
+  const candidate = value[field];
+  if (!Array.isArray(candidate) || candidate.length < minItems || candidate.length > maxItems) {
+    throw new HttpInputError(400, 'INVALID_INPUT', `${field} is invalid.`);
+  }
+  const result: string[] = [];
+  for (const entry of candidate) {
+    if (typeof entry !== 'string' || entry.trim().length < minLength || entry.length > maxLength) {
+      throw new HttpInputError(400, 'INVALID_INPUT', `${field} is invalid.`);
+    }
+    if (!result.includes(entry)) result.push(entry);
+  }
+  return result;
 }
 
 function requiredOpaqueString(value: Record<string, unknown>, field: string, min: number, max: number): string {

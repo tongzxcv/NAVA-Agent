@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CommandRoomBindingRecord, CommandRoomWakeDeliveryRecord } from '@lnwjud/domain';
 import {
+  protectCommandRoomConversationRefForTest,
   startCommandRoomExtensionBridge,
   type CommandRoomExtensionBridgeHandle,
   type CommandRoomExtensionBridgeService,
@@ -13,6 +14,7 @@ const INSTALLATION_ID = 'extension-installation-random-1';
 const AUTH_KEY = Buffer.alloc(32, 7);
 const NOW = '2026-08-30T01:00:00.000Z';
 const CONVERSATION_REF = 'chatgpt:https://chatgpt.com/c/conversation-1';
+const CONVERSATION_REF_2 = 'chatgpt:https://chatgpt.com/c/conversation-2';
 const handles: CommandRoomExtensionBridgeHandle[] = [];
 
 describe('Command Room Extension Bridge', () => {
@@ -120,6 +122,44 @@ describe('Command Room Extension Bridge', () => {
       ok: true,
       continuation: { bindingId: 'binding-continuation', connectionEpoch: 7 },
     });
+  });
+
+  it('recovers only same-installation active bindings that match open conversation fingerprints', async () => {
+    const service = new FakeBridgeService();
+    const handle = await startBridge(service);
+    const paired = await pair(handle);
+    const token = String(paired.body.authToken);
+    service.recoveryBindings = [{
+      ...service.binding,
+      id: 'binding-2',
+      agentId: 'lead-2',
+      slotKey: 'LEAD-2',
+      conversationRefFingerprint: protectCommandRoomConversationRefForTest(AUTH_KEY, CONVERSATION_REF_2).conversationRefFingerprint,
+    }];
+
+    const response = await fetch(`${handle.url}/v1/bindings/binding-1/recover`, {
+      method: 'POST',
+      headers: authHeaders(token, true),
+      body: JSON.stringify({ conversationRefs: [CONVERSATION_REF_2, 'chatgpt:https://chatgpt.com/c/not-paired'] }),
+    });
+    expect(response.status).toBe(200);
+    const body = await jsonObject(response);
+    expect(body).toMatchObject({
+      ok: true,
+      bindings: [{
+        conversationRef: CONVERSATION_REF_2,
+        binding: { id: 'binding-2', slotKey: 'LEAD-2', connectionEpoch: 7, state: 'PAIRED' },
+      }],
+    });
+    expect(String((body.bindings as Array<Record<string, unknown>>)[0]?.authToken)).toMatch(/^nava-v1\./);
+    expect(JSON.stringify(body)).not.toContain(INSTALLATION_ID);
+
+    const originless = await fetch(`${handle.url}/v1/bindings/binding-1/recover`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationRefs: [CONVERSATION_REF_2] }),
+    });
+    expect(originless.status).toBe(403);
   });
 
   it('publishes supervisor state only through the authenticated active browser binding', async () => {
@@ -337,6 +377,7 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
     updatedAt: '2026-08-30T00:59:00.000Z',
   };
   public wake: CommandRoomWakeDeliveryRecord | null = null;
+  public recoveryBindings: CommandRoomBindingRecord[] = [];
   public lastPairInput?: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0];
   public lastSupervisorInput?: Parameters<CommandRoomExtensionBridgeService['syncSupervisorState']>[0];
 
@@ -382,6 +423,19 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
       && this.binding.extensionInstallationId === extensionInstallationId
       ? this.binding
       : null;
+  }
+
+  public async recoverBindingsForInstallation(
+    input: Parameters<CommandRoomExtensionBridgeService['recoverBindingsForInstallation']>[0],
+  ): ReturnType<CommandRoomExtensionBridgeService['recoverBindingsForInstallation']> {
+    if (await this.authenticateBinding(input.bindingId, input.extensionInstallationId) === null) return null;
+    const wanted = new Set(input.conversationRefFingerprints);
+    return this.recoveryBindings.filter((binding) => (
+      binding.state === 'PAIRED'
+      && binding.extensionInstallationId === input.extensionInstallationId
+      && binding.conversationRefFingerprint !== undefined
+      && wanted.has(binding.conversationRefFingerprint)
+    ));
   }
 
   public async syncSupervisorState(input: Parameters<CommandRoomExtensionBridgeService['syncSupervisorState']>[0]): ReturnType<CommandRoomExtensionBridgeService['syncSupervisorState']> {

@@ -228,6 +228,49 @@ describe('CommandRoomExtensionService', () => {
     })).resolves.toMatchObject({ outcome: 'queued', delivery: { id: 'wake-after-sync-failure' } });
   });
 
+  it('recovers only fingerprint-matched active bindings from the same authenticated installation', async () => {
+    const repository = new FakeExtensionRepository();
+    repository.activeBinding = pairedBinding();
+    repository.installationBindings = [
+      pairedBinding(),
+      {
+        ...pairedBinding(),
+        id: 'binding-2',
+        agentId: 'lead-2',
+        slotKey: 'LEAD-2',
+        conversationRefFingerprint: 'hmac:conversation-ref-2',
+      },
+      {
+        ...pairedBinding(),
+        id: 'binding-other-install',
+        agentId: 'lead-3',
+        slotKey: 'LEAD-3',
+        extensionInstallationId: 'extension-installation-other',
+        conversationRefFingerprint: 'hmac:conversation-ref-3',
+      },
+    ];
+    const service = new CommandRoomExtensionService(repository);
+
+    await expect(service.recoverBindingsForInstallation({
+      bindingId: 'binding-1',
+      extensionInstallationId: 'extension-installation-random-1',
+      conversationRefFingerprints: ['hmac:conversation-ref-2', 'hmac:conversation-ref-3'],
+    })).resolves.toEqual([
+      expect.objectContaining({
+        id: 'binding-2',
+        slotKey: 'LEAD-2',
+        extensionInstallationId: 'extension-installation-random-1',
+      }),
+    ]);
+
+    await expect(service.recoverBindingsForInstallation({
+      bindingId: 'wrong-binding',
+      extensionInstallationId: 'extension-installation-random-1',
+      conversationRefFingerprints: ['hmac:conversation-ref-2'],
+    })).resolves.toBeNull();
+    expect(repository.activeBinding?.connectionEpoch).toBe(7);
+  });
+
   it('queues only allowlisted wake reasons against the exact active epoch', async () => {
     const repository = new FakeExtensionRepository();
     const service = new CommandRoomExtensionService(repository, { randomId: (): string => 'wake-1' });
@@ -322,6 +365,7 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
   public lastConfirmInput?: Parameters<CommandRoomExtensionRepositoryPort['confirmPairing']>[0];
   public lastWakeInput?: Parameters<CommandRoomExtensionRepositoryPort['enqueueWake']>[0];
   public activeBinding: CommandRoomBindingRecord | null = null;
+  public installationBindings: CommandRoomBindingRecord[] = [];
   public agentAuthority = {
     roomId: 'room-1',
     agentId: 'lead-1',
@@ -353,12 +397,25 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
     return { outcome: 'paired' as const, binding: this.activeBinding ?? pairedBinding() };
   }
 
-  public async getActiveBinding(_roomId: string, _agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null> {
-    return this.activeBinding?.connectionEpoch === connectionEpoch ? this.activeBinding : null;
+  public async getActiveBinding(roomId: string, agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null> {
+    return [this.activeBinding, ...this.installationBindings]
+      .find((binding) => binding !== null
+        && binding.roomId === roomId
+        && binding.agentId === agentId
+        && binding.connectionEpoch === connectionEpoch
+        && binding.state === 'PAIRED') ?? null;
   }
 
   public async getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null> {
-    return this.activeBinding?.id === bindingId ? this.activeBinding : null;
+    return [this.activeBinding, ...this.installationBindings].find((binding) => binding?.id === bindingId) ?? null;
+  }
+
+  public async listActiveBindingsForInstallation(extensionInstallationId: string): Promise<readonly CommandRoomBindingRecord[]> {
+    return [this.activeBinding, ...this.installationBindings].filter((binding): binding is CommandRoomBindingRecord => (
+      binding !== null
+      && binding.state === 'PAIRED'
+      && binding.extensionInstallationId === extensionInstallationId
+    ));
   }
 
   public async getAgentAuthority(roomId: string, agentId: string): Promise<typeof this.agentAuthority | null> {

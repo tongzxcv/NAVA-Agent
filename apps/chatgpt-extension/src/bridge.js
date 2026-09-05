@@ -89,6 +89,17 @@
     });
   }
 
+  async function recoverBindings(state, conversationRefs) {
+    if (!Array.isArray(conversationRefs) || conversationRefs.length < 1 || conversationRefs.length > 32) {
+      throw bridgeError('EXTENSION_INTERNAL');
+    }
+    return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/recover`), {
+      method: 'POST',
+      authToken: state.authToken,
+      body: { conversationRefs },
+    });
+  }
+
   async function syncSupervisor(state) {
     return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/supervisor`), {
       method: 'POST',
@@ -120,5 +131,5 @@
     });
   }
 
-  globalThis.NavaBridge = Object.freeze({ createContinuationChallenge, listWakes, pair, syncSupervisor, touch, transition });
+  globalThis.NavaBridge = Object.freeze({ createContinuationChallenge, listWakes, pair, recoverBindings, syncSupervisor, touch, transition });
 })();
