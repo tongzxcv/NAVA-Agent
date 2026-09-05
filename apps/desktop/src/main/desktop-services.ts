@@ -163,6 +163,26 @@ const localeSettingKey = 'ui_locale';
 const commandRoomExtensionEnabledSettingKey = 'command_room_extension_wake_enabled';
 const commandRoomExtensionOriginsSettingKey = 'command_room_extension_allowed_origins';
 const COMMAND_ROOM_EXTENSION_BRIDGE_PORT = 18_766;
+
+export function resolveCommandRoomExtensionBridgePort(
+  explicitPort: number | undefined,
+  environmentValue: string | undefined = process.env.LNWJUD_EXTENSION_BRIDGE_PORT,
+): number {
+  if (explicitPort !== undefined) {
+    if (!Number.isSafeInteger(explicitPort) || explicitPort < 0 || explicitPort > 65_535) {
+      throw new Error('Command Room Extension Bridge explicit port must be an integer between 0 and 65535');
+    }
+    return explicitPort;
+  }
+  const raw = environmentValue?.trim();
+  if (raw === undefined || raw.length === 0) return COMMAND_ROOM_EXTENSION_BRIDGE_PORT;
+  if (!/^\d+$/.test(raw)) throw new Error('LNWJUD_EXTENSION_BRIDGE_PORT must be an integer between 1 and 65535');
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65_535) {
+    throw new Error('LNWJUD_EXTENSION_BRIDGE_PORT must be an integer between 1 and 65535');
+  }
+  return parsed;
+}
 const DASHBOARD_GIT_CACHE_MS = 60_000;
 const E2E_FIXTURE = process.env.LNWJUD_E2E_FIXTURE === '1';
 
@@ -509,7 +529,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
           authKey: extensionBridgeAuthKey(),
           enabled: extensionWakeEnabled,
           allowedOrigins: extensionAllowedOrigins,
-          port: options.extensionBridgePort ?? COMMAND_ROOM_EXTENSION_BRIDGE_PORT,
+          port: resolveCommandRoomExtensionBridgePort(options.extensionBridgePort),
         });
         commandRoomExtensionBridgeError = null;
       } catch (error: unknown) {
