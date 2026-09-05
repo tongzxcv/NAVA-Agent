@@ -158,6 +158,12 @@ export class SqliteCommandRoomBindingRepository {
 
       connection.prepare(`
         UPDATE command_room_bindings
+        SET state = 'REPLACED', replaced_at = ?, updated_at = ?
+        WHERE room_id = ? AND agent_id = ? AND connection_epoch = ? AND state = 'PAIRED'
+      `).run(input.confirmedAt, input.confirmedAt, input.roomId, input.agentId, input.connectionEpoch);
+
+      connection.prepare(`
+        UPDATE command_room_bindings
         SET state = 'PAIRED', extension_installation_id = ?, encrypted_conversation_ref = ?,
             conversation_ref_fingerprint = ?, challenge_hash = NULL, challenge_expires_at = NULL,
             paired_at = ?, last_seen_at = ?, updated_at = ?

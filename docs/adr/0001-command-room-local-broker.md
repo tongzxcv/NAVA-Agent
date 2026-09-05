@@ -72,7 +72,8 @@ agent_swarm_run ปัจจุบันเป็น planned capability ไม�
 | checkpoint ขณะถือ writer lease ถูกปฏิเสธ | route session_checkpoint ผ่าน existing workspace_lease_call และทดสอบ envelope ใน bundled skill |
 | writer collision | existing workspace lease only |
 | MT5/VPS collision | explicit resource capacity and expiring resource lease |
-| agent disappears/chat full | checkpoint, stale detection, slot takeover with new epoch |
+| chat full แต่ agent session ยัง authoritative | checkpoint + same-project same-epoch browser continuation + atomic binding replacement; no rebind/takeover |
+| agent session disappears/revoked | checkpoint, stale detection, explicit slot takeover with new epoch |
 | Tunnel partial health failure | layer-aware dispatch pause; no automatic mutation retry |
 | schema/tool missing in chat | fixed 8-tool surface, manifestVersion, expectedShape, connector refresh |
 | transcript/secret leakage | bounded summaries, redaction, encrypted conversation reference, no raw prompt storage |

@@ -6,6 +6,7 @@
   const payloadInput = document.getElementById('pairing-payload');
   const pairButton = document.getElementById('pair-button');
   const checkButton = document.getElementById('check-button');
+  const continueButton = document.getElementById('continue-button');
   const unlockButton = document.getElementById('unlock-button');
   const copyOriginButton = document.getElementById('copy-origin-button');
   const passphraseInput = document.getElementById('passphrase');
@@ -24,6 +25,10 @@
     TAB_UNAVAILABLE: 'แท็บเป้าหมายไม่พร้อมใช้งาน',
     DOM_MISMATCH: 'หน้า ChatGPT เปลี่ยนโครงสร้างหรือกำลังทำงานอยู่ จึงหยุดอย่างปลอดภัย',
     COMPOSER_NOT_EMPTY: 'ช่องข้อความมีร่างค้างอยู่ จึงไม่แตะต้องช่องข้อความ',
+    SUBMIT_FAILED: 'สร้าง continuation chat ได้แต่ส่ง bootstrap ไม่สำเร็จ จึงหยุดอย่างปลอดภัย',
+    PROJECT_IDENTITY_MISSING: 'แชทที่จับคู่ไม่ได้อยู่ใน ChatGPT Project จึงไม่ทำ auto continuation',
+    PROJECT_MISMATCH: 'หน้า continuation ไม่ตรง ChatGPT Project เดิม จึงหยุดอย่างปลอดภัย',
+    CONTINUATION_TIMEOUT: 'หน้า continuation ไม่พร้อมภายในเวลาที่กำหนด จึงคง binding เดิมไว้',
     BRIDGE_UNAVAILABLE: 'เชื่อมต่อ NAVA Bridge ไม่ได้ ตรวจว่า NAVA เปิดและเปิด Extension Wake แล้ว',
     INVALID_BRIDGE_RESPONSE: 'NAVA Bridge ตอบกลับไม่ตรงสัญญา',
     UNPAIRED: 'ยังไม่ได้จับคู่แท็บกับ NAVA',
@@ -121,6 +126,26 @@
       setStatus('', 'EXTENSION_INTERNAL');
     } finally {
       checkButton.disabled = false;
+    }
+  });
+
+  continueButton.addEventListener('click', async () => {
+    continueButton.disabled = true;
+    setStatus('กำลังตรวจ Auto Continuation…');
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'CONTINUE_CONVERSATION' });
+      if (result?.ok === true && result?.outcome === 'CONTINUED') {
+        setStatus(`สร้าง continuation chat แล้ว · ${result.slotKey} · epoch ${result.connectionEpoch}`);
+        await refreshState();
+      } else if (result?.ok === true && result?.ready === false && result?.reason === 'NOT_AT_MAX_LENGTH') {
+        setStatus('Auto Continuation พร้อมทำงาน — แชทยังไม่ถึง maximum length');
+      } else {
+        setStatus('', result?.code);
+      }
+    } catch {
+      setStatus('', 'EXTENSION_INTERNAL');
+    } finally {
+      continueButton.disabled = false;
     }
   });
 

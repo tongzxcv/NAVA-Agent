@@ -71,6 +71,33 @@ describe('CommandRoomExtensionService', () => {
     expect(JSON.stringify(repository.lastConfirmInput)).not.toContain(RAW_CHALLENGE);
   });
 
+  it('creates continuation pairing authority only from the authenticated active binding and keeps the same epoch', async () => {
+    const repository = new FakeExtensionRepository();
+    repository.activeBinding = pairedBinding();
+    const service = new CommandRoomExtensionService(repository, {
+      randomId: (): string => 'binding-continuation',
+      randomChallenge: (): string => RAW_CHALLENGE,
+    });
+
+    const continuation = await service.createContinuationChallenge({
+      bindingId: 'binding-1',
+      extensionInstallationId: 'extension-installation-random-1',
+      now: NOW,
+    });
+    expect(continuation).toEqual({
+      bindingId: 'binding-continuation', challenge: RAW_CHALLENGE,
+      expiresAt: '2026-08-30T00:05:00.000Z', connectionEpoch: 7,
+    });
+    expect(repository.lastChallengeInput).toMatchObject({
+      id: 'binding-continuation', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1',
+      provider: 'CHATGPT', connectionEpoch: 7,
+    });
+
+    await expect(service.createContinuationChallenge({
+      bindingId: 'binding-1', extensionInstallationId: 'wrong-extension-installation', now: NOW,
+    })).resolves.toBeNull();
+  });
+
   it('queues only allowlisted wake reasons against the exact active epoch', async () => {
     const repository = new FakeExtensionRepository();
     const service = new CommandRoomExtensionService(repository, { randomId: (): string => 'wake-1' });

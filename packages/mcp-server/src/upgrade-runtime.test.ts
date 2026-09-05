@@ -290,6 +290,26 @@ describe('upgrade runtime', () => {
     });
   });
 
+  it('normalizes the machine-readable end-of-round contract conservatively', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    await expect(runtime.execute('session_checkpoint', {
+      projectKey: 'ratchet',
+      summary: 'Round complete',
+      status: 'DONE',
+      nextAction: 'Continue the verified next stage',
+      safeToContinue: true,
+      needsUser: false,
+      durableTaskIds: ['task-1'],
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { status: 'DONE', safeToContinue: true, needsUser: false, nextAction: 'Continue the verified next stage', durableTaskIds: ['task-1'] },
+    });
+    await expect(runtime.execute('session_checkpoint', {
+      projectKey: 'ratchet', summary: 'Blocked round', status: 'DONE', nextAction: 'Retry',
+      safeToContinue: true, needsUser: true, blockers: ['User decision required'],
+    })).resolves.toMatchObject({ ok: true, value: { status: 'DONE', safeToContinue: false, needsUser: true } });
+  });
+
   it('resumes the latest bounded checkpoint for one project without retaining secrets', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-continuity-'));
     const statePath = path.join(directory, 'runtime.json');

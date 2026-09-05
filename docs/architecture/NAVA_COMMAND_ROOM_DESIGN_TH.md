@@ -569,7 +569,8 @@ Gate: ไม่มี wrong-tab wake, retry bounded, revoke/replace chat ทำ�
 - restart ระหว่าง RUNNING/WAITING/REVIEW
 - one started activity without completion
 - durable shell task ยังรันขณะ chat stale
-- chat full แล้ว connectionEpoch ใหม่ takeover
+- chat full แต่ agent session เดิมยัง authoritative: same-epoch browser continuation ใน Project เดิม โดย atomic binding swap
+- agent session หาย/revoked จริง: explicit takeover แล้วจึงใช้ connectionEpoch ใหม่
 - extension หายแล้ว manual mode ใช้ต่อได้
 - Tunnel unhealthy แค่บาง layer ไม่ทำให้ mutation retry ซ้ำ
 
@@ -598,7 +599,8 @@ Gate: ไม่มี wrong-tab wake, retry bounded, revoke/replace chat ทำ�
 - manual Main + 2 Leads ทำงาน end-to-end
 - writer collision และ resource contention ผ่าน
 - active writer สามารถบันทึก checkpoint ผ่าน lease wrapper และ direct call ที่ขาด lease context ถูกปฏิเสธแบบ actionable
-- chat-full takeover จาก checkpoint ผ่าน
+- same-epoch chat-full browser continuation จาก checkpoint ผ่าน โดยไม่ rotate epoch
+- explicit session takeover จาก checkpoint ผ่านเมื่อ authority เดิมใช้งานไม่ได้จริง
 - Tunnel/MCP restart recovery ผ่าน
 - manifest refresh ไม่มี missing tools
 - Thai/English UI ผ่าน

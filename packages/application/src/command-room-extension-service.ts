@@ -213,6 +213,25 @@ export class CommandRoomExtensionService {
     return this.repository.getBinding(bindingId);
   }
 
+  public async createContinuationChallenge(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly now: string;
+    readonly ttlSeconds?: number;
+  }): Promise<PairingChallengeResponse | null> {
+    const binding = await this.authenticateBinding(input.bindingId, input.extensionInstallationId);
+    if (binding === null) return null;
+    return this.createPairingChallenge({
+      roomId: binding.roomId,
+      agentId: binding.agentId,
+      slotKey: binding.slotKey,
+      provider: binding.provider,
+      connectionEpoch: binding.connectionEpoch,
+      now: input.now,
+      ...(input.ttlSeconds === undefined ? {} : { ttlSeconds: input.ttlSeconds }),
+    });
+  }
+
   public async authenticateBinding(bindingId: string, extensionInstallationId: string): Promise<CommandRoomBindingRecord | null> {
     const binding = await this.repository.getBinding(bindingId);
     if (binding === null || binding.state !== 'PAIRED' || binding.extensionInstallationId !== extensionInstallationId) return null;

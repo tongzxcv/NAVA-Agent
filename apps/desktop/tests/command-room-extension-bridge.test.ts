@@ -106,6 +106,22 @@ describe('Command Room Extension Bridge', () => {
     expect(originlessTouch.status).toBe(403);
   });
 
+  it('issues an authenticated continuation challenge on the current binding epoch', async () => {
+    const service = new FakeBridgeService();
+    const handle = await startBridge(service);
+    const paired = await pair(handle);
+    const token = String(paired.body.authToken);
+
+    const response = await fetch(`${handle.url}/v1/bindings/binding-1/continuation`, {
+      method: 'POST', headers: authHeaders(token, true), body: '{}',
+    });
+    expect(response.status).toBe(200);
+    expect(await jsonObject(response)).toMatchObject({
+      ok: true,
+      continuation: { bindingId: 'binding-continuation', connectionEpoch: 7 },
+    });
+  });
+
   it('keeps wake delivery bounded to the authenticated binding and invalidates auth after revoke', async () => {
     const service = new FakeBridgeService();
     const handle = await startBridge(service);
@@ -305,6 +321,14 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
       updatedAt: input.confirmedAt,
     };
     return { outcome: 'paired', binding: this.binding };
+  }
+
+  public async createContinuationChallenge(input: Parameters<CommandRoomExtensionBridgeService['createContinuationChallenge']>[0]): ReturnType<CommandRoomExtensionBridgeService['createContinuationChallenge']> {
+    if (this.binding.state !== 'PAIRED' || input.bindingId !== this.binding.id || input.extensionInstallationId !== this.binding.extensionInstallationId) return null;
+    return {
+      bindingId: 'binding-continuation', challenge: 'c'.repeat(43),
+      expiresAt: '2026-08-30T01:05:00.000Z', connectionEpoch: this.binding.connectionEpoch,
+    };
   }
 
   public async getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null> {

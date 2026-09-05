@@ -1,6 +1,6 @@
 ---
 name: nava-command-room
-description: Coordinate one NAVA MAIN chat and up to five reusable LEAD chats across normal chats, ChatGPT Projects, or a Codex participant. Use for multi-project handoff, chat-full takeover, versioned READ_ONLY or WRITE tasks, workspace writer-lease ownership, and bounded MT5/CPU/VPS/browser/GPU resource reservations. Never use it to bypass permissions, wake browser tabs, trade/deploy Live, or switch provider quotas.
+description: Coordinate one NAVA MAIN chat and up to five reusable LEAD chats across normal chats, ChatGPT Projects, or a Codex participant. Use for multi-project handoff, same-epoch browser continuation, explicit session takeover, versioned READ_ONLY or WRITE tasks, workspace writer-lease ownership, and bounded MT5/CPU/VPS/browser/GPU resource reservations. Never use it to bypass permissions, wake browser tabs, trade/deploy Live, or switch provider quotas.
 ---
 
 # NAVA Command Room
@@ -98,6 +98,8 @@ When persistence is allowed, call `session_checkpoint` before the final reply an
 
 The checkpoint must be self-contained and should use the project's own terminology. Include, when relevant:
 
+For MAIN-supervised continuation, prefer these machine-readable fields in the durable checkpoint when the runtime supports them: `status` = `WORKING|DONE|WAITING|BLOCKED|FAILED`, `nextAction`, `safeToContinue`, `needsUser`, and bounded `durableTaskIds`. `safeToContinue=true` is valid only for a completed bounded round with a concrete next action, no blocker, and no required user decision; otherwise it must be false or omitted. MAIN may wake a LEAD automatically only from that conservative contract.
+
 1. **Canonical accepted baseline** — the last state that is actually accepted, plus its version/checkpoint/commit reference. Never silently promote the current experiment.
 2. **This round** — what was changed, tested, measured, inspected, or ruled out.
 3. **Outcome** — mark important candidates or gates as `ACCEPT`, `REJECT`, or `PENDING`. State the verified evidence or metric that justifies the status.
@@ -125,17 +127,23 @@ Use `command_room_resource` only for a RUNNING task assigned to the current agen
 
 Busy requests queue by priority, five-minute aging, then FIFO. Reusing the same request idempotency key may promote a still-queued request after capacity is released. A resource lease reserves capacity only; it does not execute a command, retry a mutation, place an MT5 order, or grant authorization.
 
-## Chat-full takeover
+## Chat-full continuation vs session takeover
 
-When a chat is full or lost:
+Treat browser conversation identity and Command Room session authority as separate layers.
+
+**Same-epoch browser continuation** is the default when the existing agent session is still authoritative and only the ChatGPT conversation reached its maximum length. The trusted Extension may open a new conversation inside the exact same ChatGPT Project, submit a bounded locator/bootstrap, and atomically move the browser binding from the old conversation to the new one while preserving the same `roomId`, `slotKey`, and `connectionEpoch`. This path must not call `command_room_join`, rebind, takeover, or rotate the epoch. The old browser binding remains authoritative until the new pairing confirms successfully.
+
+A fresh conversation resumes durable work from `session_resume` / checkpoint evidence and live Git/workspace/task state. The bootstrap is a locator only and must not contain a raw join code, `agentSessionId`, auth token, passphrase, transcript, or other session secret.
+
+**Session takeover** is a separate recovery path used only when live Command Room evidence proves the old agent session is lost/revoked/unusable and a new session authority is actually required. Then:
 
 1. MAIN rebinds the target slot with the current room version and a new idempotency key.
-2. Start a new chat and join with the returned one-time code and required connection epoch.
+2. Start a new chat and join with the returned one-time code and required new connection epoch.
 3. Send a heartbeat, then run `command_room_status` with `action=resume_check`; do not claim takeover until it returns `READY` for the exact room, slot, session, and epoch.
 4. The old session is revoked and must fail across status, inbox, send, task, presence, resource, and admin actions.
 5. The new chat reads status and inbox, verifies checkpoint/Git/workspace evidence, acknowledges processed messages, and continues.
 
-Use the same flow for MAIN replacement. Do not create a duplicate room unless recovery is impossible and the user explicitly chooses replacement.
+Never infer that `CREATE_SESSION_REQUIRED` from a browser-only pairing check means the Extension must rotate epoch. Escalate from same-epoch browser continuation to session takeover only when the Command Room authority layer itself requires it. Use the same explicit takeover flow for MAIN replacement. Do not create a duplicate room unless recovery is impossible and the user explicitly chooses replacement.
 
 ## Parking and lifecycle
 

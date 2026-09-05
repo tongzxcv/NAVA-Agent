@@ -147,6 +147,7 @@ import {
   startCommandRoomExtensionBridge,
   type CommandRoomExtensionBridgeHandle,
 } from './command-room-extension-bridge.js';
+import { decideCommandRoomSupervisor, readSupervisorCheckpoints } from './command-room-supervisor.js';
 import { LogHub } from './log-hub.js';
 import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
@@ -570,6 +571,54 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     const agent = await commandRoomRepository.getAgentBySlot(roomId, slotKey);
     if (agent === null) throw new Error('Command Room agent slot was not found');
     return agent;
+  }
+
+  async function runCommandRoomSupervisor(): Promise<void> {
+    if (!extensionWakeEnabled() || commandRoomExtensionBridge === null) return;
+    const checkpoints = await readSupervisorCheckpoints(`${mcpServices.runtimeStatePath}.continuity.json`);
+    const rooms = await commandRoomRepository.listRooms(100);
+    const now = new Date().toISOString();
+    for (const room of rooms) {
+      if (room.status !== 'ACTIVE') continue;
+      const [agents, tasks] = await Promise.all([
+        commandRoomRepository.listAgents(room.id),
+        commandRoomRepository.listTasks(room.id, 100),
+      ]);
+      const byId = new Map(agents.map((agent) => [agent.id, agent] as const));
+      const main = agents.find((agent) => agent.role === 'MAIN');
+      for (const task of tasks) {
+        if (task.assignedAgentId === undefined) continue;
+        const lead = byId.get(task.assignedAgentId);
+        if (lead === undefined || lead.role !== 'LEAD') continue;
+        const checkpoint = task.checkpointId === undefined ? null : checkpoints.get(task.checkpointId) ?? null;
+        const decision = decideCommandRoomSupervisor(lead, task, checkpoint);
+        try {
+          if (decision.action === 'CONTINUE') {
+            await commandRoomExtensionService.queueWake({
+              roomId: room.id,
+              agentId: lead.id,
+              connectionEpoch: lead.connectionEpoch,
+              eventKey: `HANDOFF_READY:SUPERVISOR:${task.id}:${task.version}:${decision.checkpointId}`,
+              taskId: task.id,
+              reason: 'HANDOFF_READY',
+              now,
+            });
+          } else if (decision.action === 'ALERT' && main !== undefined) {
+            await commandRoomExtensionService.queueWake({
+              roomId: room.id,
+              agentId: main.id,
+              connectionEpoch: main.connectionEpoch,
+              eventKey: `HANDOFF_READY:SUPERVISOR_ALERT:${task.id}:${task.version}:${decision.checkpointId ?? decision.reason}`,
+              taskId: task.id,
+              reason: 'HANDOFF_READY',
+              now,
+            });
+          }
+        } catch {
+          // One unavailable browser binding must never disturb another LEAD or stop the supervisor scan.
+        }
+      }
+    }
   }
 
   function parseCommandRoomLeaseOwner(roomId: string, owner: string): { readonly slotKey: string; readonly taskId: string } | null {
@@ -1057,10 +1106,14 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   };
 
   if (extensionWakeEnabled()) {
-    void syncCommandRoomExtensionBridge().catch((error: unknown) => {
+    void syncCommandRoomExtensionBridge().then(() => runCommandRoomSupervisor()).catch((error: unknown) => {
       commandRoomExtensionBridgeError = error instanceof Error ? error.message : 'Extension Bridge startup failed.';
     });
   }
+  const commandRoomSupervisorTimer = setInterval(() => {
+    void runCommandRoomSupervisor().catch(() => {});
+  }, 30_000);
+  commandRoomSupervisorTimer.unref?.();
 
   return {
     services,
@@ -1125,6 +1178,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
       return mcpLifecycle.start(selected.id);
     },
     close: async (): Promise<void> => {
+      clearInterval(commandRoomSupervisorTimer);
       // Keep the rest of the runtime usable when the owned tunnel cannot be
       // proven stopped. The caller may surface the failure and retry safely.
       await tunnelController.stopOwned();

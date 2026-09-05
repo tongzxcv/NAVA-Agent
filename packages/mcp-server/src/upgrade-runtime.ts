@@ -39,6 +39,10 @@ interface SessionCheckpoint {
   readonly blockers?: readonly string[];
   readonly boundaries?: readonly string[];
   readonly nextAction?: string;
+  readonly status?: 'WORKING' | 'DONE' | 'WAITING' | 'BLOCKED' | 'FAILED';
+  readonly safeToContinue?: boolean;
+  readonly needsUser?: boolean;
+  readonly durableTaskIds?: readonly string[];
 }
 
 interface CacheCounters {
@@ -1166,6 +1170,15 @@ function createSessionCheckpoint(input: Record<string, unknown>, resolvedProject
   const blockers = checkpointList(input.blockers);
   const boundaries = checkpointList(input.boundaries);
   const nextAction = checkpointString(input.nextAction);
+  const status = checkpointStatus(input.status);
+  const needsUser = input.needsUser === true;
+  const requestedSafeToContinue = input.safeToContinue === true;
+  const safeToContinue = requestedSafeToContinue
+    && status === 'DONE'
+    && nextAction !== undefined
+    && !needsUser
+    && blockers.length === 0;
+  const durableTaskIds = checkpointList(input.durableTaskIds);
   const summary = checkpointString(input.summary ?? input.prompt, 240)
     ?? summarize(objective ?? nextAction ?? phase ?? 'Checkpoint saved');
   const safePayload = {
@@ -1179,6 +1192,10 @@ function createSessionCheckpoint(input: Record<string, unknown>, resolvedProject
     ...(blockers.length === 0 ? {} : { blockers }),
     ...(boundaries.length === 0 ? {} : { boundaries }),
     ...(nextAction === undefined ? {} : { nextAction }),
+    ...(status === undefined ? {} : { status }),
+    ...(status === undefined && !requestedSafeToContinue && input.needsUser === undefined ? {} : { safeToContinue }),
+    ...(input.needsUser === undefined ? {} : { needsUser }),
+    ...(durableTaskIds.length === 0 ? {} : { durableTaskIds }),
     summary,
   };
   return {
@@ -1238,6 +1255,10 @@ function workspaceAuthorityEntries(value: unknown): readonly WorkspaceAuthorityE
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function checkpointStatus(value: unknown): SessionCheckpoint['status'] | undefined {
+  return value === 'WORKING' || value === 'DONE' || value === 'WAITING' || value === 'BLOCKED' || value === 'FAILED' ? value : undefined;
 }
 
 function checkpointList(value: unknown): readonly string[] {
@@ -1728,7 +1749,11 @@ function isCheckpoint(value: unknown): value is SessionCheckpoint {
     && optionalStringArray(record.verification)
     && optionalStringArray(record.blockers)
     && optionalStringArray(record.boundaries)
-    && optionalString(record.nextAction);
+    && optionalString(record.nextAction)
+    && (record.status === undefined || checkpointStatus(record.status) !== undefined)
+    && (record.safeToContinue === undefined || typeof record.safeToContinue === 'boolean')
+    && (record.needsUser === undefined || typeof record.needsUser === 'boolean')
+    && optionalStringArray(record.durableTaskIds);
 }
 
 function optionalString(value: unknown): boolean {

@@ -40,6 +40,16 @@ test('persistent binding envelope is encrypted and round-trips with the passphra
   await assert.rejects(api.decryptState(envelope, 'wrong passphrase'), (error) => error.code === 'LOCKED');
 });
 
+test('session rewrap key rotates encrypted binding state without retaining the passphrase', async () => {
+  const first = { bindingId: 'binding-old', authToken: 'nava-v1.old-token', conversationRef: 'chatgpt:https://chatgpt.com/c/old' };
+  const next = { bindingId: 'binding-next', authToken: 'nava-v1.next-token', conversationRef: 'chatgpt:https://chatgpt.com/c/next' };
+  const unlocked = await api.createUnlockedEnvelope(first, 'correct horse battery');
+  const rotated = await api.encryptStateWithSessionKey(unlocked.envelope, next, unlocked.sessionKey);
+  assert.equal(JSON.stringify(rotated).includes(next.authToken), false);
+  assert.equal(JSON.stringify(await api.decryptState(rotated, 'correct horse battery')), JSON.stringify(next));
+  await assert.rejects(api.encryptStateWithSessionKey(unlocked.envelope, next, btoa('x'.repeat(32))), (error) => error.code === 'LOCKED');
+});
+
 test('short passphrases are rejected before encryption', async () => {
   assert.equal(api.validPassphrase('short'), false);
   await assert.rejects(api.encryptState({ ok: true }, 'short'), (error) => error.code === 'INVALID_PASSPHRASE');

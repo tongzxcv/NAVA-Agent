@@ -30,8 +30,9 @@
       </section>
 
       <button id="check-button" class="secondary" type="button">ตรวจ wake ที่รออยู่</button>
+      <button id="continue-button" class="secondary" type="button">ตรวจ Auto Continuation ตอนนี้</button>
       <button id="copy-origin-button" class="link-button" type="button">คัดลอก Extension Origin</button>
-      <p class="hint">หลังจับคู่หรือปลดล็อกแล้ว Extension จะตรวจ wake ทุก 1 นาที ส่วนการวางและกดส่งข้อความต้องทำเองเสมอ</p>
+      <p class="hint">หลังจับคู่หรือปลดล็อกแล้ว Extension จะตรวจ wake และตรวจข้อความ maximum-length ทุก 1 นาที หากแชทเต็มใน ChatGPT Project เดิมและผ่าน safety gate ระบบจะสร้าง continuation chat และย้าย browser binding แบบ same-epoch อัตโนมัติ; wake ปกติยังไม่กดส่งข้อความแทนผู้ใช้</p>
     </main>
     <script src="popup.js"></script>
   </body>

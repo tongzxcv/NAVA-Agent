@@ -132,6 +132,52 @@ describe('SqliteCommandRoomBindingRepository', () => {
     reopenedDatabase.close();
   });
 
+  it('atomically moves one paired conversation to a new binding on the same epoch and preserves the old binding on failed confirmation', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-binding-continuation-'));
+    cleanup.push(directory);
+    const database = new SqliteDatabase(join(directory, 'nava.db'));
+    seedCommandRoom(database);
+    const repository = new SqliteCommandRoomBindingRepository(database);
+
+    await repository.createChallenge({
+      id: 'binding-old', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1', provider: 'CHATGPT',
+      connectionEpoch: 1, challengeHash: 'sha256:old', challengeExpiresAt: '2026-08-30T00:05:00.000Z', createdAt: NOW,
+    });
+    expect((await repository.confirmPairing({
+      bindingId: 'binding-old', roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 1,
+      challengeHash: 'sha256:old', extensionInstallationId: 'extension-installation-1',
+      encryptedConversationRef: 'ciphertext:v1:old', conversationRefFingerprint: 'hmac:old',
+      confirmedAt: '2026-08-30T00:00:01.000Z',
+    })).outcome).toBe('paired');
+
+    await repository.createChallenge({
+      id: 'binding-next', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1', provider: 'CHATGPT',
+      connectionEpoch: 1, challengeHash: 'sha256:next', challengeExpiresAt: '2026-08-30T00:05:00.000Z',
+      createdAt: '2026-08-30T00:00:02.000Z',
+    });
+    expect(await repository.getActiveBinding('room-1', 'lead-1', 1)).toMatchObject({ id: 'binding-old', state: 'PAIRED' });
+    expect((await repository.getBinding('binding-next'))?.state).toBe('CHALLENGED');
+
+    expect(await repository.confirmPairing({
+      bindingId: 'binding-next', roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 1,
+      challengeHash: 'sha256:wrong', extensionInstallationId: 'extension-installation-1',
+      encryptedConversationRef: 'ciphertext:v1:new', conversationRefFingerprint: 'hmac:new',
+      confirmedAt: '2026-08-30T00:00:03.000Z',
+    })).toEqual({ outcome: 'challenge_mismatch' });
+    expect(await repository.getActiveBinding('room-1', 'lead-1', 1)).toMatchObject({ id: 'binding-old', state: 'PAIRED' });
+
+    const moved = await repository.confirmPairing({
+      bindingId: 'binding-next', roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 1,
+      challengeHash: 'sha256:next', extensionInstallationId: 'extension-installation-1',
+      encryptedConversationRef: 'ciphertext:v1:new', conversationRefFingerprint: 'hmac:new',
+      confirmedAt: '2026-08-30T00:00:04.000Z',
+    });
+    expect(moved).toMatchObject({ outcome: 'paired', binding: { id: 'binding-next', connectionEpoch: 1, state: 'PAIRED' } });
+    expect(await repository.getActiveBinding('room-1', 'lead-1', 1)).toMatchObject({ id: 'binding-next', connectionEpoch: 1 });
+    expect(await repository.getBinding('binding-old')).toMatchObject({ state: 'REPLACED', replacedAt: '2026-08-30T00:00:04.000Z' });
+    database.close();
+  });
+
   it('rejects an expired challenge without turning it into a paired binding', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-binding-expired-'));
     cleanup.push(directory);

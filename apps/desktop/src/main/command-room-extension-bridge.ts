@@ -12,6 +12,7 @@ const ALLOWED_HEADERS = 'Authorization, Content-Type';
 
 export type CommandRoomExtensionBridgeService = Pick<CommandRoomExtensionService,
   | 'confirmPairingByBinding'
+  | 'createContinuationChallenge'
   | 'getBinding'
   | 'authenticateBinding'
   | 'listRecoverableWakesForBinding'
@@ -133,7 +134,7 @@ async function handleRequest(
     return;
   }
 
-  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke))?$/.exec(url.pathname);
+  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation))?$/.exec(url.pathname);
   if (bindingMatch !== null) {
     const bindingId = decodePathSegment(bindingMatch[1]);
     const action = bindingMatch[2] ?? 'status';
@@ -144,6 +145,19 @@ async function handleRequest(
     }
     if (action === 'status' && request.method === 'GET') {
       sendJson(response, 200, { ok: true, binding: safeBinding(authenticated) });
+      return;
+    }
+    if (action === 'continuation' && request.method === 'POST') {
+      const continuation = await options.service.createContinuationChallenge({
+        bindingId,
+        extensionInstallationId: requireInstallationId(authenticated),
+        now: now().toISOString(),
+      });
+      if (continuation === null) {
+        sendJson(response, 409, { ok: false, code: 'BINDING_NOT_ACTIVE' });
+        return;
+      }
+      sendJson(response, 200, { ok: true, continuation });
       return;
     }
     if (action === 'touch' && request.method === 'POST') {

@@ -8,6 +8,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   const INSTALLATION_ID_KEY = 'nava.extensionInstallationId';
   const SESSION_STATE_KEY = 'nava.commandRoomBinding';
   const PERSISTED_STATE_KEY = 'nava.commandRoomBindingEncrypted';
+  const SESSION_REWRAP_KEY = 'nava.commandRoomBindingRewrapKey';
   const WAKE_ALARM_NAME = 'nava.commandRoomWakePoll';
   const WAKE_POLL_MINUTES = 1;
   const KNOWN_ERROR_CODES = new Set([
@@ -21,6 +22,10 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     'TAB_UNAVAILABLE',
     'DOM_MISMATCH',
     'COMPOSER_NOT_EMPTY',
+    'SUBMIT_FAILED',
+    'PROJECT_IDENTITY_MISSING',
+    'PROJECT_MISMATCH',
+    'CONTINUATION_TIMEOUT',
     'BRIDGE_UNAVAILABLE',
     'INVALID_BRIDGE_RESPONSE',
     'UNPAIRED',
@@ -30,6 +35,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     'EXTENSION_INTERNAL',
   ]);
   let checkInFlight = null;
+  let continuationInFlight = null;
 
   function publicError(error) {
     return error && typeof error.code === 'string' && KNOWN_ERROR_CODES.has(error.code)
@@ -58,6 +64,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     const required = ['roomId', 'slotKey', 'bindingId', 'authToken', 'conversationRef', 'bridgeUrl'];
     if (!required.every((key) => typeof state[key] === 'string' && state[key].length > 0 && state[key].length <= 2_048)) return false;
     if (!Number.isSafeInteger(state.connectionEpoch) || state.connectionEpoch < 1) return false;
+    if (state.projectRef !== undefined && NavaExtension.projectHomeUrl(state.projectRef) === null) return false;
     if (NavaExtension.validateBridgeUrl(state.bridgeUrl) !== state.bridgeUrl) return false;
     if (!/^nava-v1\.[A-Za-z0-9_-]{16,}$/.test(state.authToken)) return false;
     return /^chatgpt:https:\/\/chatgpt\.com\/(?:c\/[^/]+|g\/[^/]+\/c\/[^/]+)$/.test(state.conversationRef);
@@ -79,7 +86,23 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   async function saveState(state, passphrase) {
-    const encrypted = await NavaCrypto.encryptState(state, passphrase);
+    const unlocked = await NavaCrypto.createUnlockedEnvelope(state, passphrase);
+    await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: unlocked.envelope });
+    await chrome.storage.session.set({
+      [SESSION_STATE_KEY]: state,
+      [SESSION_REWRAP_KEY]: unlocked.sessionKey,
+    });
+  }
+
+  async function saveContinuationState(state) {
+    const [localStored, sessionStored] = await Promise.all([
+      chrome.storage.local.get(PERSISTED_STATE_KEY),
+      chrome.storage.session.get(SESSION_REWRAP_KEY),
+    ]);
+    const envelope = localStored?.[PERSISTED_STATE_KEY];
+    const sessionKey = sessionStored?.[SESSION_REWRAP_KEY];
+    if (!NavaCrypto.isEnvelope(envelope) || typeof sessionKey !== 'string') throw new Error('LOCKED');
+    const encrypted = await NavaCrypto.encryptStateWithSessionKey(envelope, state, sessionKey);
     await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: encrypted });
     await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
   }
@@ -132,14 +155,19 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       return { ok: false, code: 'EXTENSION_INTERNAL' };
     }
     if (!NavaCrypto.isEnvelope(stored?.[PERSISTED_STATE_KEY])) return { ok: false, code: 'UNPAIRED' };
-    let state;
+    let unlocked;
     try {
-      state = await NavaCrypto.decryptState(stored[PERSISTED_STATE_KEY], passphrase);
+      unlocked = await NavaCrypto.unlockState(stored[PERSISTED_STATE_KEY], passphrase);
     } catch {
       return { ok: false, code: 'INVALID_PASSPHRASE' };
     }
+    const state = unlocked.state;
     if (!validState(state)) return { ok: false, code: 'INVALID_PASSPHRASE' };
-    await chrome.storage.session.set({ [SESSION_STATE_KEY]: state });
+    if (unlocked.upgraded === true) await chrome.storage.local.set({ [PERSISTED_STATE_KEY]: unlocked.envelope });
+    await chrome.storage.session.set({
+      [SESSION_STATE_KEY]: state,
+      [SESSION_REWRAP_KEY]: unlocked.sessionKey,
+    });
     await ensureWakeAlarm();
     return { ok: true, state: publicState(state) };
   }
@@ -152,6 +180,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       bindingId: state.bindingId,
       connectionEpoch: state.connectionEpoch,
       conversationRef: state.conversationRef,
+      ...(state.projectRef === undefined ? {} : { projectRef: state.projectRef }),
     };
   }
 
@@ -182,6 +211,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     const tab = tabs[0];
     const conversationRef = NavaExtension.tabConversationRef(tab);
     if (conversationRef === null) return { ok: false, code: 'CONVERSATION_MISMATCH' };
+    const projectRef = NavaExtension.projectRefFromConversationRef(conversationRef);
     try {
       const paired = await NavaBridge.pair(checked.payload, conversationRef, await installationId());
       if (paired.binding.id !== checked.payload.bindingId || paired.binding.connectionEpoch !== checked.payload.connectionEpoch) {
@@ -193,6 +223,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
         bindingId: checked.payload.bindingId,
         connectionEpoch: checked.payload.connectionEpoch,
         conversationRef,
+        ...(projectRef === null ? {} : { projectRef }),
         bridgeUrl: checked.payload.bridgeUrl,
         authToken: paired.authToken,
       };
@@ -252,6 +283,187 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
         // Keep the wake recoverable if the transition itself cannot reach NAVA.
       }
       return { delivered: false, failed: true };
+    }
+  }
+
+  async function inspectContinuationReady() {
+    const state = await readState();
+    if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
+    let tabs;
+    try {
+      tabs = await chrome.tabs.query({});
+    } catch {
+      return { ok: false, code: 'TAB_NOT_FOUND' };
+    }
+    const target = NavaExtension.selectExactTab(tabs, state.conversationRef);
+    if (!target.ok) return { ok: false, code: target.errorCode };
+    let inspected;
+    try {
+      inspected = await sendWakeMessage(target.tab, { type: 'NAVA_INSPECT_CHAT_STATE' });
+    } catch {
+      return { ok: false, code: 'TAB_UNAVAILABLE' };
+    }
+    if (!inspected || inspected.ok !== true || inspected.conversationRef !== state.conversationRef) {
+      return { ok: false, code: 'CONVERSATION_MISMATCH' };
+    }
+    if (inspected.limit?.maxLength !== true) return { ok: true, ready: false, reason: 'NOT_AT_MAX_LENGTH' };
+    if (inspected.composer?.errorCode === 'COMPOSER_NOT_EMPTY') return { ok: false, code: 'COMPOSER_NOT_EMPTY' };
+    if (inspected.composer?.ok !== true) return { ok: false, code: 'DOM_MISMATCH' };
+    const projectRef = state.projectRef ?? NavaExtension.projectRefFromConversationRef(state.conversationRef);
+    if (projectRef === null || NavaExtension.projectHomeUrl(projectRef) === null) return { ok: false, code: 'PROJECT_IDENTITY_MISSING' };
+    let challenge;
+    try {
+      challenge = await NavaBridge.createContinuationChallenge(state);
+    } catch (error) {
+      return { ok: false, code: publicError(error) };
+    }
+    if (!challenge?.continuation || challenge.continuation.connectionEpoch !== state.connectionEpoch) {
+      return { ok: false, code: 'PAIRING_MISMATCH' };
+    }
+    return {
+      ok: true,
+      ready: true,
+      sameEpoch: true,
+      connectionEpoch: state.connectionEpoch,
+      continuation: challenge.continuation,
+    };
+  }
+
+  function continuationBootstrap(state) {
+    return [
+      '@NAVA Agent',
+      '',
+      'NAVA AUTO CONTINUATION',
+      `Room: ${state.roomId}`,
+      `Slot: ${state.slotKey}`,
+      `Connection epoch: ${state.connectionEpoch}`,
+      'Browser-binding continuation only. Do NOT command_room_join, rejoin, rebind, takeover, or rotate connection epoch.',
+      'Use NAVA session_resume / durable checkpoint continuity, verify live project/workspace evidence, then continue from the latest safe resume point.',
+    ].join('\\n');
+  }
+
+  async function waitForProjectHome(tabId, expectedProjectRef) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      let tab;
+      try {
+        tab = await chrome.tabs.get(tabId);
+      } catch {
+        return { ok: false, code: 'TAB_UNAVAILABLE' };
+      }
+      if (NavaExtension.projectRefFromUrl(tab?.url) === expectedProjectRef
+        && NavaExtension.conversationRefFromUrl(tab?.url) === null) return { ok: true, tab };
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return { ok: false, code: 'CONTINUATION_TIMEOUT' };
+  }
+
+  async function waitForNewConversation(tabId, expectedProjectRef, oldConversationRef) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      let tab;
+      try {
+        tab = await chrome.tabs.get(tabId);
+      } catch {
+        return { ok: false, code: 'TAB_UNAVAILABLE' };
+      }
+      const projectRef = NavaExtension.projectRefFromUrl(tab?.url);
+      const conversationRef = NavaExtension.conversationRefFromUrl(tab?.url);
+      if (projectRef !== null && projectRef !== expectedProjectRef) return { ok: false, code: 'PROJECT_MISMATCH' };
+      if (projectRef === expectedProjectRef && conversationRef !== null && conversationRef !== oldConversationRef) {
+        return { ok: true, conversationRef };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return { ok: false, code: 'CONTINUATION_TIMEOUT' };
+  }
+
+  async function continueConversation() {
+    const ready = await inspectContinuationReady();
+    if (ready.ok !== true || ready.ready !== true) return ready;
+    const state = await readState();
+    if (state === null) return { ok: false, code: 'LOCKED' };
+    const projectRef = state.projectRef ?? NavaExtension.projectRefFromConversationRef(state.conversationRef);
+    const projectUrl = projectRef === null ? null : NavaExtension.projectHomeUrl(projectRef);
+    if (projectRef === null || projectUrl === null) return { ok: false, code: 'PROJECT_IDENTITY_MISSING' };
+
+    let newTab;
+    try {
+      newTab = await chrome.tabs.create({ url: projectUrl, active: true });
+    } catch {
+      return { ok: false, code: 'TAB_UNAVAILABLE' };
+    }
+    if (!Number.isInteger(newTab?.id)) return { ok: false, code: 'TAB_UNAVAILABLE' };
+    const home = await waitForProjectHome(newTab.id, projectRef);
+    if (!home.ok) return home;
+
+    let submitted;
+    try {
+      submitted = await sendWakeMessage(home.tab, {
+        type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
+        expectedProjectRef: projectRef,
+        bootstrap: continuationBootstrap(state),
+      });
+    } catch {
+      return { ok: false, code: 'TAB_UNAVAILABLE' };
+    }
+    if (!submitted || submitted.ok !== true || submitted.submitted !== true) {
+      return { ok: false, code: NavaExtension.FAILURE_CODES.includes(submitted?.errorCode) ? submitted.errorCode : 'SUBMIT_FAILED' };
+    }
+    const navigated = await waitForNewConversation(newTab.id, projectRef, state.conversationRef);
+    if (!navigated.ok) return navigated;
+
+    const pairingPayload = {
+      protocolVersion: 1,
+      bridgeUrl: state.bridgeUrl,
+      roomId: state.roomId,
+      slotKey: state.slotKey,
+      bindingId: ready.continuation.bindingId,
+      challenge: ready.continuation.challenge,
+      expiresAt: ready.continuation.expiresAt,
+      connectionEpoch: state.connectionEpoch,
+      allowedOrigins: [extensionOrigin()],
+    };
+    let paired;
+    try {
+      paired = await NavaBridge.pair(pairingPayload, navigated.conversationRef, await installationId());
+    } catch (error) {
+      return { ok: false, code: publicError(error), oldBindingPreserved: true };
+    }
+    if (paired.binding.id !== ready.continuation.bindingId || paired.binding.connectionEpoch !== state.connectionEpoch) {
+      return { ok: false, code: 'PAIRING_MISMATCH' };
+    }
+    const nextState = {
+      ...state,
+      bindingId: paired.binding.id,
+      authToken: paired.authToken,
+      conversationRef: navigated.conversationRef,
+      projectRef,
+    };
+    try {
+      await saveContinuationState(nextState);
+    } catch {
+      await chrome.storage.session.set({ [SESSION_STATE_KEY]: nextState });
+      return { ok: false, code: 'EXTENSION_INTERNAL', pairedButPersistenceDegraded: true };
+    }
+    await ensureWakeAlarm();
+    return {
+      ok: true,
+      outcome: 'CONTINUED',
+      oldConversationRef: state.conversationRef,
+      conversationRef: navigated.conversationRef,
+      projectRef,
+      slotKey: state.slotKey,
+      connectionEpoch: state.connectionEpoch,
+      sameEpoch: true,
+    };
+  }
+
+  async function autoContinueConversation() {
+    if (continuationInFlight !== null) return continuationInFlight;
+    continuationInFlight = continueConversation();
+    try {
+      return await continuationInFlight;
+    } finally {
+      continuationInFlight = null;
     }
   }
 
@@ -326,6 +538,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     if (message.type === 'PAIR_ACTIVE_TAB') return pairActiveTab(message.payloadText, message.passphrase);
     if (message.type === 'UNLOCK_STATE') return unlockState(message.passphrase);
     if (message.type === 'CHECK_WAKES') return checkWakes();
+    if (message.type === 'CHECK_CONTINUATION_READY') return inspectContinuationReady();
+    if (message.type === 'CONTINUE_CONVERSATION') return autoContinueConversation();
     if (message.type === 'ACK_WAKE_SUBMITTED') return acknowledgeWakeSubmitted(message, sender);
     if (message.type === 'GET_STATE') {
       const state = await readState();
@@ -336,7 +550,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'ACK_WAKE_SUBMITTED', 'GET_STATE'].includes(message.type)) return false;
+    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'CHECK_CONTINUATION_READY', 'CONTINUE_CONVERSATION', 'ACK_WAKE_SUBMITTED', 'GET_STATE'].includes(message.type)) return false;
     void handleMessage(message, sender).then(sendResponse).catch(() => sendResponse({ ok: false, code: 'EXTENSION_INTERNAL' }));
     return true;
   });
@@ -344,7 +558,10 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   if (chrome.alarms?.onAlarm?.addListener) {
     chrome.alarms.onAlarm.addListener((alarm) => {
       if (alarm?.name !== WAKE_ALARM_NAME) return;
-      return checkWakes().catch(() => {});
+      return Promise.all([
+        checkWakes().catch(() => ({ ok: false, code: 'EXTENSION_INTERNAL' })),
+        autoContinueConversation().catch(() => ({ ok: false, code: 'EXTENSION_INTERNAL' })),
+      ]).then(([wakeResult]) => wakeResult);
     });
   }
   if (chrome.runtime.onStartup?.addListener) chrome.runtime.onStartup.addListener(() => void syncWakeAlarm().catch(() => {}));

@@ -75,6 +75,14 @@
     return { binding: body.binding, authToken: body.authToken };
   }
 
+  async function createContinuationChallenge(state) {
+    return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/continuation`), {
+      method: 'POST',
+      authToken: state.authToken,
+      body: {},
+    });
+  }
+
   async function listWakes(state) {
     return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/wakes?limit=25`), {
       authToken: state.authToken,
@@ -104,5 +112,5 @@
     });
   }
 
-  globalThis.NavaBridge = Object.freeze({ listWakes, pair, touch, transition });
+  globalThis.NavaBridge = Object.freeze({ createContinuationChallenge, listWakes, pair, touch, transition });
 })();

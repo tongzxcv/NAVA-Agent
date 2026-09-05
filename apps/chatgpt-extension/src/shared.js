@@ -45,6 +45,29 @@
     }
   }
 
+  function projectRefFromUrl(value) {
+    if (typeof value !== 'string' || value.length > 4_096) return null;
+    try {
+      const url = new URL(value);
+      if (url.origin !== CHATGPT_ORIGIN) return null;
+      const match = /^\/g\/(g-p-[^/]+)(?:\/project|\/c\/[^/]+)$/.exec(url.pathname);
+      return match === null ? null : `chatgpt-project:${url.origin}/g/${match[1]}`;
+    } catch {
+      return null;
+    }
+  }
+
+  function projectRefFromConversationRef(value) {
+    if (typeof value !== 'string' || !value.startsWith('chatgpt:')) return null;
+    return projectRefFromUrl(value.slice('chatgpt:'.length));
+  }
+
+  function projectHomeUrl(projectRef) {
+    if (typeof projectRef !== 'string') return null;
+    const match = /^chatgpt-project:(https:\/\/chatgpt\.com\/g\/g-p-[^/]+)$/.exec(projectRef);
+    return match === null ? null : `${match[1]}/project`;
+  }
+
   function validateBridgeUrl(value) {
     if (typeof value !== 'string' || value.length > 512) return null;
     try {
@@ -125,6 +148,26 @@
     return true;
   }
 
+  const MAX_LENGTH_MESSAGE = "You've reached the maximum length for this conversation, but you can keep talking by starting a new chat.";
+
+  function inspectConversationLimit(documentObject) {
+    if (!documentObject || typeof documentObject.querySelectorAll !== 'function') {
+      return { ok: false, errorCode: 'DOM_MISMATCH' };
+    }
+    let candidates;
+    try {
+      candidates = [...documentObject.querySelectorAll('[role="alert"], [role="status"], main')].filter(isVisible);
+    } catch {
+      return { ok: false, errorCode: 'DOM_MISMATCH' };
+    }
+    const matches = candidates.filter((element) => {
+      const text = typeof element.innerText === 'string' ? element.innerText : element.textContent;
+      return typeof text === 'string' && text.includes(MAX_LENGTH_MESSAGE);
+    });
+    if (matches.length === 0) return { ok: true, maxLength: false };
+    return { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' };
+  }
+
   function inspectComposer(documentObject) {
     if (!documentObject || typeof documentObject.querySelectorAll !== 'function') {
       return { ok: false, errorCode: 'DOM_MISMATCH' };
@@ -163,7 +206,11 @@
     WAKE_PROMPT,
     conversationRefFromUrl,
     inspectComposer,
+    inspectConversationLimit,
     isExtensionOrigin,
+    projectHomeUrl,
+    projectRefFromConversationRef,
+    projectRefFromUrl,
     isRecord,
     selectExactTab,
     tabConversationRef,

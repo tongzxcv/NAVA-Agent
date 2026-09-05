@@ -48,6 +48,7 @@ async function createHarness() {
   let sendMessageFailures = 0;
   let wakes = [];
   let bridgeOnline = true;
+  let inspectResponse = { ok: true, conversationRef: 'chatgpt:https://chatgpt.com/c/conversation-1', limit: { ok: true, maxLength: false }, composer: { ok: true } };
 
   const chrome = {
     runtime: {
@@ -58,11 +59,19 @@ async function createHarness() {
     storage: { local, session },
     tabs: {
       query: async () => tabs,
+      create: async ({ url }) => { const created = { id: 30, url }; tabs.push(created); return created; },
+      get: async (tabId) => tabs.find((item) => item.id === tabId),
       sendMessage: async (tabId, message) => {
         sentMessages.push({ tabId, message });
         if (sendMessageFailures > 0) {
           sendMessageFailures -= 1;
           throw new Error('Could not establish connection. Receiving end does not exist.');
+        }
+        if (message?.type === 'NAVA_INSPECT_CHAT_STATE') return inspectResponse;
+        if (message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP') {
+          const target = tabs.find((item) => item.id === tabId);
+          if (target) target.url = 'https://chatgpt.com/g/g-p-project/c/conversation-2';
+          return { ok: true, submitted: true, projectRef: message.expectedProjectRef };
         }
         return { ok: true };
       },
@@ -90,18 +99,22 @@ async function createHarness() {
       fetchCalls.push({ url: String(url), options });
       if (!bridgeOnline) throw new Error('offline');
       if (String(url).endsWith('/v1/pair/confirm')) {
+        let requestedBindingId = 'binding-1234';
+        try { requestedBindingId = JSON.parse(options.body ?? '{}').bindingId ?? requestedBindingId; } catch {}
         return jsonResponse({
           outcome: 'paired',
-          authToken: 'nava-v1.secret-token-value-123456',
-          binding: { id: 'binding-1234', connectionEpoch: 1 },
+          authToken: requestedBindingId === 'binding-continuation' ? 'nava-v1.continuation-token-value-123456' : 'nava-v1.secret-token-value-123456',
+          binding: { id: requestedBindingId, connectionEpoch: 1 },
         });
       }
       if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
+      if (String(url).endsWith('/v1/bindings/binding-1234/continuation')) return jsonResponse({ continuation: { bindingId: 'binding-continuation', challenge: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1 } });
       return jsonResponse({ ok: true });
     },
     TextDecoder,
     TextEncoder,
     URL,
+    setTimeout,
   };
   sandbox.globalThis = sandbox;
   sandbox.importScripts = (...names) => {
@@ -137,6 +150,8 @@ async function createHarness() {
     scriptInjections,
     setSendMessageFailures: (value) => { sendMessageFailures = value; },
     setBridgeOnline: (value) => { bridgeOnline = value; },
+    setInspectResponse: (value) => { inspectResponse = value; },
+    setTabUrl: (value) => { tabs[0].url = value; },
     setWakes: (value) => { wakes = value; },
     startupListeners,
   };
@@ -250,6 +265,70 @@ test('delivered wakes wait for explicit exact-tab acknowledgement without redeli
   assert.equal(acknowledged.ok, true);
   assert.equal(acknowledged.wakeId, 'wake-delivered');
   assert.equal(harness.fetchCalls.filter((call) => call.url.includes('/wake-delivered/submitted')).length, 1);
+});
+
+test('continuation readiness is fail-closed and requests a same-epoch challenge only at exact max length', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: false },
+    composer: { ok: true },
+  });
+
+  const normal = await harness.send({ type: 'CHECK_CONTINUATION_READY' });
+  assert.equal(JSON.stringify(normal), JSON.stringify({ ok: true, ready: false, reason: 'NOT_AT_MAX_LENGTH' }));
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/continuation')), false);
+
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: false, errorCode: 'COMPOSER_NOT_EMPTY' },
+  });
+  assert.equal(JSON.stringify(await harness.send({ type: 'CHECK_CONTINUATION_READY' })), JSON.stringify({ ok: false, code: 'COMPOSER_NOT_EMPTY' }));
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/continuation')), false);
+
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
+  });
+  const ready = await harness.send({ type: 'CHECK_CONTINUATION_READY' });
+  assert.equal(ready.ok, true);
+  assert.equal(ready.ready, true);
+  assert.equal(ready.sameEpoch, true);
+  assert.equal(ready.connectionEpoch, 1);
+  assert.equal(ready.continuation.connectionEpoch, 1);
+  assert.equal(harness.fetchCalls.filter((call) => call.url.endsWith('/continuation')).length, 1);
+});
+
+test('auto continuation creates a same-project conversation, atomically pairs the same epoch, and persists the new encrypted binding', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
+  });
+  const result = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.outcome, 'CONTINUED');
+  assert.equal(result.sameEpoch, true);
+  assert.equal(result.connectionEpoch, 1);
+  assert.equal(result.projectRef, 'chatgpt-project:https://chatgpt.com/g/g-p-project');
+  assert.equal(result.conversationRef, 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-2');
+  const state = harness.session.values.get('nava.commandRoomBinding');
+  assert.equal(state.bindingId, 'binding-continuation');
+  assert.equal(state.connectionEpoch, 1);
+  assert.equal(state.conversationRef, result.conversationRef);
+  const envelope = harness.local.values.get('nava.commandRoomBindingEncrypted');
+  assert.equal(JSON.stringify(envelope).includes('nava-v1.continuation-token-value-123456'), false);
 });
 
 test('offline polling returns a safe error and does not fabricate delivery', async () => {

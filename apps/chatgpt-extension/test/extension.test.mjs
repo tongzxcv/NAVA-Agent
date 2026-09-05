@@ -43,6 +43,15 @@ test('conversation identity is exact and ignores only query/hash state', () => {
   assert.equal(api.conversationRefFromUrl('https://chatgpt.com/c/abc/extra'), null);
 });
 
+test('project identity is derived only from exact ChatGPT Project URLs', () => {
+  const conversation = 'https://chatgpt.com/g/g-p-project/c/conversation-1';
+  assert.equal(api.projectRefFromUrl(conversation), 'chatgpt-project:https://chatgpt.com/g/g-p-project');
+  assert.equal(api.projectRefFromConversationRef(api.conversationRefFromUrl(conversation)), 'chatgpt-project:https://chatgpt.com/g/g-p-project');
+  assert.equal(api.projectHomeUrl('chatgpt-project:https://chatgpt.com/g/g-p-project'), 'https://chatgpt.com/g/g-p-project/project');
+  assert.equal(api.projectRefFromUrl('https://chatgpt.com/g/gpt-custom/c/conversation-1'), null);
+  assert.equal(api.projectRefFromUrl('https://chatgpt.com/c/conversation-1'), null);
+});
+
 test('tab selection fails closed for missing and duplicate exact conversations', () => {
   const ref = api.conversationRefFromUrl('https://chatgpt.com/c/abc');
   assert.equal(api.selectExactTab([tab(1, 'https://chatgpt.com/c/other')], ref).errorCode, 'TAB_NOT_FOUND');
@@ -70,6 +79,14 @@ test('pairing validation only accepts the loopback Bridge and live payload', () 
   assert.equal(api.validatePairingPayload({ ...payload, allowedOrigins: ['https://evil.example'] }).code, 'INVALID_PAIRING');
 });
 
+test('maximum-length detection only accepts the exact visible ChatGPT terminal message', () => {
+  const exact = visibleComposer("You've reached the maximum length for this conversation, but you can keep talking by starting a new chat.");
+  const normal = visibleComposer('You can start a new chat whenever you want.');
+  assert.equal(api.inspectConversationLimit({ querySelectorAll: () => [exact] }).maxLength, true);
+  assert.equal(api.inspectConversationLimit({ querySelectorAll: () => [normal] }).maxLength, false);
+  assert.equal(api.inspectConversationLimit({ querySelectorAll: () => [] }).maxLength, false);
+});
+
 test('composer guard rejects drafts, active generation, and unsupported DOM', () => {
   assert.equal(api.inspectComposer(documentWith(visibleComposer(''))).ok, true);
   assert.equal(api.inspectComposer(documentWith(visibleComposer(''))).elementKind, 'contenteditable');
@@ -85,8 +102,17 @@ test('manifest stays narrow and the Bridge is not a generic MCP proxy', async ()
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://chatgpt.com/*']);
   const bridgeSource = await readFile(resolve(root, 'src/bridge.js'), 'utf8');
   assert.doesNotMatch(bridgeSource, /\/mcp(?:[/'"]|$)/i);
+  const popupHtml = await readFile(resolve(root, 'src/popup.html'), 'utf8');
+  const popupSource = await readFile(resolve(root, 'src/popup.js'), 'utf8');
+  assert.match(popupHtml, /continue-button/);
+  assert.match(popupSource, /CONTINUE_CONVERSATION/);
+  assert.match(popupHtml, /same-epoch/);
   const contentSource = await readFile(resolve(root, 'src/content.js'), 'utf8');
   assert.match(contentSource, /ACK_WAKE_SUBMITTED/);
   assert.match(contentSource, /ฉันส่งในแชทแล้ว/);
-  assert.doesNotMatch(contentSource, /\.submit\s*\(|\.click\s*\(|execCommand|insertText/);
+  assert.match(contentSource, /NAVA_SUBMIT_CONTINUATION_BOOTSTRAP/);
+  assert.match(contentSource, /PROJECT_MISMATCH/);
+  assert.match(contentSource, /inspectComposer\(document\)/);
+  const wakeOnly = contentSource.slice(0, contentSource.indexOf('function submitContinuationBootstrap'));
+  assert.doesNotMatch(wakeOnly, /execCommand|button\[data-testid="send-button"\]/);
 });
