@@ -87,6 +87,41 @@ test('maximum-length detection only accepts the exact visible ChatGPT terminal m
   assert.equal(api.inspectConversationLimit({ querySelectorAll: () => [] }).maxLength, false);
 });
 
+test('terminal detection distinguishes exact max length from message delivery timeout and captures stable turn identity', () => {
+  const timeoutContainer = {
+    id: '',
+    getAttribute: (name) => name === 'data-testid' ? 'conversation-turn-42' : null,
+  };
+  const timeout = {
+    innerText: 'Message delivery timed out. Please try again.',
+    textContent: 'Message delivery timed out. Please try again.',
+    getClientRects: () => [{}],
+    getBoundingClientRect: () => ({ width: 10, height: 10 }),
+    closest: () => timeoutContainer,
+  };
+  const timeoutDocument = {
+    querySelectorAll: (selector) => {
+      if (selector.includes('data-message-id') || selector.includes('conversation-turn')) return [timeoutContainer];
+      if (selector.includes('[role="alert"]') || selector.includes('[role="status"]')) return [timeout];
+      return [];
+    },
+    querySelector: () => null,
+  };
+  const detected = api.inspectConversationTerminal(timeoutDocument);
+  assert.equal(detected.ok, true);
+  assert.equal(detected.terminal, true);
+  assert.equal(detected.kind, 'MESSAGE_DELIVERY_TIMEOUT');
+  assert.equal(detected.terminalTurnKey, 'timeout:conversation-turn-42');
+  assert.equal(detected.generationActive, false);
+
+  const busyDocument = { ...timeoutDocument, querySelector: () => visibleComposer('Stop generating') };
+  const busy = api.inspectConversationTerminal(busyDocument);
+  assert.equal(busy.kind, 'MESSAGE_DELIVERY_TIMEOUT');
+  assert.equal(busy.generationActive, true);
+
+  assert.equal(api.inspectConversationTerminal({ querySelectorAll: () => [], querySelector: () => null }).terminal, false);
+});
+
 test('composer guard rejects drafts, active generation, and unsupported DOM', () => {
   assert.equal(api.inspectComposer(documentWith(visibleComposer(''))).ok, true);
   assert.equal(api.inspectComposer(documentWith(visibleComposer(''))).elementKind, 'contenteditable');
@@ -113,6 +148,12 @@ test('manifest stays narrow and the Bridge is not a generic MCP proxy', async ()
   assert.match(contentSource, /NAVA_SUBMIT_CONTINUATION_BOOTSTRAP/);
   assert.match(contentSource, /PROJECT_MISMATCH/);
   assert.match(contentSource, /inspectComposer\(document\)/);
+  assert.match(contentSource, /inspectConversationTerminal\(document\)/);
+  assert.doesNotMatch(contentSource, /click\([^)]*Retry|aria-label[^\n]*Retry/i);
+  assert.doesNotMatch(contentSource, /Message delivery timed out[^\n]*click/i);
+  const backgroundSource = await readFile(resolve(root, 'src/background.js'), 'utf8');
+  assert.match(backgroundSource, /Do NOT retry, replay, or resubmit the failed user turn/);
+  assert.doesNotMatch(backgroundSource, /Retry button|aria-label[^\n]*Retry/i);
   const wakeOnly = contentSource.slice(0, contentSource.indexOf('function submitContinuationBootstrap'));
   assert.doesNotMatch(wakeOnly, /execCommand|button\[data-testid="send-button"\]/);
 });

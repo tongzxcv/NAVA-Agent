@@ -3,6 +3,7 @@ import type {
   CommandRoomBindingRecord,
   CommandRoomProvider,
   CommandRoomSupervisorStateRecord,
+  CommandRoomTerminalRecoveryRecord,
   CommandRoomSupervisorSync,
   CommandRoomWakeDeliveryRecord,
   CommandRoomWakeReason,
@@ -46,6 +47,39 @@ export interface CommandRoomExtensionRepositoryPort {
   getActiveBinding(roomId: string, agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null>;
   getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null>;
   listActiveBindingsForInstallation(extensionInstallationId: string): Promise<readonly CommandRoomBindingRecord[]>;
+  getTerminalRecoveryByKey(recoveryKey: string): Promise<CommandRoomTerminalRecoveryRecord | null>;
+  reserveTerminalRecovery(input: {
+    readonly id: string;
+    readonly recoveryKey: string;
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly slotKey: string;
+    readonly projectKey: string;
+    readonly workspaceId: string;
+    readonly connectionEpoch: number;
+    readonly bindingId: string;
+    readonly sourceConversationFingerprint: string;
+    readonly terminalTurnFingerprint: string;
+    readonly checkpointId: string;
+    readonly kind: 'MESSAGE_DELIVERY_TIMEOUT';
+    readonly createdAt: string;
+  }): Promise<
+    | { readonly outcome: 'reserved' | 'existing'; readonly recovery: CommandRoomTerminalRecoveryRecord }
+    | { readonly outcome: 'binding_not_active' | 'stale_epoch' | 'identity_mismatch' }
+  >;
+  claimTerminalRecovery(input: {
+    readonly recoveryKey: string;
+    readonly bindingId: string;
+    readonly connectionEpoch: number;
+    readonly claimedAt: string;
+  }): Promise<CommandRoomTerminalRecoveryRecord | null>;
+  authorizeTerminalRecovery(input: {
+    readonly recoveryKey: string;
+    readonly bindingId: string;
+    readonly connectionEpoch: number;
+    readonly continuationBindingId: string;
+    readonly authorizedAt: string;
+  }): Promise<CommandRoomTerminalRecoveryRecord | null>;
   getAgentAuthority(roomId: string, agentId: string): Promise<{
     readonly roomId: string;
     readonly agentId: string;
@@ -141,6 +175,27 @@ export type CommandRoomSupervisorCheckpointResolver = (input: {
   readonly workspaceId: string;
 }) => Promise<CommandRoomSupervisorCheckpointSnapshot | null>;
 
+export interface CommandRoomTerminalRecoverySafetySnapshot {
+  readonly workspaceLeaseActive: boolean;
+  readonly durableTasks: readonly {
+    readonly taskId: string;
+    readonly state: 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'termination_unverified' | 'missing';
+  }[];
+  readonly ambiguous: boolean;
+}
+
+export type CommandRoomTerminalRecoverySafetyResolver = (input: {
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly durableTaskIds: readonly string[];
+}) => Promise<CommandRoomTerminalRecoverySafetySnapshot>;
+
+export type CommandRoomTerminalRecoveryResponse =
+  | { readonly outcome: 'authorized'; readonly recoveryId: string; readonly checkpointId: string; readonly continuation: PairingChallengeResponse }
+  | { readonly outcome: 'duplicate'; readonly recoveryId: string; readonly checkpointId: string }
+  | { readonly outcome: 'wait'; readonly reason: 'GENERATION_ACTIVE' | 'NO_SAFE_CHECKPOINT' | 'CHECKPOINT_WORKING' | 'CHECKPOINT_NOT_SAFE' | 'WORKSPACE_BUSY' | 'DURABLE_TASK_RUNNING'; readonly checkpointId?: string }
+  | { readonly outcome: 'failed'; readonly reason: 'UNAUTHORIZED' | 'IDENTITY_MISMATCH' | 'STALE_EPOCH' | 'SAFETY_EVIDENCE_UNAVAILABLE' | 'DURABLE_TASK_AMBIGUOUS' | 'RECOVERY_RESERVATION_FAILED' };
+
 export type SyncCommandRoomSupervisorStateResponse =
   | { readonly outcome: 'published'; readonly supervisorSync: 'OK'; readonly state: CommandRoomSupervisorStateRecord }
   | { readonly outcome: 'no_checkpoint' | 'degraded'; readonly supervisorSync: 'DEGRADED' }
@@ -155,6 +210,7 @@ export interface CommandRoomExtensionServiceOptions {
   readonly wakeCircuitBreakerThreshold?: number;
   readonly supervisorStateRepository?: CommandRoomSupervisorStateRepositoryPort;
   readonly checkpointResolver?: CommandRoomSupervisorCheckpointResolver;
+  readonly terminalRecoverySafetyResolver?: CommandRoomTerminalRecoverySafetyResolver;
 }
 
 export interface PairingChallengeResponse {
@@ -179,6 +235,7 @@ export class CommandRoomExtensionService {
   private readonly wakeCircuitBreakerThreshold: number;
   private readonly supervisorStateRepository: CommandRoomSupervisorStateRepositoryPort | undefined;
   private readonly checkpointResolver: CommandRoomSupervisorCheckpointResolver | undefined;
+  private readonly terminalRecoverySafetyResolver: CommandRoomTerminalRecoverySafetyResolver | undefined;
 
   public constructor(
     private readonly repository: CommandRoomExtensionRepositoryPort,
@@ -195,6 +252,7 @@ export class CommandRoomExtensionService {
     );
     this.supervisorStateRepository = options.supervisorStateRepository;
     this.checkpointResolver = options.checkpointResolver;
+    this.terminalRecoverySafetyResolver = options.terminalRecoverySafetyResolver;
   }
 
   public async createPairingChallenge(input: {
@@ -326,6 +384,123 @@ export class CommandRoomExtensionService {
       if (active?.id === binding.id) recovered.push(binding);
     }
     return recovered;
+  }
+
+  public async assessTerminalRecovery(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly sourceConversationFingerprint: string;
+    readonly terminalTurnFingerprint: string;
+    readonly generationActive: boolean;
+    readonly now: string;
+  }): Promise<CommandRoomTerminalRecoveryResponse> {
+    const binding = await this.authenticateBinding(input.bindingId, input.extensionInstallationId);
+    if (binding === null) return { outcome: 'failed', reason: 'UNAUTHORIZED' };
+    const authority = await this.repository.getAgentAuthority(binding.roomId, binding.agentId);
+    if (
+      authority === null
+      || authority.role !== 'LEAD'
+      || authority.projectKey === undefined
+      || authority.workspaceId === undefined
+      || authority.slotKey !== binding.slotKey
+      || binding.conversationRefFingerprint === undefined
+      || binding.conversationRefFingerprint !== input.sourceConversationFingerprint
+    ) return { outcome: 'failed', reason: 'IDENTITY_MISMATCH' };
+    if (authority.connectionEpoch !== binding.connectionEpoch) return { outcome: 'failed', reason: 'STALE_EPOCH' };
+    if (input.generationActive) return { outcome: 'wait', reason: 'GENERATION_ACTIVE' };
+    if (this.checkpointResolver === undefined || this.terminalRecoverySafetyResolver === undefined) {
+      return { outcome: 'failed', reason: 'SAFETY_EVIDENCE_UNAVAILABLE' };
+    }
+
+    let checkpoint: CommandRoomSupervisorCheckpointSnapshot | null;
+    try {
+      checkpoint = await this.checkpointResolver({ projectKey: authority.projectKey, workspaceId: authority.workspaceId });
+    } catch {
+      return { outcome: 'failed', reason: 'SAFETY_EVIDENCE_UNAVAILABLE' };
+    }
+    if (checkpoint === null) return { outcome: 'wait', reason: 'NO_SAFE_CHECKPOINT' };
+    if (checkpoint.projectKey !== authority.projectKey || checkpoint.workspaceId !== authority.workspaceId) {
+      return { outcome: 'failed', reason: 'IDENTITY_MISMATCH' };
+    }
+    if (checkpoint.status === 'WORKING') return { outcome: 'wait', reason: 'CHECKPOINT_WORKING', checkpointId: checkpoint.id };
+    const nextAction = checkpoint.nextAction?.trim();
+    if (checkpoint.status !== 'DONE' || !checkpoint.safeToContinue || checkpoint.needsUser || nextAction === undefined || nextAction.length === 0) {
+      return { outcome: 'wait', reason: 'CHECKPOINT_NOT_SAFE', checkpointId: checkpoint.id };
+    }
+
+    const recoveryKey = terminalRecoveryKey(binding, input.terminalTurnFingerprint, checkpoint.id);
+    const reserved = await this.repository.reserveTerminalRecovery({
+      id: this.randomId(),
+      recoveryKey,
+      roomId: binding.roomId,
+      agentId: binding.agentId,
+      slotKey: binding.slotKey,
+      projectKey: authority.projectKey,
+      workspaceId: authority.workspaceId,
+      connectionEpoch: binding.connectionEpoch,
+      bindingId: binding.id,
+      sourceConversationFingerprint: input.sourceConversationFingerprint,
+      terminalTurnFingerprint: input.terminalTurnFingerprint,
+      checkpointId: checkpoint.id,
+      kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      createdAt: input.now,
+    });
+    if (reserved.outcome === 'stale_epoch') return { outcome: 'failed', reason: 'STALE_EPOCH' };
+    if (reserved.outcome !== 'reserved' && reserved.outcome !== 'existing') return { outcome: 'failed', reason: 'RECOVERY_RESERVATION_FAILED' };
+    if (reserved.recovery.state === 'AUTHORIZED') {
+      return { outcome: 'duplicate', recoveryId: reserved.recovery.id, checkpointId: reserved.recovery.checkpointId };
+    }
+
+    let safety: CommandRoomTerminalRecoverySafetySnapshot;
+    try {
+      safety = await this.terminalRecoverySafetyResolver({
+        projectKey: authority.projectKey,
+        workspaceId: authority.workspaceId,
+        durableTaskIds: checkpoint.durableTaskIds,
+      });
+    } catch {
+      return { outcome: 'failed', reason: 'SAFETY_EVIDENCE_UNAVAILABLE' };
+    }
+    if (safety.ambiguous || safety.durableTasks.some((task) => task.state === 'missing')) {
+      return { outcome: 'failed', reason: 'DURABLE_TASK_AMBIGUOUS' };
+    }
+    if (safety.workspaceLeaseActive) return { outcome: 'wait', reason: 'WORKSPACE_BUSY', checkpointId: checkpoint.id };
+    if (safety.durableTasks.some((task) => task.state === 'running' || task.state === 'termination_unverified')) {
+      return { outcome: 'wait', reason: 'DURABLE_TASK_RUNNING', checkpointId: checkpoint.id };
+    }
+
+    const claimed = await this.repository.claimTerminalRecovery({
+      recoveryKey,
+      bindingId: binding.id,
+      connectionEpoch: binding.connectionEpoch,
+      claimedAt: input.now,
+    });
+    if (claimed === null || claimed.state !== 'CLAIMED') {
+      const current = await this.repository.getTerminalRecoveryByKey(recoveryKey);
+      return current === null
+        ? { outcome: 'failed', reason: 'RECOVERY_RESERVATION_FAILED' }
+        : { outcome: 'duplicate', recoveryId: current.id, checkpointId: current.checkpointId };
+    }
+
+    const continuation = await this.createContinuationChallenge({
+      bindingId: binding.id,
+      extensionInstallationId: input.extensionInstallationId,
+      now: input.now,
+    });
+    if (continuation === null || continuation.connectionEpoch !== binding.connectionEpoch) {
+      return { outcome: 'failed', reason: 'RECOVERY_RESERVATION_FAILED' };
+    }
+    const authorized = await this.repository.authorizeTerminalRecovery({
+      recoveryKey,
+      bindingId: binding.id,
+      connectionEpoch: binding.connectionEpoch,
+      continuationBindingId: continuation.bindingId,
+      authorizedAt: input.now,
+    });
+    if (authorized === null || authorized.state !== 'AUTHORIZED' || authorized.continuationBindingId !== continuation.bindingId) {
+      return { outcome: 'failed', reason: 'RECOVERY_RESERVATION_FAILED' };
+    }
+    return { outcome: 'authorized', recoveryId: authorized.id, checkpointId: checkpoint.id, continuation };
   }
 
   public async syncSupervisorState(input: {
@@ -565,6 +740,21 @@ export class CommandRoomExtensionService {
 
 export function hashPairingChallengeForTest(challenge: string): string {
   return hashSecret(challenge);
+}
+
+function terminalRecoveryKey(binding: CommandRoomBindingRecord, terminalTurnFingerprint: string, checkpointId: string): string {
+  return createHash('sha256')
+    .update('nava-terminal-recovery-v2\0', 'utf8')
+    .update(binding.id, 'utf8')
+    .update('\0', 'utf8')
+    .update(binding.conversationRefFingerprint ?? '', 'utf8')
+    .update('\0', 'utf8')
+    .update(terminalTurnFingerprint, 'utf8')
+    .update('\0', 'utf8')
+    .update(checkpointId, 'utf8')
+    .update('\0', 'utf8')
+    .update(String(binding.connectionEpoch), 'utf8')
+    .digest('hex');
 }
 
 function hashSecret(value: string): string {

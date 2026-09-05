@@ -178,6 +178,109 @@ describe('SqliteCommandRoomBindingRepository', () => {
     database.close();
   });
 
+  it('persists and atomically deduplicates terminal recovery without mutating the active binding epoch or task', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-terminal-recovery-'));
+    cleanup.push(directory);
+    const filename = join(directory, 'nava.db');
+    const database = new SqliteDatabase(filename);
+    seedCommandRoom(database);
+    database.connection.prepare(
+      "UPDATE command_room_agents SET project_key='beelzebub', workspace_id='workspace-beelzebub' WHERE id='lead-1'",
+    ).run();
+    const repository = new SqliteCommandRoomBindingRepository(database);
+
+    await repository.createChallenge({
+      id: 'binding-source', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1', provider: 'CHATGPT',
+      connectionEpoch: 1, challengeHash: 'sha256:source', challengeExpiresAt: '2026-08-30T00:05:00.000Z', createdAt: NOW,
+    });
+    expect((await repository.confirmPairing({
+      bindingId: 'binding-source', roomId: 'room-1', agentId: 'lead-1', connectionEpoch: 1,
+      challengeHash: 'sha256:source', extensionInstallationId: 'extension-installation-1',
+      encryptedConversationRef: 'ciphertext:v1:source', conversationRefFingerprint: 'hmac:source-conversation',
+      confirmedAt: '2026-08-30T00:00:01.000Z',
+    })).outcome).toBe('paired');
+
+    const reserved = await repository.reserveTerminalRecovery({
+      id: 'recovery-1',
+      recoveryKey: 'recovery-key-1',
+      roomId: 'room-1',
+      agentId: 'lead-1',
+      slotKey: 'LEAD-1',
+      projectKey: 'beelzebub',
+      workspaceId: 'workspace-beelzebub',
+      connectionEpoch: 1,
+      bindingId: 'binding-source',
+      sourceConversationFingerprint: 'hmac:source-conversation',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      checkpointId: 'checkpoint-safe',
+      kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      createdAt: '2026-08-30T00:00:02.000Z',
+    });
+    expect(reserved).toMatchObject({ outcome: 'reserved', recovery: { id: 'recovery-1', state: 'WAITING' } });
+
+    const duplicate = await repository.reserveTerminalRecovery({
+      id: 'recovery-duplicate',
+      recoveryKey: 'recovery-key-1',
+      roomId: 'room-1',
+      agentId: 'lead-1',
+      slotKey: 'LEAD-1',
+      projectKey: 'beelzebub',
+      workspaceId: 'workspace-beelzebub',
+      connectionEpoch: 1,
+      bindingId: 'binding-source',
+      sourceConversationFingerprint: 'hmac:source-conversation',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      checkpointId: 'checkpoint-safe',
+      kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      createdAt: '2026-08-30T00:00:03.000Z',
+    });
+    expect(duplicate).toMatchObject({ outcome: 'existing', recovery: { id: 'recovery-1', state: 'WAITING' } });
+
+    expect(await repository.claimTerminalRecovery({
+      recoveryKey: 'recovery-key-1', bindingId: 'binding-source', connectionEpoch: 1,
+      claimedAt: '2026-08-30T00:00:04.000Z',
+    })).toMatchObject({ id: 'recovery-1', state: 'CLAIMED' });
+    expect(await repository.claimTerminalRecovery({
+      recoveryKey: 'recovery-key-1', bindingId: 'binding-source', connectionEpoch: 1,
+      claimedAt: '2026-08-30T00:00:05.000Z',
+    })).toBeNull();
+
+    await repository.createChallenge({
+      id: 'binding-continuation', roomId: 'room-1', agentId: 'lead-1', slotKey: 'LEAD-1', provider: 'CHATGPT',
+      connectionEpoch: 1, challengeHash: 'sha256:continuation', challengeExpiresAt: '2026-08-30T00:05:00.000Z',
+      createdAt: '2026-08-30T00:00:06.000Z',
+    });
+    expect(await repository.authorizeTerminalRecovery({
+      recoveryKey: 'recovery-key-1', bindingId: 'binding-source', connectionEpoch: 1,
+      continuationBindingId: 'binding-continuation', authorizedAt: '2026-08-30T00:00:07.000Z',
+    })).toMatchObject({
+      id: 'recovery-1', state: 'AUTHORIZED', continuationBindingId: 'binding-continuation',
+      checkpointId: 'checkpoint-safe', connectionEpoch: 1,
+    });
+
+    expect(await repository.getActiveBinding('room-1', 'lead-1', 1)).toMatchObject({
+      id: 'binding-source', state: 'PAIRED', connectionEpoch: 1,
+    });
+    expect(database.connection.prepare("SELECT connection_epoch FROM command_room_agents WHERE id='lead-1'").get())
+      .toEqual({ connection_epoch: 1 });
+    expect(database.connection.prepare("SELECT state, checkpoint_id, version FROM command_room_tasks WHERE id='task-1'").get())
+      .toEqual({ state: 'QUEUED', checkpoint_id: null, version: 1 });
+    expect(database.connection.prepare("SELECT id FROM schema_migrations WHERE id='009_command_room_terminal_recoveries'").get())
+      .toEqual({ id: '009_command_room_terminal_recoveries' });
+
+    database.close();
+    const reopenedDatabase = new SqliteDatabase(filename);
+    const reopened = new SqliteCommandRoomBindingRepository(reopenedDatabase);
+    expect(await reopened.getTerminalRecoveryByKey('recovery-key-1')).toMatchObject({
+      id: 'recovery-1', state: 'AUTHORIZED', continuationBindingId: 'binding-continuation',
+      bindingId: 'binding-source', checkpointId: 'checkpoint-safe',
+    });
+    expect(await reopened.getActiveBinding('room-1', 'lead-1', 1)).toMatchObject({
+      id: 'binding-source', state: 'PAIRED', connectionEpoch: 1,
+    });
+    reopenedDatabase.close();
+  });
+
   it('rejects an expired challenge without turning it into a paired binding', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'nava-command-room-binding-expired-'));
     cleanup.push(directory);

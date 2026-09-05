@@ -23,6 +23,7 @@ export type CommandRoomExtensionBridgeService = Pick<CommandRoomExtensionService
   | 'touchBinding'
   | 'syncSupervisorState'
   | 'recoverBindingsForInstallation'
+  | 'assessTerminalRecovery'
   | 'revoke'
 >;
 
@@ -136,7 +137,7 @@ async function handleRequest(
     return;
   }
 
-  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation|supervisor|recover))?$/.exec(url.pathname);
+  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation|supervisor|recover|terminal-recovery))?$/.exec(url.pathname);
   if (bindingMatch !== null) {
     const bindingId = decodePathSegment(bindingMatch[1]);
     const action = bindingMatch[2] ?? 'status';
@@ -147,6 +148,29 @@ async function handleRequest(
     }
     if (action === 'status' && request.method === 'GET') {
       sendJson(response, 200, { ok: true, binding: safeBinding(authenticated) });
+      return;
+    }
+    if (action === 'terminal-recovery' && request.method === 'POST') {
+      const body = await readJsonObject(request);
+      if (body.terminalKind !== 'MESSAGE_DELIVERY_TIMEOUT') {
+        throw new HttpInputError(400, 'INVALID_TERMINAL_KIND', 'Terminal recovery kind is invalid.');
+      }
+      if (body.generationActive !== false) {
+        sendJson(response, 200, { ok: true, outcome: 'wait', reason: 'GENERATION_ACTIVE' });
+        return;
+      }
+      const conversationRef = requiredOpaqueString(body, 'conversationRef', 8, 2_048);
+      const terminalTurnKey = requiredOpaqueString(body, 'terminalTurnKey', 8, 2_048);
+      const protectedConversation = protectConversationRef(options.authKey, conversationRef);
+      const result = await options.service.assessTerminalRecovery({
+        bindingId,
+        extensionInstallationId: requireInstallationId(authenticated),
+        sourceConversationFingerprint: protectedConversation.conversationRefFingerprint,
+        terminalTurnFingerprint: protectTerminalTurnFingerprint(options.authKey, terminalTurnKey),
+        generationActive: false,
+        now: now().toISOString(),
+      });
+      sendJson(response, 200, { ok: true, ...result });
       return;
     }
     if (action === 'continuation' && request.method === 'POST') {
@@ -379,6 +403,16 @@ function protectConversationRef(key: Buffer, conversationRef: string): { readonl
     encryptedConversationRef: `aes256gcm:v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${ciphertext.toString('base64url')}`,
     conversationRefFingerprint: `hmac-sha256:v1:${fingerprint}`,
   };
+}
+
+function protectTerminalTurnFingerprint(key: Buffer, terminalTurnKey: string): string {
+  const fingerprintKey = Buffer.from(hkdfSync('sha256', key, Buffer.alloc(0), 'nava-command-room-terminal-turn-fingerprint-v2', 32));
+  const fingerprint = createHmac('sha256', fingerprintKey).update(terminalTurnKey, 'utf8').digest('base64url');
+  return `hmac-sha256:v1:${fingerprint}`;
+}
+
+export function protectCommandRoomTerminalTurnForTest(key: Buffer, terminalTurnKey: string): string {
+  return protectTerminalTurnFingerprint(key, terminalTurnKey);
 }
 
 export function protectCommandRoomConversationRefForTest(

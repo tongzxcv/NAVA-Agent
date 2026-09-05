@@ -6,6 +6,7 @@ import { AUDIT_MIGRATION_SQL } from './migrations/audit-migration.js';
 import { CHECKPOINT_MIGRATION_SQL } from './migrations/checkpoint-migration.js';
 import { COMMAND_ROOM_BINDING_MIGRATION_SQL } from './migrations/command-room-binding-migration.js';
 import { COMMAND_ROOM_SUPERVISOR_STATE_MIGRATION_SQL } from './migrations/command-room-supervisor-state-migration.js';
+import { COMMAND_ROOM_TERMINAL_RECOVERY_MIGRATION_SQL } from './migrations/command-room-terminal-recovery-migration.js';
 
 export interface SqliteDatabaseOptions {
   readonly backupDirectory?: string;
@@ -236,6 +237,7 @@ export class SqliteDatabase {
     this.applyMigration({ id: '006_command_room_resources', sql: COMMAND_ROOM_RESOURCE_MIGRATION_SQL });
     this.applyMigration({ id: '007_command_room_bindings', sql: COMMAND_ROOM_BINDING_MIGRATION_SQL });
     this.applyMigration({ id: '008_command_room_supervisor_states', sql: COMMAND_ROOM_SUPERVISOR_STATE_MIGRATION_SQL });
+    this.applyMigration({ id: '009_command_room_terminal_recoveries', sql: COMMAND_ROOM_TERMINAL_RECOVERY_MIGRATION_SQL });
   }
 
   public applyMigration(migration: Migration): void {

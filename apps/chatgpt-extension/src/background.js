@@ -12,6 +12,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   const SESSION_REWRAP_KEY = 'nava.commandRoomBindingRewrapKey';
   const REGISTRY_VERSION = 1;
   const MAX_BINDINGS = 32;
+  const TERMINAL_RECOVERY_LEDGER_KEY = 'nava.terminalRecoveryLedgerV2';
+  const MAX_TERMINAL_RECOVERIES = 64;
   const WAKE_ALARM_NAME = 'nava.commandRoomWakePoll';
   const WAKE_POLL_MINUTES = 1;
   const KNOWN_ERROR_CODES = new Set([
@@ -39,6 +41,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     'SUPERVISOR_IDENTITY_MISMATCH',
     'SUPERVISOR_STALE_EPOCH',
     'SUPERVISOR_UNSUPPORTED',
+    'TERMINAL_RECOVERY_BLOCKED',
   ]);
   let checkInFlight = null;
   let continuationInFlight = null;
@@ -63,6 +66,45 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     const generated = `nava-${crypto.randomUUID()}`;
     await chrome.storage.local.set({ [INSTALLATION_ID_KEY]: generated });
     return generated;
+  }
+
+  async function readTerminalRecoveryLedger() {
+    const stored = await chrome.storage.local.get(TERMINAL_RECOVERY_LEDGER_KEY);
+    const value = stored?.[TERMINAL_RECOVERY_LEDGER_KEY];
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry) => (
+      NavaExtension.isRecord(entry)
+      && typeof entry.recoveryId === 'string'
+      && typeof entry.bindingId === 'string'
+      && typeof entry.checkpointId === 'string'
+      && ['CLAIMED', 'TAB_CREATED', 'COMPLETED'].includes(entry.stage)
+      && (entry.tabId === undefined || Number.isInteger(entry.tabId))
+    )).slice(-MAX_TERMINAL_RECOVERIES);
+  }
+
+  async function writeTerminalRecoveryLedger(entries) {
+    await chrome.storage.local.set({ [TERMINAL_RECOVERY_LEDGER_KEY]: entries.slice(-MAX_TERMINAL_RECOVERIES) });
+  }
+
+  async function claimTerminalRecovery(recoveryId, bindingId, checkpointId) {
+    const entries = await readTerminalRecoveryLedger();
+    if (entries.some((entry) => entry.recoveryId === recoveryId)) return false;
+    entries.push({ recoveryId, bindingId, checkpointId, stage: 'CLAIMED', updatedAt: new Date().toISOString() });
+    await writeTerminalRecoveryLedger(entries);
+    return true;
+  }
+
+  async function updateTerminalRecovery(recoveryId, patch) {
+    const entries = await readTerminalRecoveryLedger();
+    const index = entries.findIndex((entry) => entry.recoveryId === recoveryId);
+    if (index < 0) return false;
+    entries[index] = { ...entries[index], ...patch, updatedAt: new Date().toISOString() };
+    await writeTerminalRecoveryLedger(entries);
+    return true;
+  }
+
+  async function hasTerminalRecovery(recoveryId) {
+    return (await readTerminalRecoveryLedger()).some((entry) => entry.recoveryId === recoveryId);
   }
 
   function validState(state) {
@@ -498,11 +540,50 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     if (!inspected || inspected.ok !== true || inspected.conversationRef !== state.conversationRef) {
       return { ok: false, code: 'CONVERSATION_MISMATCH' };
     }
-    if (inspected.limit?.maxLength !== true) return { ok: true, ready: false, reason: 'NOT_AT_MAX_LENGTH' };
+    const terminal = inspected.terminal;
+    const exactMax = inspected.limit?.maxLength === true || terminal?.kind === 'EXACT_MAX_LENGTH';
+    const timeout = terminal?.terminal === true && terminal?.kind === 'MESSAGE_DELIVERY_TIMEOUT';
+    if (!exactMax && !timeout) return { ok: true, ready: false, reason: 'NOT_AT_MAX_LENGTH' };
     if (inspected.composer?.errorCode === 'COMPOSER_NOT_EMPTY') return { ok: false, code: 'COMPOSER_NOT_EMPTY' };
+    if (timeout && terminal.generationActive === true) {
+      return { ok: true, ready: false, reason: 'RECOVERY_WAIT', recoveryReason: 'GENERATION_ACTIVE' };
+    }
     if (inspected.composer?.ok !== true) return { ok: false, code: 'DOM_MISMATCH' };
     const projectRef = state.projectRef ?? NavaExtension.projectRefFromConversationRef(state.conversationRef);
     if (projectRef === null || NavaExtension.projectHomeUrl(projectRef) === null) return { ok: false, code: 'PROJECT_IDENTITY_MISSING' };
+
+    if (timeout) {
+      if (typeof terminal.terminalTurnKey !== 'string' || terminal.terminalTurnKey.length < 8) return { ok: false, code: 'DOM_MISMATCH' };
+      let recovery;
+      try {
+        recovery = await NavaBridge.assessTerminalRecovery(state, {
+          terminalKind: 'MESSAGE_DELIVERY_TIMEOUT',
+          conversationRef: state.conversationRef,
+          terminalTurnKey: terminal.terminalTurnKey,
+          generationActive: false,
+        });
+      } catch (error) {
+        return { ok: false, code: publicError(error) };
+      }
+      if (recovery?.outcome === 'wait') {
+        return { ok: true, ready: false, reason: 'RECOVERY_WAIT', recoveryReason: recovery.reason, checkpointId: recovery.checkpointId };
+      }
+      if (recovery?.outcome === 'duplicate') {
+        return { ok: true, ready: false, reason: 'RECOVERY_ALREADY_HANDLED', recoveryId: recovery.recoveryId, checkpointId: recovery.checkpointId };
+      }
+      if (recovery?.outcome === 'failed') return { ok: false, code: 'TERMINAL_RECOVERY_BLOCKED', recoveryReason: recovery.reason };
+      if (recovery?.outcome !== 'authorized' || !recovery.continuation) return { ok: false, code: 'EXTENSION_INTERNAL' };
+      if (recovery.continuation.connectionEpoch !== state.connectionEpoch) return { ok: false, code: 'PAIRING_MISMATCH' };
+      if (await hasTerminalRecovery(recovery.recoveryId)) {
+        return { ok: true, ready: false, reason: 'RECOVERY_ALREADY_HANDLED', recoveryId: recovery.recoveryId, checkpointId: recovery.checkpointId };
+      }
+      return {
+        ok: true, ready: true, terminalKind: 'MESSAGE_DELIVERY_TIMEOUT', recoveryId: recovery.recoveryId,
+        checkpointId: recovery.checkpointId, sameEpoch: true, connectionEpoch: state.connectionEpoch,
+        continuation: recovery.continuation,
+      };
+    }
+
     let challenge;
     try {
       challenge = await NavaBridge.createContinuationChallenge(state);
@@ -513,16 +594,13 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       return { ok: false, code: 'PAIRING_MISMATCH' };
     }
     return {
-      ok: true,
-      ready: true,
-      sameEpoch: true,
-      connectionEpoch: state.connectionEpoch,
+      ok: true, ready: true, terminalKind: 'EXACT_MAX_LENGTH', sameEpoch: true, connectionEpoch: state.connectionEpoch,
       continuation: challenge.continuation,
     };
   }
 
-  function continuationBootstrap(state) {
-    return [
+  function continuationBootstrap(state, recovery) {
+    const lines = [
       '@NAVA Agent',
       '',
       'NAVA AUTO CONTINUATION',
@@ -530,8 +608,18 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       `Slot: ${state.slotKey}`,
       `Connection epoch: ${state.connectionEpoch}`,
       'Browser-binding continuation only. Do NOT command_room_join, rejoin, rebind, takeover, or rotate connection epoch.',
-      'Use NAVA session_resume / durable checkpoint continuity, verify live project/workspace evidence, then continue from the latest safe resume point.',
-    ].join('\\n');
+    ];
+    if (recovery !== undefined) {
+      lines.push(
+        'TERMINAL RECOVERY V2 — MESSAGE DELIVERY TIMED OUT.',
+        `Recovery ID: ${recovery.recoveryId}`,
+        `Authoritative checkpoint: ${recovery.checkpointId}`,
+        'Do NOT retry, replay, or resubmit the failed user turn.',
+        'Assume side effects represented by the authoritative checkpoint may already have happened; resume strictly after that checkpoint.',
+      );
+    }
+    lines.push('Use NAVA session_resume / durable checkpoint continuity, verify live project/workspace evidence, then continue from the latest safe resume point.');
+    return lines.join('\\n');
   }
 
   async function waitForProjectHome(tabId, expectedProjectRef) {
@@ -576,6 +664,13 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     const projectRef = state.projectRef ?? NavaExtension.projectRefFromConversationRef(state.conversationRef);
     const projectUrl = projectRef === null ? null : NavaExtension.projectHomeUrl(projectRef);
     if (projectRef === null || projectUrl === null) return { ok: false, code: 'PROJECT_IDENTITY_MISSING' };
+    const recovery = ready.terminalKind === 'MESSAGE_DELIVERY_TIMEOUT'
+      ? { recoveryId: ready.recoveryId, checkpointId: ready.checkpointId }
+      : undefined;
+    if (recovery !== undefined) {
+      const claimed = await claimTerminalRecovery(recovery.recoveryId, state.bindingId, recovery.checkpointId);
+      if (!claimed) return { ok: true, ready: false, reason: 'RECOVERY_ALREADY_HANDLED', ...recovery };
+    }
 
     let newTab;
     try {
@@ -584,6 +679,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       return { ok: false, code: 'TAB_UNAVAILABLE' };
     }
     if (!Number.isInteger(newTab?.id)) return { ok: false, code: 'TAB_UNAVAILABLE' };
+    if (recovery !== undefined) await updateTerminalRecovery(recovery.recoveryId, { stage: 'TAB_CREATED', tabId: newTab.id });
     const home = await waitForProjectHome(newTab.id, projectRef);
     if (!home.ok) return home;
 
@@ -592,7 +688,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       submitted = await sendWakeMessage(home.tab, {
         type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
         expectedProjectRef: projectRef,
-        bootstrap: continuationBootstrap(state),
+        bootstrap: continuationBootstrap(state, recovery),
       });
     } catch {
       return { ok: false, code: 'TAB_UNAVAILABLE' };
@@ -637,6 +733,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       await chrome.storage.session.set({ [SESSION_STATE_KEY]: nextState });
       return { ok: false, code: 'EXTENSION_INTERNAL', pairedButPersistenceDegraded: true };
     }
+    if (recovery !== undefined) await updateTerminalRecovery(recovery.recoveryId, { stage: 'COMPLETED', tabId: newTab.id });
     await ensureWakeAlarm();
     const supervisor = await syncSupervisorState(nextState);
     return {
@@ -649,6 +746,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       connectionEpoch: state.connectionEpoch,
       sameEpoch: true,
       supervisorSync: supervisor.supervisorSync,
+      ...(recovery === undefined ? {} : { recoveryId: recovery.recoveryId, checkpointId: recovery.checkpointId, terminalKind: 'MESSAGE_DELIVERY_TIMEOUT' }),
     };
   }
 

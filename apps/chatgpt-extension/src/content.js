@@ -156,8 +156,9 @@
           return false;
         }
         const limit = NavaExtension.inspectConversationLimit(document);
+        const terminal = NavaExtension.inspectConversationTerminal(document);
         const composer = NavaExtension.inspectComposer(document);
-        sendResponse({ ok: limit.ok === true, conversationRef, limit, composer });
+        sendResponse({ ok: limit.ok === true && terminal.ok === true, conversationRef, limit, terminal, composer });
       } catch {
         sendResponse({ ok: false, errorCode: 'DOM_MISMATCH' });
       }

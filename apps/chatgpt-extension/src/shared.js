@@ -149,6 +149,7 @@
   }
 
   const MAX_LENGTH_MESSAGE = "You've reached the maximum length for this conversation, but you can keep talking by starting a new chat.";
+  const MESSAGE_DELIVERY_TIMEOUT = 'Message delivery timed out. Please try again.';
 
   function inspectConversationLimit(documentObject) {
     if (!documentObject || typeof documentObject.querySelectorAll !== 'function') {
@@ -166,6 +167,77 @@
     });
     if (matches.length === 0) return { ok: true, maxLength: false };
     return { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' };
+  }
+
+  function inspectGenerationActivity(documentObject) {
+    if (!documentObject || typeof documentObject.querySelector !== 'function') return { ok: false, active: true };
+    try {
+      const busy = documentObject.querySelector('[aria-busy="true"], [data-is-streaming="true"], [data-composer-busy="true"], [data-is-recording="true"], [data-recording="true"], [aria-label*="Stop generating" i], [aria-label*="Stop recording" i]');
+      return { ok: true, active: busy !== null && isVisible(busy) };
+    } catch {
+      return { ok: false, active: true };
+    }
+  }
+
+  function terminalTurnKey(documentObject, element) {
+    let container = null;
+    try {
+      container = typeof element.closest === 'function'
+        ? element.closest('[data-message-id], [data-testid^="conversation-turn"], article')
+        : null;
+    } catch {
+      container = null;
+    }
+    if (container !== null) {
+      const stableId = container.getAttribute?.('data-message-id')
+        ?? container.getAttribute?.('data-testid')
+        ?? container.id;
+      if (typeof stableId === 'string' && stableId.trim().length > 0) return `timeout:${stableId.slice(0, 512)}`;
+      try {
+        const turns = [...documentObject.querySelectorAll('[data-message-id], [data-testid^="conversation-turn"], article')];
+        const index = turns.indexOf(container);
+        if (index >= 0) return `timeout:turn:${index}`;
+      } catch {
+        return null;
+      }
+    }
+    try {
+      const terminals = [...documentObject.querySelectorAll('[role="alert"], [role="status"], [data-testid*="error" i]')].filter(isVisible);
+      const index = terminals.indexOf(element);
+      return index >= 0 ? `timeout:terminal:${index}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function inspectConversationTerminal(documentObject) {
+    const limit = inspectConversationLimit(documentObject);
+    if (!limit.ok) return limit;
+    if (limit.maxLength === true) return { ok: true, terminal: true, kind: 'EXACT_MAX_LENGTH', trigger: limit.trigger };
+    if (!documentObject || typeof documentObject.querySelectorAll !== 'function') return { ok: false, errorCode: 'DOM_MISMATCH' };
+    let candidates;
+    try {
+      candidates = [...documentObject.querySelectorAll('[role="alert"], [role="status"], [data-testid*="error" i]')].filter(isVisible);
+    } catch {
+      return { ok: false, errorCode: 'DOM_MISMATCH' };
+    }
+    const matches = candidates.filter((element) => {
+      const text = typeof element.innerText === 'string' ? element.innerText : element.textContent;
+      return typeof text === 'string' && text.includes(MESSAGE_DELIVERY_TIMEOUT);
+    });
+    if (matches.length === 0) return { ok: true, terminal: false };
+    const element = matches.at(-1);
+    const turnKey = terminalTurnKey(documentObject, element);
+    const generation = inspectGenerationActivity(documentObject);
+    if (turnKey === null || generation.ok !== true) return { ok: false, errorCode: 'DOM_MISMATCH' };
+    return {
+      ok: true,
+      terminal: true,
+      kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      trigger: 'MESSAGE_DELIVERY_TIMED_OUT',
+      terminalTurnKey: turnKey,
+      generationActive: generation.active,
+    };
   }
 
   function inspectComposer(documentObject) {
@@ -206,6 +278,8 @@
     WAKE_PROMPT,
     conversationRefFromUrl,
     inspectComposer,
+    inspectConversationTerminal,
+    inspectGenerationActivity,
     inspectConversationLimit,
     isExtensionOrigin,
     projectHomeUrl,

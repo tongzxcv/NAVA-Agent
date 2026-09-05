@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   CommandRoomBindingRecord,
   CommandRoomSupervisorStateRecord,
+  CommandRoomTerminalRecoveryRecord,
   CommandRoomWakeDeliveryRecord,
   CommandRoomWakeReason,
 } from '@lnwjud/domain';
@@ -271,6 +272,191 @@ describe('CommandRoomExtensionService', () => {
     expect(repository.activeBinding?.connectionEpoch).toBe(7);
   });
 
+  it('terminal timeout recovery waits while generation or durable work is active and never creates continuation authority', async () => {
+    const repository = new FakeExtensionRepository();
+    repository.activeBinding = pairedBinding();
+    const ids = ['recovery-1', 'binding-continuation'];
+    const service = new CommandRoomExtensionService(repository, {
+      randomId: (): string => ids.shift() ?? 'unexpected-id',
+      randomChallenge: (): string => RAW_CHALLENGE,
+      checkpointResolver: async () => ({
+        id: 'checkpoint-safe',
+        projectKey: 'beelzebub',
+        workspaceId: 'workspace-beelzebub',
+        status: 'DONE',
+        nextAction: 'Resume after verified side effects',
+        safeToContinue: true,
+        needsUser: false,
+        durableTaskIds: ['durable-1'],
+      }),
+      terminalRecoverySafetyResolver: async () => ({
+        workspaceLeaseActive: false,
+        durableTasks: [{ taskId: 'durable-1', state: 'running' }],
+        ambiguous: false,
+      }),
+    });
+
+    await expect(service.assessTerminalRecovery({
+      bindingId: 'binding-1',
+      extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      generationActive: true,
+      now: NOW,
+    })).resolves.toEqual({ outcome: 'wait', reason: 'GENERATION_ACTIVE' });
+    expect(repository.lastTerminalReserveInput).toBeUndefined();
+    expect(repository.lastChallengeInput).toBeUndefined();
+
+    await expect(service.assessTerminalRecovery({
+      bindingId: 'binding-1',
+      extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      generationActive: false,
+      now: NOW,
+    })).resolves.toMatchObject({
+      outcome: 'wait',
+      reason: 'DURABLE_TASK_RUNNING',
+      checkpointId: 'checkpoint-safe',
+    });
+    expect(repository.lastTerminalReserveInput).toMatchObject({
+      bindingId: 'binding-1',
+      checkpointId: 'checkpoint-safe',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+    });
+    expect(repository.lastChallengeInput).toBeUndefined();
+  });
+
+  it('terminal timeout recovery authorizes one same-epoch continuation from a safe checkpoint and deduplicates repeats', async () => {
+    const repository = new FakeExtensionRepository();
+    repository.activeBinding = pairedBinding();
+    const ids = ['recovery-1', 'binding-continuation', 'unused-after-dedupe'];
+    const service = new CommandRoomExtensionService(repository, {
+      randomId: (): string => ids.shift() ?? 'unexpected-id',
+      randomChallenge: (): string => RAW_CHALLENGE,
+      checkpointResolver: async () => ({
+        id: 'checkpoint-safe',
+        projectKey: 'beelzebub',
+        workspaceId: 'workspace-beelzebub',
+        status: 'DONE',
+        nextAction: 'Continue after checkpoint without replay',
+        safeToContinue: true,
+        needsUser: false,
+        durableTaskIds: ['durable-complete'],
+      }),
+      terminalRecoverySafetyResolver: async () => ({
+        workspaceLeaseActive: false,
+        durableTasks: [{ taskId: 'durable-complete', state: 'completed' }],
+        ambiguous: false,
+      }),
+    });
+
+    const first = await service.assessTerminalRecovery({
+      bindingId: 'binding-1',
+      extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      generationActive: false,
+      now: NOW,
+    });
+    expect(first).toMatchObject({
+      outcome: 'authorized',
+      recoveryId: 'recovery-1',
+      checkpointId: 'checkpoint-safe',
+      continuation: { bindingId: 'binding-continuation', connectionEpoch: 7 },
+    });
+    expect(repository.lastTerminalReserveInput).toMatchObject({
+      roomId: 'room-1',
+      slotKey: 'LEAD-1',
+      projectKey: 'beelzebub',
+      workspaceId: 'workspace-beelzebub',
+      connectionEpoch: 7,
+      bindingId: 'binding-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      checkpointId: 'checkpoint-safe',
+    });
+    expect(repository.lastTerminalAuthorizeInput).toMatchObject({
+      bindingId: 'binding-1',
+      connectionEpoch: 7,
+      continuationBindingId: 'binding-continuation',
+    });
+    expect(repository.agentAuthority.connectionEpoch).toBe(7);
+
+    const challengeCalls = repository.challengeCount;
+    const second = await service.assessTerminalRecovery({
+      bindingId: 'binding-1',
+      extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1',
+      terminalTurnFingerprint: 'hmac:terminal-turn-1',
+      generationActive: false,
+      now: '2026-08-30T00:00:01.000Z',
+    });
+    expect(second).toEqual({
+      outcome: 'duplicate',
+      recoveryId: 'recovery-1',
+      checkpointId: 'checkpoint-safe',
+    });
+    expect(repository.challengeCount).toBe(challengeCalls);
+    expect(JSON.stringify(first)).not.toContain('agentSessionId');
+    expect(CommandRoomExtensionService.prototype.assessTerminalRecovery.toString()).not.toMatch(/command_room_join|rebind|takeover/);
+  });
+
+  it('terminal timeout recovery fails closed for wrong identity, unsafe checkpoint, workspace lease, and ambiguous durable evidence', async () => {
+    const repository = new FakeExtensionRepository();
+    repository.activeBinding = pairedBinding();
+    const safeCheckpoint = async () => ({
+      id: 'checkpoint-safe',
+      projectKey: 'beelzebub',
+      workspaceId: 'workspace-beelzebub',
+      status: 'DONE' as const,
+      nextAction: 'Continue verified work',
+      safeToContinue: true,
+      needsUser: false,
+      durableTaskIds: [] as string[],
+    });
+    let safety = { workspaceLeaseActive: false, durableTasks: [] as Array<{ taskId: string; state: 'missing' }>, ambiguous: false };
+    const service = new CommandRoomExtensionService(repository, {
+      checkpointResolver: safeCheckpoint,
+      terminalRecoverySafetyResolver: async () => safety,
+      randomId: (): string => 'recovery-unsafe',
+      randomChallenge: (): string => RAW_CHALLENGE,
+    });
+
+    await expect(service.assessTerminalRecovery({
+      bindingId: 'binding-1', extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:wrong-conversation', terminalTurnFingerprint: 'hmac:turn',
+      generationActive: false, now: NOW,
+    })).resolves.toEqual({ outcome: 'failed', reason: 'IDENTITY_MISMATCH' });
+
+    const unsafe = new CommandRoomExtensionService(repository, {
+      checkpointResolver: async () => ({
+        id: 'checkpoint-wait', projectKey: 'beelzebub', workspaceId: 'workspace-beelzebub',
+        status: 'WAITING', nextAction: 'Do not continue', safeToContinue: false, needsUser: true, durableTaskIds: [],
+      }),
+      terminalRecoverySafetyResolver: async () => ({ workspaceLeaseActive: false, durableTasks: [], ambiguous: false }),
+    });
+    await expect(unsafe.assessTerminalRecovery({
+      bindingId: 'binding-1', extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1', terminalTurnFingerprint: 'hmac:turn',
+      generationActive: false, now: NOW,
+    })).resolves.toMatchObject({ outcome: 'wait', reason: 'CHECKPOINT_NOT_SAFE', checkpointId: 'checkpoint-wait' });
+
+    safety = { workspaceLeaseActive: true, durableTasks: [], ambiguous: false };
+    await expect(service.assessTerminalRecovery({
+      bindingId: 'binding-1', extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1', terminalTurnFingerprint: 'hmac:turn-lease',
+      generationActive: false, now: NOW,
+    })).resolves.toMatchObject({ outcome: 'wait', reason: 'WORKSPACE_BUSY' });
+
+    safety = { workspaceLeaseActive: false, durableTasks: [{ taskId: 'unknown', state: 'missing' }], ambiguous: true };
+    await expect(service.assessTerminalRecovery({
+      bindingId: 'binding-1', extensionInstallationId: 'extension-installation-random-1',
+      sourceConversationFingerprint: 'hmac:conversation-ref-1', terminalTurnFingerprint: 'hmac:turn-ambiguous',
+      generationActive: false, now: NOW,
+    })).resolves.toEqual({ outcome: 'failed', reason: 'DURABLE_TASK_AMBIGUOUS' });
+  });
+
   it('queues only allowlisted wake reasons against the exact active epoch', async () => {
     const repository = new FakeExtensionRepository();
     const service = new CommandRoomExtensionService(repository, { randomId: (): string => 'wake-1' });
@@ -364,6 +550,11 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
   public lastChallengeInput?: Parameters<CommandRoomExtensionRepositoryPort['createChallenge']>[0];
   public lastConfirmInput?: Parameters<CommandRoomExtensionRepositoryPort['confirmPairing']>[0];
   public lastWakeInput?: Parameters<CommandRoomExtensionRepositoryPort['enqueueWake']>[0];
+  public lastTerminalReserveInput?: Parameters<CommandRoomExtensionRepositoryPort['reserveTerminalRecovery']>[0];
+  public lastTerminalAuthorizeInput?: Parameters<CommandRoomExtensionRepositoryPort['authorizeTerminalRecovery']>[0];
+  public lastTerminalClaimInput?: Parameters<CommandRoomExtensionRepositoryPort['claimTerminalRecovery']>[0];
+  public terminalRecovery: CommandRoomTerminalRecoveryRecord | null = null;
+  public challengeCount = 0;
   public activeBinding: CommandRoomBindingRecord | null = null;
   public installationBindings: CommandRoomBindingRecord[] = [];
   public agentAuthority = {
@@ -384,6 +575,7 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
 
   public async createChallenge(input: Parameters<CommandRoomExtensionRepositoryPort['createChallenge']>[0]): Promise<CommandRoomBindingRecord> {
     this.lastChallengeInput = input;
+    this.challengeCount += 1;
     return {
       id: input.id, roomId: input.roomId, agentId: input.agentId, slotKey: input.slotKey,
       provider: input.provider, connectionEpoch: input.connectionEpoch, state: 'CHALLENGED',
@@ -416,6 +608,68 @@ class FakeExtensionRepository implements CommandRoomExtensionRepositoryPort {
       && binding.state === 'PAIRED'
       && binding.extensionInstallationId === extensionInstallationId
     ));
+  }
+
+  public async getTerminalRecoveryByKey(recoveryKey: string): Promise<CommandRoomTerminalRecoveryRecord | null> {
+    return this.terminalRecovery?.recoveryKey === recoveryKey ? this.terminalRecovery : null;
+  }
+
+  public async reserveTerminalRecovery(
+    input: Parameters<CommandRoomExtensionRepositoryPort['reserveTerminalRecovery']>[0],
+  ): ReturnType<CommandRoomExtensionRepositoryPort['reserveTerminalRecovery']> {
+    this.lastTerminalReserveInput = input;
+    if (this.terminalRecovery !== null && this.terminalRecovery.recoveryKey === input.recoveryKey) {
+      return { outcome: 'existing', recovery: this.terminalRecovery };
+    }
+    this.terminalRecovery = {
+      id: input.id,
+      recoveryKey: input.recoveryKey,
+      roomId: input.roomId,
+      agentId: input.agentId,
+      slotKey: input.slotKey,
+      projectKey: input.projectKey,
+      workspaceId: input.workspaceId,
+      connectionEpoch: input.connectionEpoch,
+      bindingId: input.bindingId,
+      sourceConversationFingerprint: input.sourceConversationFingerprint,
+      terminalTurnFingerprint: input.terminalTurnFingerprint,
+      checkpointId: input.checkpointId,
+      kind: input.kind,
+      state: 'WAITING',
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    };
+    return { outcome: 'reserved', recovery: this.terminalRecovery };
+  }
+
+  public async claimTerminalRecovery(
+    input: Parameters<CommandRoomExtensionRepositoryPort['claimTerminalRecovery']>[0],
+  ): ReturnType<CommandRoomExtensionRepositoryPort['claimTerminalRecovery']> {
+    this.lastTerminalClaimInput = input;
+    if (this.terminalRecovery === null
+      || this.terminalRecovery.recoveryKey !== input.recoveryKey
+      || this.terminalRecovery.bindingId !== input.bindingId
+      || this.terminalRecovery.connectionEpoch !== input.connectionEpoch
+      || this.terminalRecovery.state !== 'WAITING') return null;
+    this.terminalRecovery = { ...this.terminalRecovery, state: 'CLAIMED', updatedAt: input.claimedAt };
+    return this.terminalRecovery;
+  }
+
+  public async authorizeTerminalRecovery(
+    input: Parameters<CommandRoomExtensionRepositoryPort['authorizeTerminalRecovery']>[0],
+  ): ReturnType<CommandRoomExtensionRepositoryPort['authorizeTerminalRecovery']> {
+    this.lastTerminalAuthorizeInput = input;
+    if (this.terminalRecovery === null
+      || this.terminalRecovery.recoveryKey !== input.recoveryKey
+      || this.terminalRecovery.bindingId !== input.bindingId
+      || this.terminalRecovery.connectionEpoch !== input.connectionEpoch) return null;
+    this.terminalRecovery = {
+      ...this.terminalRecovery,
+      state: 'AUTHORIZED',
+      continuationBindingId: input.continuationBindingId,
+      updatedAt: input.authorizedAt,
+    };
+    return this.terminalRecovery;
   }
 
   public async getAgentAuthority(roomId: string, agentId: string): Promise<typeof this.agentAuthority | null> {

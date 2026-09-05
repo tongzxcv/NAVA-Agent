@@ -50,6 +50,8 @@ async function createHarness() {
   let bridgeOnline = true;
   let supervisorResponse = { body: { ok: true, outcome: 'published', supervisorSync: 'OK' }, status: 200 };
   let recoveryBindings = [];
+  let terminalRecoveryResponse = { body: { ok: true, outcome: 'wait', reason: 'NO_SAFE_CHECKPOINT' }, status: 200 };
+  let continuationSubmitResponse = null;
   let inspectResponse = { ok: true, conversationRef: 'chatgpt:https://chatgpt.com/c/conversation-1', limit: { ok: true, maxLength: false }, composer: { ok: true } };
 
   const chrome = {
@@ -71,6 +73,7 @@ async function createHarness() {
         }
         if (message?.type === 'NAVA_INSPECT_CHAT_STATE') return inspectResponse;
         if (message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP') {
+          if (continuationSubmitResponse !== null) return continuationSubmitResponse;
           const target = tabs.find((item) => item.id === tabId);
           if (target) target.url = 'https://chatgpt.com/g/g-p-project/c/conversation-2';
           return { ok: true, submitted: true, projectRef: message.expectedProjectRef };
@@ -110,6 +113,7 @@ async function createHarness() {
         });
       }
       if (String(url).endsWith('/recover')) return jsonResponse({ ok: true, bindings: recoveryBindings });
+      if (String(url).endsWith('/terminal-recovery')) return jsonResponse(terminalRecoveryResponse.body, terminalRecoveryResponse.status);
       if (String(url).endsWith('/supervisor')) return jsonResponse(supervisorResponse.body, supervisorResponse.status);
       if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
       if (String(url).endsWith('/v1/bindings/binding-1234/continuation')) return jsonResponse({ continuation: { bindingId: 'binding-continuation', challenge: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1 } });
@@ -156,7 +160,10 @@ async function createHarness() {
     setBridgeOnline: (value) => { bridgeOnline = value; },
     setSupervisorResponse: (body, status = 200) => { supervisorResponse = { body, status }; },
     setRecoveryBindings: (value) => { recoveryBindings = value; },
+    setTerminalRecoveryResponse: (body, status = 200) => { terminalRecoveryResponse = { body, status }; },
+    setContinuationSubmitResponse: (value) => { continuationSubmitResponse = value; },
     setTabs: (value) => { tabs.splice(0, tabs.length, ...value); },
+    getTabs: () => tabs.map((item) => ({ ...item })),
     setInspectResponse: (value) => { inspectResponse = value; },
     setTabUrl: (value) => { tabs[0].url = value; },
     setWakes: (value) => { wakes = value; },
@@ -373,6 +380,171 @@ test('continuation readiness is fail-closed and requests a same-epoch challenge 
   assert.equal(ready.connectionEpoch, 1);
   assert.equal(ready.continuation.connectionEpoch, 1);
   assert.equal(harness.fetchCalls.filter((call) => call.url.endsWith('/continuation')).length, 1);
+});
+
+test('message delivery timeout waits while generation or durable work is active and never creates a continuation tab', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: false },
+    terminal: {
+      ok: true, terminal: true, kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      terminalTurnKey: 'timeout:conversation-turn-9', generationActive: true,
+    },
+    composer: { ok: true },
+  });
+  const generating = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(generating.ok, true);
+  assert.equal(generating.ready, false);
+  assert.equal(generating.recoveryReason, 'GENERATION_ACTIVE');
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/terminal-recovery')), false);
+  assert.equal(harness.getTabs().length, 1);
+
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: false },
+    terminal: {
+      ok: true, terminal: true, kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      terminalTurnKey: 'timeout:conversation-turn-9', generationActive: false,
+    },
+    composer: { ok: true },
+  });
+  harness.setTerminalRecoveryResponse({ ok: true, outcome: 'wait', reason: 'DURABLE_TASK_RUNNING', checkpointId: 'checkpoint-running' });
+  const running = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(running.ok, true);
+  assert.equal(running.ready, false);
+  assert.equal(running.recoveryReason, 'DURABLE_TASK_RUNNING');
+  assert.equal(harness.getTabs().length, 1);
+  assert.equal(harness.sentMessages.some((entry) => entry.message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP'), false);
+});
+
+test('safe message delivery timeout creates one same-project same-epoch continuation and never replays the failed user turn', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: false },
+    terminal: {
+      ok: true, terminal: true, kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      terminalTurnKey: 'timeout:conversation-turn-10', generationActive: false,
+    },
+    composer: { ok: true },
+  });
+  harness.setTerminalRecoveryResponse({
+    ok: true,
+    outcome: 'authorized',
+    recoveryId: 'recovery-safe-1',
+    checkpointId: 'checkpoint-after-side-effects',
+    continuation: {
+      bindingId: 'binding-continuation', challenge: 'c'.repeat(43),
+      expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1,
+    },
+  });
+
+  const [first, concurrent] = await Promise.all([
+    harness.send({ type: 'CONTINUE_CONVERSATION' }),
+    harness.send({ type: 'CONTINUE_CONVERSATION' }),
+  ]);
+  assert.equal(first.ok, true, JSON.stringify(first));
+  assert.equal(first.outcome, 'CONTINUED');
+  assert.equal(concurrent.outcome, 'CONTINUED');
+  assert.equal(first.terminalKind, 'MESSAGE_DELIVERY_TIMEOUT');
+  assert.equal(first.recoveryId, 'recovery-safe-1');
+  assert.equal(first.checkpointId, 'checkpoint-after-side-effects');
+  assert.equal(first.sameEpoch, true);
+  assert.equal(first.connectionEpoch, 1);
+  assert.equal(first.projectRef, 'chatgpt-project:https://chatgpt.com/g/g-p-project');
+  const bootstraps = harness.sentMessages.filter((entry) => entry.message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP');
+  assert.equal(bootstraps.length, 1);
+  assert.match(bootstraps[0].message.bootstrap, /Authoritative checkpoint: checkpoint-after-side-effects/);
+  assert.match(bootstraps[0].message.bootstrap, /Do NOT retry, replay, or resubmit the failed user turn/);
+  assert.match(bootstraps[0].message.bootstrap, /resume strictly after that checkpoint/);
+  assert.equal(harness.fetchCalls.filter((call) => call.url.endsWith('/terminal-recovery')).length, 1);
+  assert.equal(harness.fetchCalls.filter((call) => call.url.endsWith('/v1/pair/confirm')).length, 2);
+  assert.equal(harness.getTabs().length, 2);
+  const state = harness.session.values.get('nava.commandRoomBinding');
+  assert.equal(state.connectionEpoch, 1);
+  assert.equal(state.bindingId, 'binding-continuation');
+});
+
+test('timeout recovery ledger survives extension session loss and blocks duplicate tabs or bootstrap after a failed delivery', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  const timeoutInspect = {
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: false },
+    terminal: {
+      ok: true, terminal: true, kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      terminalTurnKey: 'timeout:conversation-turn-restart', generationActive: false,
+    },
+    composer: { ok: true },
+  };
+  harness.setInspectResponse(timeoutInspect);
+  harness.setTerminalRecoveryResponse({
+    ok: true,
+    outcome: 'authorized',
+    recoveryId: 'recovery-restart-1',
+    checkpointId: 'checkpoint-restart-safe',
+    continuation: {
+      bindingId: 'binding-continuation', challenge: 'c'.repeat(43),
+      expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1,
+    },
+  });
+  harness.setContinuationSubmitResponse({ ok: false, errorCode: 'SUBMIT_FAILED' });
+
+  const failed = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.code, 'SUBMIT_FAILED');
+  assert.equal(harness.getTabs().length, 2);
+  assert.equal(harness.sentMessages.filter((entry) => entry.message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP').length, 1);
+  const ledger = harness.local.values.get('nava.terminalRecoveryLedgerV2');
+  assert.equal(ledger.length, 1);
+  assert.equal(ledger[0].recoveryId, 'recovery-restart-1');
+  assert.equal(ledger[0].stage, 'TAB_CREATED');
+
+  await harness.session.clear();
+  const unlocked = await harness.send({ type: 'UNLOCK_STATE', passphrase: 'correct horse battery' });
+  assert.equal(unlocked.ok, true);
+  harness.setContinuationSubmitResponse(null);
+  harness.setInspectResponse(timeoutInspect);
+  const repeated = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.ready, false);
+  assert.equal(repeated.reason, 'RECOVERY_ALREADY_HANDLED');
+  assert.equal(harness.getTabs().length, 2);
+  assert.equal(harness.sentMessages.filter((entry) => entry.message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP').length, 1);
+});
+
+test('transient timeout without an authoritative safe checkpoint fails closed without retry or rollover', async () => {
+  const harness = await createHarness();
+  harness.setTabUrl('https://chatgpt.com/g/g-p-project/c/conversation-1');
+  await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  harness.setInspectResponse({
+    ok: true,
+    conversationRef: 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-1',
+    limit: { ok: true, maxLength: false },
+    terminal: {
+      ok: true, terminal: true, kind: 'MESSAGE_DELIVERY_TIMEOUT',
+      terminalTurnKey: 'timeout:conversation-turn-transient', generationActive: false,
+    },
+    composer: { ok: true },
+  });
+  harness.setTerminalRecoveryResponse({ ok: true, outcome: 'wait', reason: 'NO_SAFE_CHECKPOINT' });
+  const result = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.equal(result.ok, true);
+  assert.equal(result.ready, false);
+  assert.equal(result.recoveryReason, 'NO_SAFE_CHECKPOINT');
+  assert.equal(harness.getTabs().length, 1);
+  assert.equal(harness.sentMessages.length, 1); // only inspection
 });
 
 test('auto continuation creates a same-project conversation, atomically pairs the same epoch, and persists the new encrypted binding', async () => {

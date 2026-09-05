@@ -75,6 +75,19 @@
     return { binding: body.binding, authToken: body.authToken };
   }
 
+  async function assessTerminalRecovery(state, evidence) {
+    if (!NavaExtension.isRecord(evidence)
+      || evidence.terminalKind !== 'MESSAGE_DELIVERY_TIMEOUT'
+      || typeof evidence.conversationRef !== 'string'
+      || typeof evidence.terminalTurnKey !== 'string'
+      || evidence.generationActive !== false) throw bridgeError('EXTENSION_INTERNAL');
+    return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/terminal-recovery`), {
+      method: 'POST',
+      authToken: state.authToken,
+      body: evidence,
+    });
+  }
+
   async function createContinuationChallenge(state) {
     return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/continuation`), {
       method: 'POST',
@@ -131,5 +144,5 @@
     });
   }
 
-  globalThis.NavaBridge = Object.freeze({ createContinuationChallenge, listWakes, pair, recoverBindings, syncSupervisor, touch, transition });
+  globalThis.NavaBridge = Object.freeze({ assessTerminalRecovery, createContinuationChallenge, listWakes, pair, recoverBindings, syncSupervisor, touch, transition });
 })();

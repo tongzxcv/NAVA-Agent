@@ -147,6 +147,29 @@ export interface CommandRoomSupervisorStateRecord {
   readonly updatedAt: string;
 }
 
+export type CommandRoomTerminalRecoveryKind = 'MESSAGE_DELIVERY_TIMEOUT';
+export type CommandRoomTerminalRecoveryState = 'WAITING' | 'CLAIMED' | 'AUTHORIZED';
+
+export interface CommandRoomTerminalRecoveryRecord {
+  readonly id: string;
+  readonly recoveryKey: string;
+  readonly roomId: string;
+  readonly agentId: string;
+  readonly slotKey: string;
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly connectionEpoch: number;
+  readonly bindingId: string;
+  readonly sourceConversationFingerprint: string;
+  readonly terminalTurnFingerprint: string;
+  readonly checkpointId: string;
+  readonly kind: CommandRoomTerminalRecoveryKind;
+  readonly state: CommandRoomTerminalRecoveryState;
+  readonly continuationBindingId?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export interface CommandRoomWakeDeliveryRecord {
   readonly id: string;
   readonly roomId: string;

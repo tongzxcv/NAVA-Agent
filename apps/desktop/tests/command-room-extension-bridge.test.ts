@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CommandRoomBindingRecord, CommandRoomWakeDeliveryRecord } from '@lnwjud/domain';
 import {
   protectCommandRoomConversationRefForTest,
+  protectCommandRoomTerminalTurnForTest,
   startCommandRoomExtensionBridge,
   type CommandRoomExtensionBridgeHandle,
   type CommandRoomExtensionBridgeService,
@@ -122,6 +123,65 @@ describe('Command Room Extension Bridge', () => {
       ok: true,
       continuation: { bindingId: 'binding-continuation', connectionEpoch: 7 },
     });
+  });
+
+  it('authorizes terminal timeout recovery only through the authenticated exact binding and protected terminal identity', async () => {
+    const service = new FakeBridgeService();
+    const handle = await startBridge(service);
+    const paired = await pair(handle);
+    const token = String(paired.body.authToken);
+
+    const response = await fetch(`${handle.url}/v1/bindings/binding-1/terminal-recovery`, {
+      method: 'POST',
+      headers: authHeaders(token, true),
+      body: JSON.stringify({
+        terminalKind: 'MESSAGE_DELIVERY_TIMEOUT',
+        conversationRef: CONVERSATION_REF,
+        terminalTurnKey: 'timeout:conversation-turn-42',
+        generationActive: false,
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await jsonObject(response)).toMatchObject({
+      ok: true,
+      outcome: 'authorized',
+      recoveryId: 'recovery-1',
+      checkpointId: 'checkpoint-safe',
+      continuation: { bindingId: 'binding-continuation', connectionEpoch: 7 },
+    });
+    expect(service.lastTerminalRecoveryInput).toMatchObject({
+      bindingId: 'binding-1',
+      extensionInstallationId: INSTALLATION_ID,
+      sourceConversationFingerprint: protectCommandRoomConversationRefForTest(AUTH_KEY, CONVERSATION_REF).conversationRefFingerprint,
+      terminalTurnFingerprint: protectCommandRoomTerminalTurnForTest(AUTH_KEY, 'timeout:conversation-turn-42'),
+      generationActive: false,
+    });
+    expect(JSON.stringify(service.lastTerminalRecoveryInput)).not.toContain(CONVERSATION_REF);
+    expect(JSON.stringify(service.lastTerminalRecoveryInput)).not.toContain('agentSessionId');
+
+    const generating = await fetch(`${handle.url}/v1/bindings/binding-1/terminal-recovery`, {
+      method: 'POST',
+      headers: authHeaders(token, true),
+      body: JSON.stringify({
+        terminalKind: 'MESSAGE_DELIVERY_TIMEOUT',
+        conversationRef: CONVERSATION_REF,
+        terminalTurnKey: 'timeout:conversation-turn-43',
+        generationActive: true,
+      }),
+    });
+    expect(await jsonObject(generating)).toEqual({ ok: true, outcome: 'wait', reason: 'GENERATION_ACTIVE' });
+
+    const originless = await fetch(`${handle.url}/v1/bindings/binding-1/terminal-recovery`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        terminalKind: 'MESSAGE_DELIVERY_TIMEOUT',
+        conversationRef: CONVERSATION_REF,
+        terminalTurnKey: 'timeout:conversation-turn-44',
+        generationActive: false,
+      }),
+    });
+    expect(originless.status).toBe(403);
   });
 
   it('recovers only same-installation active bindings that match open conversation fingerprints', async () => {
@@ -380,6 +440,7 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
   public recoveryBindings: CommandRoomBindingRecord[] = [];
   public lastPairInput?: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0];
   public lastSupervisorInput?: Parameters<CommandRoomExtensionBridgeService['syncSupervisorState']>[0];
+  public lastTerminalRecoveryInput?: Parameters<CommandRoomExtensionBridgeService['assessTerminalRecovery']>[0];
 
   public async confirmPairingByBinding(input: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0]): ReturnType<CommandRoomExtensionBridgeService['confirmPairingByBinding']> {
     this.lastPairInput = input;
@@ -436,6 +497,23 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
       && binding.conversationRefFingerprint !== undefined
       && wanted.has(binding.conversationRefFingerprint)
     ));
+  }
+
+  public async assessTerminalRecovery(
+    input: Parameters<CommandRoomExtensionBridgeService['assessTerminalRecovery']>[0],
+  ): ReturnType<CommandRoomExtensionBridgeService['assessTerminalRecovery']> {
+    this.lastTerminalRecoveryInput = input;
+    return {
+      outcome: 'authorized',
+      recoveryId: 'recovery-1',
+      checkpointId: 'checkpoint-safe',
+      continuation: {
+        bindingId: 'binding-continuation',
+        challenge: 'c'.repeat(43),
+        expiresAt: '2026-08-30T01:05:00.000Z',
+        connectionEpoch: this.binding.connectionEpoch,
+      },
+    };
   }
 
   public async syncSupervisorState(input: Parameters<CommandRoomExtensionBridgeService['syncSupervisorState']>[0]): ReturnType<CommandRoomExtensionBridgeService['syncSupervisorState']> {

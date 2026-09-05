@@ -1,5 +1,6 @@
 import type {
   CommandRoomBindingRecord,
+  CommandRoomTerminalRecoveryRecord,
   CommandRoomProvider,
   CommandRoomWakeDeliveryRecord,
   CommandRoomWakeReason,
@@ -33,6 +34,27 @@ export interface ConfirmCommandRoomPairingInput {
 export type ConfirmCommandRoomPairingResult =
   | { readonly outcome: 'paired'; readonly binding: CommandRoomBindingRecord }
   | { readonly outcome: 'not_found' | 'challenge_mismatch' | 'challenge_expired' | 'stale_epoch' | 'invalid_state' };
+
+export interface ReserveCommandRoomTerminalRecoveryInput {
+  readonly id: string;
+  readonly recoveryKey: string;
+  readonly roomId: string;
+  readonly agentId: string;
+  readonly slotKey: string;
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly connectionEpoch: number;
+  readonly bindingId: string;
+  readonly sourceConversationFingerprint: string;
+  readonly terminalTurnFingerprint: string;
+  readonly checkpointId: string;
+  readonly kind: 'MESSAGE_DELIVERY_TIMEOUT';
+  readonly createdAt: string;
+}
+
+export type ReserveCommandRoomTerminalRecoveryResult =
+  | { readonly outcome: 'reserved' | 'existing'; readonly recovery: CommandRoomTerminalRecoveryRecord }
+  | { readonly outcome: 'binding_not_active' | 'stale_epoch' | 'identity_mismatch' };
 
 export interface EnqueueCommandRoomWakeInput {
   readonly id: string;
@@ -75,6 +97,26 @@ interface BindingRow {
   readonly last_seen_at: string | null;
   readonly revoked_at: string | null;
   readonly replaced_at: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+interface TerminalRecoveryRow {
+  readonly id: string;
+  readonly recovery_key: string;
+  readonly room_id: string;
+  readonly agent_id: string;
+  readonly slot_key: string;
+  readonly project_key: string;
+  readonly workspace_id: string;
+  readonly connection_epoch: number;
+  readonly binding_id: string;
+  readonly source_conversation_fingerprint: string;
+  readonly terminal_turn_fingerprint: string;
+  readonly checkpoint_id: string;
+  readonly kind: string;
+  readonly state: string;
+  readonly continuation_binding_id: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -296,6 +338,115 @@ export class SqliteCommandRoomBindingRepository {
     ).all(extensionInstallationId).flatMap((row) => { const binding = toBinding(row); return binding === null ? [] : [binding]; });
   }
 
+  public async getTerminalRecoveryByKey(recoveryKey: string): Promise<CommandRoomTerminalRecoveryRecord | null> {
+    return toTerminalRecovery(this.database.connection.prepare(terminalRecoverySelect('WHERE recovery_key = ?')).get(recoveryKey));
+  }
+
+  public async reserveTerminalRecovery(input: ReserveCommandRoomTerminalRecoveryInput): Promise<ReserveCommandRoomTerminalRecoveryResult> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const existing = toTerminalRecovery(connection.prepare(terminalRecoverySelect('WHERE recovery_key = ?')).get(input.recoveryKey));
+      if (existing !== null) {
+        connection.exec('COMMIT;');
+        return { outcome: 'existing', recovery: existing };
+      }
+      const binding = toBinding(connection.prepare(bindingSelect("WHERE id = ? AND room_id = ? AND agent_id = ? AND state = 'PAIRED'")).get(
+        input.bindingId, input.roomId, input.agentId,
+      ));
+      if (binding === null) return rollbackResult(connection, { outcome: 'binding_not_active' as const });
+      if (binding.connectionEpoch !== input.connectionEpoch) return rollbackResult(connection, { outcome: 'stale_epoch' as const });
+      if (binding.slotKey !== input.slotKey || binding.conversationRefFingerprint !== input.sourceConversationFingerprint) {
+        return rollbackResult(connection, { outcome: 'identity_mismatch' as const });
+      }
+      const authority = connection.prepare(
+        'SELECT slot_key, project_key, workspace_id, connection_epoch FROM command_room_agents WHERE room_id = ? AND id = ?',
+      ).get(input.roomId, input.agentId) as { slot_key?: unknown; project_key?: unknown; workspace_id?: unknown; connection_epoch?: unknown } | undefined;
+      if (authority?.connection_epoch !== input.connectionEpoch) return rollbackResult(connection, { outcome: 'stale_epoch' as const });
+      if (authority?.slot_key !== input.slotKey || authority.project_key !== input.projectKey || authority.workspace_id !== input.workspaceId) {
+        return rollbackResult(connection, { outcome: 'identity_mismatch' as const });
+      }
+      connection.prepare(`
+        INSERT INTO command_room_terminal_recoveries (
+          id, recovery_key, room_id, agent_id, slot_key, project_key, workspace_id, connection_epoch, binding_id,
+          source_conversation_fingerprint, terminal_turn_fingerprint, checkpoint_id, kind, state, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'WAITING', ?, ?)
+      `).run(
+        input.id, input.recoveryKey, input.roomId, input.agentId, input.slotKey, input.projectKey, input.workspaceId,
+        input.connectionEpoch, input.bindingId, input.sourceConversationFingerprint, input.terminalTurnFingerprint,
+        input.checkpointId, input.kind, input.createdAt, input.createdAt,
+      );
+      connection.exec('COMMIT;');
+      const recovery = await this.getTerminalRecoveryByKey(input.recoveryKey);
+      if (recovery === null) throw new Error('Terminal recovery was not found after reservation.');
+      return { outcome: 'reserved', recovery };
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
+  }
+
+  public async claimTerminalRecovery(input: {
+    readonly recoveryKey: string;
+    readonly bindingId: string;
+    readonly connectionEpoch: number;
+    readonly claimedAt: string;
+  }): Promise<CommandRoomTerminalRecoveryRecord | null> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const updated = connection.prepare(`UPDATE command_room_terminal_recoveries
+        SET state = 'CLAIMED', updated_at = ?
+        WHERE recovery_key = ? AND binding_id = ? AND connection_epoch = ? AND state = 'WAITING'`
+      ).run(input.claimedAt, input.recoveryKey, input.bindingId, input.connectionEpoch);
+      if (updated.changes !== 1) {
+        connection.exec('ROLLBACK;');
+        return null;
+      }
+      connection.exec('COMMIT;');
+      return this.getTerminalRecoveryByKey(input.recoveryKey);
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
+  }
+
+  public async authorizeTerminalRecovery(input: {
+    readonly recoveryKey: string;
+    readonly bindingId: string;
+    readonly connectionEpoch: number;
+    readonly continuationBindingId: string;
+    readonly authorizedAt: string;
+  }): Promise<CommandRoomTerminalRecoveryRecord | null> {
+    const connection = this.database.connection;
+    connection.exec('BEGIN IMMEDIATE;');
+    try {
+      const recovery = toTerminalRecovery(connection.prepare(terminalRecoverySelect('WHERE recovery_key = ?')).get(input.recoveryKey));
+      if (recovery === null || recovery.bindingId !== input.bindingId || recovery.connectionEpoch !== input.connectionEpoch) {
+        connection.exec('ROLLBACK;');
+        return null;
+      }
+      const active = toBinding(connection.prepare(bindingSelect("WHERE id = ? AND room_id = ? AND agent_id = ? AND state = 'PAIRED'")).get(
+        recovery.bindingId, recovery.roomId, recovery.agentId,
+      ));
+      if (active === null || active.connectionEpoch !== recovery.connectionEpoch || active.conversationRefFingerprint !== recovery.sourceConversationFingerprint) {
+        connection.exec('ROLLBACK;');
+        return null;
+      }
+      if (recovery.state === 'CLAIMED') {
+        connection.prepare(`UPDATE command_room_terminal_recoveries
+          SET state = 'AUTHORIZED', continuation_binding_id = ?, updated_at = ?
+          WHERE recovery_key = ? AND state = 'CLAIMED'`
+        ).run(input.continuationBindingId, input.authorizedAt, input.recoveryKey);
+      }
+      connection.exec('COMMIT;');
+      return this.getTerminalRecoveryByKey(input.recoveryKey);
+    } catch (error) {
+      rollback(connection);
+      throw error;
+    }
+  }
+
   public async enqueueWake(input: EnqueueCommandRoomWakeInput): Promise<EnqueueCommandRoomWakeResult> {
     const connection = this.database.connection;
     connection.exec('BEGIN IMMEDIATE;');
@@ -507,6 +658,12 @@ function bindingSelect(where: string): string {
     last_seen_at, revoked_at, replaced_at, created_at, updated_at FROM command_room_bindings ${where}`;
 }
 
+function terminalRecoverySelect(where: string): string {
+  return `SELECT id, recovery_key, room_id, agent_id, slot_key, project_key, workspace_id, connection_epoch, binding_id,
+    source_conversation_fingerprint, terminal_turn_fingerprint, checkpoint_id, kind, state, continuation_binding_id, created_at, updated_at
+    FROM command_room_terminal_recoveries ${where}`;
+}
+
 function wakeSelect(where: string): string {
   return `SELECT id, room_id, agent_id, binding_id, event_key, task_id, reason, state, attempt_count,
     last_attempt_at, next_eligible_at, delivered_at, submitted_at, last_error_code, created_at, updated_at
@@ -533,6 +690,30 @@ function toBinding(value: unknown): CommandRoomBindingRecord | null {
     ...(row.last_seen_at === null ? {} : { lastSeenAt: row.last_seen_at }),
     ...(row.revoked_at === null ? {} : { revokedAt: row.revoked_at }),
     ...(row.replaced_at === null ? {} : { replacedAt: row.replaced_at }),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toTerminalRecovery(value: unknown): CommandRoomTerminalRecoveryRecord | null {
+  if (!isObject(value)) return null;
+  const row = value as unknown as TerminalRecoveryRow;
+  return {
+    id: row.id,
+    recoveryKey: row.recovery_key,
+    roomId: row.room_id,
+    agentId: row.agent_id,
+    slotKey: row.slot_key,
+    projectKey: row.project_key,
+    workspaceId: row.workspace_id,
+    connectionEpoch: row.connection_epoch,
+    bindingId: row.binding_id,
+    sourceConversationFingerprint: row.source_conversation_fingerprint,
+    terminalTurnFingerprint: row.terminal_turn_fingerprint,
+    checkpointId: row.checkpoint_id,
+    kind: row.kind as CommandRoomTerminalRecoveryRecord['kind'],
+    state: row.state as CommandRoomTerminalRecoveryRecord['state'],
+    ...(row.continuation_binding_id === null ? {} : { continuationBindingId: row.continuation_binding_id }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

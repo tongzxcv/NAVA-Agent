@@ -322,6 +322,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const commandRoomRepository = new SqliteCommandRoomRepository(database);
   const commandRoomBindings = new SqliteCommandRoomBindingRepository(database);
   const commandRoomSupervisorStates = new SqliteCommandRoomSupervisorStateRepository(database);
+  const workspaceLeases = new SqliteWorkspaceLeaseRepository(database);
   const runtimeStatePath = path.join(dataPath, 'upgrade-runtime.json');
   const commandRoomExtensionService = new CommandRoomExtensionService(commandRoomBindings, {
     supervisorStateRepository: commandRoomSupervisorStates,
@@ -334,8 +335,33 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         acceptedProjectKeys: [workspace.displayName],
       });
     },
+    terminalRecoverySafetyResolver: async ({ workspaceId, durableTaskIds }) => {
+      const leaseStatus = await workspaceLeases.status(workspaceId);
+      if (!leaseStatus.ok) return { workspaceLeaseActive: false, durableTasks: [], ambiguous: true };
+      const durableTasks = await Promise.all(durableTaskIds.map(async (taskId) => {
+        const result = await capabilityRuntime.service.execute('shell', {
+          operation: 'status',
+          task_id: taskId,
+          include_stdout: false,
+          include_stderr: false,
+        });
+        if (!result.ok || typeof result.value !== 'object' || result.value === null) {
+          return { taskId, state: 'missing' as const };
+        }
+        const state = (result.value as Record<string, unknown>).state;
+        if (state === 'running' || state === 'completed' || state === 'failed' || state === 'timed_out'
+          || state === 'cancelled' || state === 'termination_unverified') {
+          return { taskId, state: state as 'running' | 'completed' | 'failed' | 'timed_out' | 'cancelled' | 'termination_unverified' };
+        }
+        return { taskId, state: 'missing' as const };
+      }));
+      return {
+        workspaceLeaseActive: leaseStatus.value.length > 0,
+        durableTasks,
+        ambiguous: false,
+      };
+    },
   });
-  const workspaceLeases = new SqliteWorkspaceLeaseRepository(database);
   const commandRoomResources = new SqliteCommandRoomResourceRepository(database);
   const commandRoomBroker = new CommandRoomBroker(
     commandRoomRepository,
