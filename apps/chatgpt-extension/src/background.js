@@ -33,6 +33,9 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     'INVALID_PASSPHRASE',
     'LOCKED',
     'EXTENSION_INTERNAL',
+    'SUPERVISOR_IDENTITY_MISMATCH',
+    'SUPERVISOR_STALE_EPOCH',
+    'SUPERVISOR_UNSUPPORTED',
   ]);
   let checkInFlight = null;
   let continuationInFlight = null;
@@ -146,6 +149,33 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     }
   }
 
+  async function syncSupervisorState(state) {
+    let supervisorSync = 'DEGRADED';
+    let response = null;
+    try {
+      response = await NavaBridge.syncSupervisor(state);
+      supervisorSync = ['OK', 'DEGRADED', 'FAILED'].includes(response?.supervisorSync)
+        ? response.supervisorSync
+        : 'DEGRADED';
+    } catch (error) {
+      supervisorSync = error?.status === 401 || error?.status === 409 ? 'FAILED' : 'DEGRADED';
+      const nextState = { ...state, supervisorSync };
+      try {
+        await chrome.storage.session.set({ [SESSION_STATE_KEY]: nextState });
+      } catch {
+        // Supervisor synchronization is advisory plumbing and must never block core work.
+      }
+      return { ok: false, code: publicError(error), supervisorSync, state: nextState };
+    }
+    const nextState = { ...state, supervisorSync };
+    try {
+      await chrome.storage.session.set({ [SESSION_STATE_KEY]: nextState });
+    } catch {
+      // Keep core work available even when supervisor state cannot be mirrored locally.
+    }
+    return { ok: true, response, supervisorSync, state: nextState };
+  }
+
   async function unlockState(passphrase) {
     if (!NavaCrypto.validPassphrase(passphrase)) return { ok: false, code: 'INVALID_PASSPHRASE' };
     let stored;
@@ -169,7 +199,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       [SESSION_REWRAP_KEY]: unlocked.sessionKey,
     });
     await ensureWakeAlarm();
-    return { ok: true, state: publicState(state) };
+    const supervisor = await syncSupervisorState({ ...state, supervisorSync: state.supervisorSync ?? 'DEGRADED' });
+    return { ok: true, state: publicState(supervisor.state) };
   }
 
   function publicState(state) {
@@ -181,6 +212,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       connectionEpoch: state.connectionEpoch,
       conversationRef: state.conversationRef,
       ...(state.projectRef === undefined ? {} : { projectRef: state.projectRef }),
+      supervisorSync: ['OK', 'DEGRADED', 'FAILED'].includes(state.supervisorSync) ? state.supervisorSync : 'DEGRADED',
     };
   }
 
@@ -226,6 +258,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
         ...(projectRef === null ? {} : { projectRef }),
         bridgeUrl: checked.payload.bridgeUrl,
         authToken: paired.authToken,
+        supervisorSync: 'DEGRADED',
       };
       try {
         await saveState(state, passphrase);
@@ -233,7 +266,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
         return { ok: false, code: 'EXTENSION_INTERNAL' };
       }
       await ensureWakeAlarm();
-      return { ok: true, state: publicState(state) };
+      const supervisor = await syncSupervisorState(state);
+      return { ok: true, state: publicState(supervisor.state) };
     } catch (error) {
       return { ok: false, code: publicError(error) };
     }
@@ -437,6 +471,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       authToken: paired.authToken,
       conversationRef: navigated.conversationRef,
       projectRef,
+      supervisorSync: 'DEGRADED',
     };
     try {
       await saveContinuationState(nextState);
@@ -445,6 +480,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       return { ok: false, code: 'EXTENSION_INTERNAL', pairedButPersistenceDegraded: true };
     }
     await ensureWakeAlarm();
+    const supervisor = await syncSupervisorState(nextState);
     return {
       ok: true,
       outcome: 'CONTINUED',
@@ -454,6 +490,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       slotKey: state.slotKey,
       connectionEpoch: state.connectionEpoch,
       sameEpoch: true,
+      supervisorSync: supervisor.supervisorSync,
     };
   }
 
@@ -470,6 +507,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   async function runCheckWakes() {
     const state = await readState();
     if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED' };
+    const supervisor = await syncSupervisorState(state);
     let tabs;
     try {
       tabs = await chrome.tabs.query({});
@@ -503,6 +541,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       deliveredCount,
       failedCount,
       pendingCount: Math.max(0, wakes.length - deliveredCount - failedCount),
+      supervisorSync: supervisor.supervisorSync,
     };
   }
 
@@ -538,6 +577,12 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     if (message.type === 'PAIR_ACTIVE_TAB') return pairActiveTab(message.payloadText, message.passphrase);
     if (message.type === 'UNLOCK_STATE') return unlockState(message.passphrase);
     if (message.type === 'CHECK_WAKES') return checkWakes();
+    if (message.type === 'SYNC_SUPERVISOR_STATE') {
+      const state = await readState();
+      if (state === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED', supervisorSync: 'DEGRADED' };
+      const result = await syncSupervisorState(state);
+      return { ok: result.ok, ...(result.ok ? {} : { code: result.code }), supervisorSync: result.supervisorSync };
+    }
     if (message.type === 'CHECK_CONTINUATION_READY') return inspectContinuationReady();
     if (message.type === 'CONTINUE_CONVERSATION') return autoContinueConversation();
     if (message.type === 'ACK_WAKE_SUBMITTED') return acknowledgeWakeSubmitted(message, sender);
@@ -550,7 +595,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'CHECK_CONTINUATION_READY', 'CONTINUE_CONVERSATION', 'ACK_WAKE_SUBMITTED', 'GET_STATE'].includes(message.type)) return false;
+    if (!NavaExtension.isRecord(message) || !['PAIR_ACTIVE_TAB', 'UNLOCK_STATE', 'CHECK_WAKES', 'SYNC_SUPERVISOR_STATE', 'CHECK_CONTINUATION_READY', 'CONTINUE_CONVERSATION', 'ACK_WAKE_SUBMITTED', 'GET_STATE'].includes(message.type)) return false;
     void handleMessage(message, sender).then(sendResponse).catch(() => sendResponse({ ok: false, code: 'EXTENSION_INTERNAL' }));
     return true;
   });

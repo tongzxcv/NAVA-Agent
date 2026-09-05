@@ -186,6 +186,42 @@ export class SqliteCommandRoomBindingRepository {
     )).get(roomId, agentId, connectionEpoch));
   }
 
+  public async getAgentAuthority(roomId: string, agentId: string): Promise<{
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly slotKey: string;
+    readonly role: 'MAIN' | 'LEAD';
+    readonly projectKey?: string;
+    readonly workspaceId?: string;
+    readonly connectionEpoch: number;
+  } | null> {
+    const row = this.database.connection.prepare(`
+      SELECT slot_key, role, project_key, workspace_id, connection_epoch
+      FROM command_room_agents WHERE room_id = ? AND id = ?
+    `).get(roomId, agentId) as {
+      slot_key?: unknown;
+      role?: unknown;
+      project_key?: unknown;
+      workspace_id?: unknown;
+      connection_epoch?: unknown;
+    } | undefined;
+    if (
+      row === undefined
+      || typeof row.slot_key !== 'string'
+      || (row.role !== 'MAIN' && row.role !== 'LEAD')
+      || typeof row.connection_epoch !== 'number'
+    ) return null;
+    return {
+      roomId,
+      agentId,
+      slotKey: row.slot_key,
+      role: row.role,
+      ...(typeof row.project_key === 'string' ? { projectKey: row.project_key } : {}),
+      ...(typeof row.workspace_id === 'string' ? { workspaceId: row.workspace_id } : {}),
+      connectionEpoch: row.connection_epoch,
+    };
+  }
+
   public async getLatestBindingForAgent(roomId: string, agentId: string): Promise<CommandRoomBindingRecord | null> {
     return toBinding(this.database.connection.prepare(`${bindingSelect('WHERE room_id = ? AND agent_id = ?')} ORDER BY updated_at DESC, created_at DESC LIMIT 1`).get(
       roomId, agentId,

@@ -21,6 +21,7 @@ export type CommandRoomExtensionBridgeService = Pick<CommandRoomExtensionService
   | 'markWakeSubmitted'
   | 'markWakeAttemptFailed'
   | 'touchBinding'
+  | 'syncSupervisorState'
   | 'revoke'
 >;
 
@@ -134,7 +135,7 @@ async function handleRequest(
     return;
   }
 
-  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation))?$/.exec(url.pathname);
+  const bindingMatch = /^\/v1\/bindings\/([^/]+)(?:\/(status|touch|wakes|revoke|continuation|supervisor))?$/.exec(url.pathname);
   if (bindingMatch !== null) {
     const bindingId = decodePathSegment(bindingMatch[1]);
     const action = bindingMatch[2] ?? 'status';
@@ -158,6 +159,36 @@ async function handleRequest(
         return;
       }
       sendJson(response, 200, { ok: true, continuation });
+      return;
+    }
+    if (action === 'supervisor' && request.method === 'POST') {
+      const result = await options.service.syncSupervisorState({
+        bindingId,
+        extensionInstallationId: requireInstallationId(authenticated),
+        now: now().toISOString(),
+      });
+      if (result.supervisorSync === 'FAILED') {
+        const code = result.outcome === 'stale_epoch'
+          ? 'SUPERVISOR_STALE_EPOCH'
+          : result.outcome === 'unsupported'
+            ? 'SUPERVISOR_UNSUPPORTED'
+            : result.outcome === 'unauthorized'
+              ? 'UNAUTHORIZED_BINDING'
+              : 'SUPERVISOR_IDENTITY_MISMATCH';
+        sendJson(response, result.outcome === 'unauthorized' ? 401 : 409, {
+          ok: false,
+          code,
+          outcome: result.outcome,
+          supervisorSync: result.supervisorSync,
+        });
+        return;
+      }
+      sendJson(response, 200, {
+        ok: true,
+        outcome: result.outcome,
+        supervisorSync: result.supervisorSync,
+        ...('state' in result ? { state: safeSupervisorState(result.state) } : {}),
+      });
       return;
     }
     if (action === 'touch' && request.method === 'POST') {
@@ -261,6 +292,26 @@ function safeBinding(binding: CommandRoomBindingRecord): Readonly<Record<string,
     ...(binding.revokedAt === undefined ? {} : { revokedAt: binding.revokedAt }),
     ...(binding.replacedAt === undefined ? {} : { replacedAt: binding.replacedAt }),
     updatedAt: binding.updatedAt,
+  };
+}
+
+function safeSupervisorState(state: import('@lnwjud/domain').CommandRoomSupervisorStateRecord): Readonly<Record<string, unknown>> {
+  return {
+    roomId: state.roomId,
+    slotKey: state.slotKey,
+    projectKey: state.projectKey,
+    workspaceId: state.workspaceId,
+    connectionEpoch: state.connectionEpoch,
+    bindingId: state.bindingId,
+    bindingFingerprint: state.bindingFingerprint,
+    status: state.status,
+    ...(state.nextAction === undefined ? {} : { nextAction: state.nextAction }),
+    safeToContinue: state.safeToContinue,
+    needsUser: state.needsUser,
+    checkpointId: state.checkpointId,
+    durableTaskIds: state.durableTaskIds,
+    supervisorSync: state.supervisorSync,
+    updatedAt: state.updatedAt,
   };
 }
 

@@ -16,6 +16,7 @@ export const NAVA_SERVER_INSTRUCTIONS = [
   'For Command Room authority, never place a joinCode or agentSessionId inside tool_batch. Refresh connector if a direct tool is missing.',
   'Call session_resume with a stable projectKey before continuing work from another or a new chat.',
   'Call session_checkpoint before a long operation and after meaningful milestones such as file changes, verification, commits, blockers, or a changed next action.',
+  'For a browser-bound Command Room LEAD, publish structured supervisor state through the authenticated active browser binding by creating a normal structured session_checkpoint; never command_room_join, rebind, takeover, or rotate connectionEpoch merely to link supervisor state.',
   'At the end of every work round in a multi-step or project task, include a user-visible CHECKPOINT that is self-contained enough for a fresh chat to resume without guessing.',
   'When persistence is allowed, call session_checkpoint before the final reply of the work round and display the returned checkpoint ID in the user-visible CHECKPOINT; a project tracker, session_handoff, or numbered chat heading does not replace the durable checkpoint UUID.',
   'Each end-of-round CHECKPOINT must identify the canonical accepted baseline, what changed or was tested this round, ACCEPT/REJECT/PENDING outcomes with verified evidence, anything still unverified, the exact resume point or next action, and relevant workspace/branch/commit/checkpoint/durable-task references when they exist.',

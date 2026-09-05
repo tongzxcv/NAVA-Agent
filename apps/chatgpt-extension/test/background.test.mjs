@@ -48,6 +48,7 @@ async function createHarness() {
   let sendMessageFailures = 0;
   let wakes = [];
   let bridgeOnline = true;
+  let supervisorResponse = { body: { ok: true, outcome: 'published', supervisorSync: 'OK' }, status: 200 };
   let inspectResponse = { ok: true, conversationRef: 'chatgpt:https://chatgpt.com/c/conversation-1', limit: { ok: true, maxLength: false }, composer: { ok: true } };
 
   const chrome = {
@@ -107,6 +108,7 @@ async function createHarness() {
           binding: { id: requestedBindingId, connectionEpoch: 1 },
         });
       }
+      if (String(url).endsWith('/supervisor')) return jsonResponse(supervisorResponse.body, supervisorResponse.status);
       if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
       if (String(url).endsWith('/v1/bindings/binding-1234/continuation')) return jsonResponse({ continuation: { bindingId: 'binding-continuation', challenge: 'c'.repeat(43), expiresAt: '2099-01-01T00:00:00.000Z', connectionEpoch: 1 } });
       return jsonResponse({ ok: true });
@@ -150,6 +152,7 @@ async function createHarness() {
     scriptInjections,
     setSendMessageFailures: (value) => { sendMessageFailures = value; },
     setBridgeOnline: (value) => { bridgeOnline = value; },
+    setSupervisorResponse: (body, status = 200) => { supervisorResponse = { body, status }; },
     setInspectResponse: (value) => { inspectResponse = value; },
     setTabUrl: (value) => { tabs[0].url = value; },
     setWakes: (value) => { wakes = value; },
@@ -208,9 +211,9 @@ test('pair persists only an encrypted envelope, unlocks after session loss, and 
   assert.equal(unlocked.state.bindingId, 'binding-1234');
 
   const checked = await harness.send({ type: 'CHECK_WAKES' });
-  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 0 }));
+  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 0, supervisorSync: 'OK' }));
   const automatic = await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
-  assert.equal(JSON.stringify(automatic), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 0 }));
+  assert.equal(JSON.stringify(automatic), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 0, supervisorSync: 'OK' }));
   assert.equal(harness.fetchCalls.filter((call) => call.url.includes('/wakes?limit=')).length, 2);
 });
 
@@ -226,7 +229,7 @@ test('existing exact tab rehydrates the content listener after extension reload 
   harness.setSendMessageFailures(1);
 
   const checked = await harness.send({ type: 'CHECK_WAKES' });
-  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 1, failedCount: 0, pendingCount: 0 }));
+  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 1, failedCount: 0, pendingCount: 0, supervisorSync: 'OK' }));
   assert.equal(harness.sentMessages.length, 2);
   assert.equal(harness.scriptInjections.length, 1);
   assert.equal(JSON.stringify(harness.scriptInjections[0]), JSON.stringify({
@@ -247,7 +250,7 @@ test('delivered wakes wait for explicit exact-tab acknowledgement without redeli
   }]);
 
   const checked = await harness.send({ type: 'CHECK_WAKES' });
-  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 1 }));
+  assert.equal(JSON.stringify(checked), JSON.stringify({ ok: true, deliveredCount: 0, failedCount: 0, pendingCount: 1, supervisorSync: 'OK' }));
   assert.equal(harness.sentMessages.length, 0);
   assert.equal(harness.fetchCalls.some((call) => call.url.includes('/wake-delivered/attempt')), false);
 
@@ -321,14 +324,40 @@ test('auto continuation creates a same-project conversation, atomically pairs th
   assert.equal(result.outcome, 'CONTINUED');
   assert.equal(result.sameEpoch, true);
   assert.equal(result.connectionEpoch, 1);
+  assert.equal(result.supervisorSync, 'OK');
   assert.equal(result.projectRef, 'chatgpt-project:https://chatgpt.com/g/g-p-project');
   assert.equal(result.conversationRef, 'chatgpt:https://chatgpt.com/g/g-p-project/c/conversation-2');
   const state = harness.session.values.get('nava.commandRoomBinding');
   assert.equal(state.bindingId, 'binding-continuation');
   assert.equal(state.connectionEpoch, 1);
   assert.equal(state.conversationRef, result.conversationRef);
+  assert.equal(state.supervisorSync, 'OK');
+  assert.equal(harness.fetchCalls.some((call) => call.url.endsWith('/v1/bindings/binding-continuation/supervisor')), true);
   const envelope = harness.local.values.get('nava.commandRoomBindingEncrypted');
   assert.equal(JSON.stringify(envelope).includes('nava-v1.continuation-token-value-123456'), false);
+});
+
+test('supervisor synchronization degrades or fails closed without blocking paired core work', async () => {
+  const harness = await createHarness();
+  const paired = await harness.send({ type: 'PAIR_ACTIVE_TAB', payloadText: payload, passphrase: 'correct horse battery' });
+  assert.equal(paired.ok, true);
+  assert.equal(paired.state.supervisorSync, 'OK');
+
+  harness.setSupervisorResponse({ code: 'HTTP_500' }, 500);
+  const degraded = await harness.send({ type: 'SYNC_SUPERVISOR_STATE' });
+  assert.equal(degraded.ok, false);
+  assert.equal(degraded.supervisorSync, 'DEGRADED');
+  const coreCheck = await harness.send({ type: 'CHECK_WAKES' });
+  assert.equal(coreCheck.ok, true);
+  assert.equal(coreCheck.supervisorSync, 'DEGRADED');
+
+  harness.setSupervisorResponse({ code: 'SUPERVISOR_STALE_EPOCH' }, 409);
+  const failed = await harness.send({ type: 'SYNC_SUPERVISOR_STATE' });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.supervisorSync, 'FAILED');
+  const state = await harness.send({ type: 'GET_STATE' });
+  assert.equal(state.ok, true);
+  assert.equal(state.state.supervisorSync, 'FAILED');
 });
 
 test('offline polling returns a safe error and does not fabricate delivery', async () => {

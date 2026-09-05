@@ -80,7 +80,7 @@ import {
   loadCheckpointEncryptionKey,
   loadOrCreateWindowsProtectedKey,
 } from '@lnwjud/shared';
-import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomBindingRepository, SqliteCommandRoomRepository, SqliteCommandRoomResourceRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
+import { AesGcmCheckpointCipher, SqliteAuditRepository, SqliteBackupService, SqliteCheckpointRepository, SqliteCommandRoomBindingRepository, SqliteCommandRoomRepository, SqliteCommandRoomResourceRepository, SqliteCommandRoomSupervisorStateRepository, SqliteDatabase, SqliteSettingsRepository, SqliteWorkspaceLeaseRepository, SqliteWorkspaceRepository, type BackupReason, type BackupSummary } from '@lnwjud/storage';
 import type { Workspace } from '@lnwjud/workspace';
 import { machineRootPath, SecretPolicy, WorkspacePathGuard, WorkspaceService } from '@lnwjud/workspace';
 import {
@@ -147,7 +147,14 @@ import {
   startCommandRoomExtensionBridge,
   type CommandRoomExtensionBridgeHandle,
 } from './command-room-extension-bridge.js';
-import { decideCommandRoomSupervisor, readSupervisorCheckpoints } from './command-room-supervisor.js';
+import {
+  decideCommandRoomSupervisor,
+  decideDedicatedSupervisorState,
+  isDedicatedSupervisorStateValid,
+  readSupervisorCheckpoints,
+  resolveLatestSupervisorCheckpoint,
+  shouldUseLegacySupervisorFallback,
+} from './command-room-supervisor.js';
 import { LogHub } from './log-hub.js';
 import { buildIncidentReport, collectRelevantListeners, collectRelevantProcessTree, type IncidentReport } from './incident-report.js';
 import { DesktopMcpLifecycle } from './mcp-lifecycle.js';
@@ -314,7 +321,20 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const activityLogPath = mcpActivityLogPath(dataPath);
   const commandRoomRepository = new SqliteCommandRoomRepository(database);
   const commandRoomBindings = new SqliteCommandRoomBindingRepository(database);
-  const commandRoomExtensionService = new CommandRoomExtensionService(commandRoomBindings);
+  const commandRoomSupervisorStates = new SqliteCommandRoomSupervisorStateRepository(database);
+  const runtimeStatePath = path.join(dataPath, 'upgrade-runtime.json');
+  const commandRoomExtensionService = new CommandRoomExtensionService(commandRoomBindings, {
+    supervisorStateRepository: commandRoomSupervisorStates,
+    checkpointResolver: async ({ projectKey, workspaceId }) => {
+      const workspace = await workspaceRepository.get(workspaceId);
+      if (workspace === null) return null;
+      return resolveLatestSupervisorCheckpoint(`${runtimeStatePath}.continuity.json`, {
+        projectKey,
+        workspaceId,
+        acceptedProjectKeys: [workspace.displayName],
+      });
+    },
+  });
   const workspaceLeases = new SqliteWorkspaceLeaseRepository(database);
   const commandRoomResources = new SqliteCommandRoomResourceRepository(database);
   const commandRoomBroker = new CommandRoomBroker(
@@ -327,7 +347,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     },
   );
   const mcpServices: McpApplicationServices = {
-    runtimeStatePath: path.join(dataPath, 'upgrade-runtime.json'),
+    runtimeStatePath,
     activityLogPath,
     localProviders: () => {
       const settings = readSettings();
@@ -595,47 +615,117 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
 
   async function runCommandRoomSupervisor(): Promise<void> {
     if (!extensionWakeEnabled() || commandRoomExtensionBridge === null) return;
-    const checkpoints = await readSupervisorCheckpoints(`${mcpServices.runtimeStatePath}.continuity.json`);
+    const checkpoints = await readSupervisorCheckpoints(`${runtimeStatePath}.continuity.json`);
     const rooms = await commandRoomRepository.listRooms(100);
     const now = new Date().toISOString();
     for (const room of rooms) {
       if (room.status !== 'ACTIVE') continue;
-      const [agents, tasks] = await Promise.all([
+      const [agents, tasks, dedicatedStates] = await Promise.all([
         commandRoomRepository.listAgents(room.id),
         commandRoomRepository.listTasks(room.id, 100),
+        commandRoomSupervisorStates.listForRoom(room.id),
       ]);
-      const byId = new Map(agents.map((agent) => [agent.id, agent] as const));
       const main = agents.find((agent) => agent.role === 'MAIN');
+      const dedicatedByAgent = new Map(dedicatedStates.map((state) => [state.agentId, state] as const));
+      const tasksByAgent = new Map<string, typeof tasks>();
       for (const task of tasks) {
         if (task.assignedAgentId === undefined) continue;
-        const lead = byId.get(task.assignedAgentId);
-        if (lead === undefined || lead.role !== 'LEAD') continue;
-        const checkpoint = task.checkpointId === undefined ? null : checkpoints.get(task.checkpointId) ?? null;
-        const decision = decideCommandRoomSupervisor(lead, task, checkpoint);
-        try {
-          if (decision.action === 'CONTINUE') {
-            await commandRoomExtensionService.queueWake({
-              roomId: room.id,
-              agentId: lead.id,
-              connectionEpoch: lead.connectionEpoch,
-              eventKey: `HANDOFF_READY:SUPERVISOR:${task.id}:${task.version}:${decision.checkpointId}`,
-              taskId: task.id,
-              reason: 'HANDOFF_READY',
-              now,
-            });
-          } else if (decision.action === 'ALERT' && main !== undefined) {
-            await commandRoomExtensionService.queueWake({
-              roomId: room.id,
-              agentId: main.id,
-              connectionEpoch: main.connectionEpoch,
-              eventKey: `HANDOFF_READY:SUPERVISOR_ALERT:${task.id}:${task.version}:${decision.checkpointId ?? decision.reason}`,
-              taskId: task.id,
-              reason: 'HANDOFF_READY',
-              now,
-            });
+        tasksByAgent.set(task.assignedAgentId, [...(tasksByAgent.get(task.assignedAgentId) ?? []), task]);
+      }
+
+      for (const lead of agents.filter((agent) => agent.role === 'LEAD')) {
+        const dedicated = dedicatedByAgent.get(lead.id);
+        const [activeBinding, latestBinding] = await Promise.all([
+          commandRoomBindings.getActiveBinding(room.id, lead.id, lead.connectionEpoch),
+          commandRoomBindings.getLatestBindingForAgent(room.id, lead.id),
+        ]);
+        if (dedicated !== undefined) {
+          if (!isDedicatedSupervisorStateValid({ agent: lead, binding: activeBinding, state: dedicated, now })) {
+            // A stale/invalid dedicated row suppresses legacy fallback. MAIN must not auto-continue
+            // until the browser-bound LEAD publishes a fresh, authenticated state again.
+            continue;
           }
-        } catch {
-          // One unavailable browser binding must never disturb another LEAD or stop the supervisor scan.
+          const decision = decideDedicatedSupervisorState(dedicated);
+          try {
+            if (decision.action === 'CONTINUE') {
+              const result = await commandRoomExtensionService.queueWake({
+                roomId: room.id,
+                agentId: lead.id,
+                connectionEpoch: lead.connectionEpoch,
+                eventKey: `HANDOFF_READY:SUPERVISOR_STATE:${lead.id}:${decision.checkpointId}`,
+                reason: 'HANDOFF_READY',
+                now,
+              });
+              if (result.outcome === 'queued' || result.outcome === 'coalesced') {
+                await commandRoomSupervisorStates.markHandled({
+                  roomId: room.id,
+                  agentId: lead.id,
+                  checkpointId: decision.checkpointId,
+                  action: 'CONTINUE',
+                  handledAt: now,
+                });
+              }
+            } else if (decision.action === 'ALERT' && main !== undefined) {
+              const result = await commandRoomExtensionService.queueWake({
+                roomId: room.id,
+                agentId: main.id,
+                connectionEpoch: main.connectionEpoch,
+                eventKey: `HANDOFF_READY:SUPERVISOR_ALERT_STATE:${lead.id}:${decision.checkpointId ?? decision.reason}`,
+                reason: 'HANDOFF_READY',
+                now,
+              });
+              if ((result.outcome === 'queued' || result.outcome === 'coalesced') && decision.checkpointId !== undefined) {
+                await commandRoomSupervisorStates.markHandled({
+                  roomId: room.id,
+                  agentId: lead.id,
+                  checkpointId: decision.checkpointId,
+                  action: 'ALERT',
+                  handledAt: now,
+                });
+              }
+            }
+          } catch {
+            // Supervisor synchronization/wake failures are plumbing failures only.
+            // They must never block or rewrite the LEAD's core project state.
+          }
+          continue;
+        }
+
+        if (!shouldUseLegacySupervisorFallback({ latestBinding, dedicatedState: dedicated })) {
+          // A browser-bound LEAD must publish dedicated state before MAIN may auto-continue it.
+          // This also fail-closes the first-sync DEGRADED/FAILED case where no state row exists yet.
+          continue;
+        }
+
+        // Compatibility fallback only: old unpaired rooms/tasks without the browser supervisor path.
+        for (const task of tasksByAgent.get(lead.id) ?? []) {
+          const checkpoint = task.checkpointId === undefined ? null : checkpoints.get(task.checkpointId) ?? null;
+          const decision = decideCommandRoomSupervisor(lead, task, checkpoint);
+          try {
+            if (decision.action === 'CONTINUE') {
+              await commandRoomExtensionService.queueWake({
+                roomId: room.id,
+                agentId: lead.id,
+                connectionEpoch: lead.connectionEpoch,
+                eventKey: `HANDOFF_READY:SUPERVISOR:${task.id}:${task.version}:${decision.checkpointId}`,
+                taskId: task.id,
+                reason: 'HANDOFF_READY',
+                now,
+              });
+            } else if (decision.action === 'ALERT' && main !== undefined) {
+              await commandRoomExtensionService.queueWake({
+                roomId: room.id,
+                agentId: main.id,
+                connectionEpoch: main.connectionEpoch,
+                eventKey: `HANDOFF_READY:SUPERVISOR_ALERT:${task.id}:${task.version}:${decision.checkpointId ?? decision.reason}`,
+                taskId: task.id,
+                reason: 'HANDOFF_READY',
+                now,
+              });
+            }
+          } catch {
+            // One unavailable browser binding must never disturb another LEAD or stop the supervisor scan.
+          }
         }
       }
     }

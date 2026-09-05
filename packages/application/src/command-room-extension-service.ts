@@ -2,6 +2,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type {
   CommandRoomBindingRecord,
   CommandRoomProvider,
+  CommandRoomSupervisorStateRecord,
+  CommandRoomSupervisorSync,
   CommandRoomWakeDeliveryRecord,
   CommandRoomWakeReason,
 } from '@lnwjud/domain';
@@ -43,6 +45,15 @@ export interface CommandRoomExtensionRepositoryPort {
   >;
   getActiveBinding(roomId: string, agentId: string, connectionEpoch: number): Promise<CommandRoomBindingRecord | null>;
   getBinding(bindingId: string): Promise<CommandRoomBindingRecord | null>;
+  getAgentAuthority(roomId: string, agentId: string): Promise<{
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly slotKey: string;
+    readonly role: 'MAIN' | 'LEAD';
+    readonly projectKey?: string;
+    readonly workspaceId?: string;
+    readonly connectionEpoch: number;
+  } | null>;
   getWake(id: string): Promise<CommandRoomWakeDeliveryRecord | null>;
   listRecoverableWakes(now: string, limit?: number): Promise<readonly CommandRoomWakeDeliveryRecord[]>;
   listRecoverableWakesForBinding(bindingId: string, now: string, limit?: number): Promise<readonly CommandRoomWakeDeliveryRecord[]>;
@@ -82,6 +93,58 @@ export interface CommandRoomExtensionRepositoryPort {
   replace(bindingId: string, replacedAt: string): Promise<CommandRoomBindingRecord | null>;
 }
 
+export interface CommandRoomSupervisorStateRepositoryPort {
+  publish(input: {
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly slotKey: string;
+    readonly projectKey: string;
+    readonly workspaceId: string;
+    readonly connectionEpoch: number;
+    readonly bindingId: string;
+    readonly bindingFingerprint: string;
+    readonly status: CommandRoomSupervisorStateRecord['status'];
+    readonly nextAction?: string;
+    readonly safeToContinue: boolean;
+    readonly needsUser: boolean;
+    readonly checkpointId: string;
+    readonly durableTaskIds: readonly string[];
+    readonly publishedAt: string;
+  }): Promise<
+    | { readonly outcome: 'published'; readonly state: CommandRoomSupervisorStateRecord }
+    | { readonly outcome: 'not_found' | 'binding_not_active' | 'stale_epoch' | 'identity_mismatch' }
+  >;
+  markSyncStatus(input: {
+    readonly roomId: string;
+    readonly agentId: string;
+    readonly bindingId: string;
+    readonly connectionEpoch: number;
+    readonly supervisorSync: Exclude<CommandRoomSupervisorSync, 'OK'>;
+    readonly updatedAt: string;
+  }): Promise<CommandRoomSupervisorStateRecord | null>;
+}
+
+export interface CommandRoomSupervisorCheckpointSnapshot {
+  readonly id: string;
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly status: CommandRoomSupervisorStateRecord['status'];
+  readonly nextAction?: string;
+  readonly safeToContinue: boolean;
+  readonly needsUser: boolean;
+  readonly durableTaskIds: readonly string[];
+}
+
+export type CommandRoomSupervisorCheckpointResolver = (input: {
+  readonly projectKey: string;
+  readonly workspaceId: string;
+}) => Promise<CommandRoomSupervisorCheckpointSnapshot | null>;
+
+export type SyncCommandRoomSupervisorStateResponse =
+  | { readonly outcome: 'published'; readonly supervisorSync: 'OK'; readonly state: CommandRoomSupervisorStateRecord }
+  | { readonly outcome: 'no_checkpoint' | 'degraded'; readonly supervisorSync: 'DEGRADED' }
+  | { readonly outcome: 'unauthorized' | 'identity_mismatch' | 'stale_epoch' | 'unsupported'; readonly supervisorSync: 'FAILED' };
+
 export interface CommandRoomExtensionServiceOptions {
   readonly randomId?: () => string;
   readonly randomChallenge?: () => string;
@@ -89,6 +152,8 @@ export interface CommandRoomExtensionServiceOptions {
   readonly wakeMaxPerBindingHour?: number;
   readonly wakeMaxPerRoomHour?: number;
   readonly wakeCircuitBreakerThreshold?: number;
+  readonly supervisorStateRepository?: CommandRoomSupervisorStateRepositoryPort;
+  readonly checkpointResolver?: CommandRoomSupervisorCheckpointResolver;
 }
 
 export interface PairingChallengeResponse {
@@ -111,6 +176,8 @@ export class CommandRoomExtensionService {
   private readonly wakeMaxPerBindingHour: number;
   private readonly wakeMaxPerRoomHour: number;
   private readonly wakeCircuitBreakerThreshold: number;
+  private readonly supervisorStateRepository: CommandRoomSupervisorStateRepositoryPort | undefined;
+  private readonly checkpointResolver: CommandRoomSupervisorCheckpointResolver | undefined;
 
   public constructor(
     private readonly repository: CommandRoomExtensionRepositoryPort,
@@ -125,6 +192,8 @@ export class CommandRoomExtensionService {
       options.wakeCircuitBreakerThreshold ?? DEFAULT_WAKE_CIRCUIT_BREAKER_THRESHOLD,
       'wakeCircuitBreakerThreshold', 1, 20,
     );
+    this.supervisorStateRepository = options.supervisorStateRepository;
+    this.checkpointResolver = options.checkpointResolver;
   }
 
   public async createPairingChallenge(input: {
@@ -237,6 +306,102 @@ export class CommandRoomExtensionService {
     if (binding === null || binding.state !== 'PAIRED' || binding.extensionInstallationId !== extensionInstallationId) return null;
     const active = await this.repository.getActiveBinding(binding.roomId, binding.agentId, binding.connectionEpoch);
     return active?.id === binding.id ? active : null;
+  }
+
+  public async syncSupervisorState(input: {
+    readonly bindingId: string;
+    readonly extensionInstallationId: string;
+    readonly now: string;
+  }): Promise<SyncCommandRoomSupervisorStateResponse> {
+    const binding = await this.authenticateBinding(input.bindingId, input.extensionInstallationId);
+    if (binding === null) return { outcome: 'unauthorized', supervisorSync: 'FAILED' };
+    if (this.supervisorStateRepository === undefined || this.checkpointResolver === undefined) {
+      return { outcome: 'unsupported', supervisorSync: 'FAILED' };
+    }
+    const authority = await this.repository.getAgentAuthority(binding.roomId, binding.agentId);
+    if (
+      authority === null
+      || authority.role !== 'LEAD'
+      || authority.projectKey === undefined
+      || authority.workspaceId === undefined
+      || authority.slotKey !== binding.slotKey
+    ) {
+      await this.markSupervisorSync(binding, 'FAILED', input.now);
+      return { outcome: 'identity_mismatch', supervisorSync: 'FAILED' };
+    }
+    if (authority.connectionEpoch !== binding.connectionEpoch) {
+      await this.markSupervisorSync(binding, 'FAILED', input.now);
+      return { outcome: 'stale_epoch', supervisorSync: 'FAILED' };
+    }
+    if (binding.conversationRefFingerprint === undefined) {
+      await this.markSupervisorSync(binding, 'FAILED', input.now);
+      return { outcome: 'identity_mismatch', supervisorSync: 'FAILED' };
+    }
+
+    let checkpoint: CommandRoomSupervisorCheckpointSnapshot | null;
+    try {
+      checkpoint = await this.checkpointResolver({
+        projectKey: authority.projectKey,
+        workspaceId: authority.workspaceId,
+      });
+    } catch {
+      await this.markSupervisorSync(binding, 'DEGRADED', input.now);
+      return { outcome: 'degraded', supervisorSync: 'DEGRADED' };
+    }
+    if (checkpoint === null) {
+      await this.markSupervisorSync(binding, 'DEGRADED', input.now);
+      return { outcome: 'no_checkpoint', supervisorSync: 'DEGRADED' };
+    }
+    if (checkpoint.projectKey !== authority.projectKey || checkpoint.workspaceId !== authority.workspaceId) {
+      await this.markSupervisorSync(binding, 'FAILED', input.now);
+      return { outcome: 'identity_mismatch', supervisorSync: 'FAILED' };
+    }
+    const nextAction = checkpoint.nextAction?.trim();
+    const safeToContinue = checkpoint.status === 'DONE'
+      && checkpoint.safeToContinue
+      && !checkpoint.needsUser
+      && nextAction !== undefined
+      && nextAction.length > 0;
+    const published = await this.supervisorStateRepository.publish({
+      roomId: binding.roomId,
+      agentId: binding.agentId,
+      slotKey: binding.slotKey,
+      projectKey: authority.projectKey,
+      workspaceId: authority.workspaceId,
+      connectionEpoch: binding.connectionEpoch,
+      bindingId: binding.id,
+      bindingFingerprint: binding.conversationRefFingerprint,
+      status: checkpoint.status,
+      ...(nextAction === undefined || nextAction.length === 0 ? {} : { nextAction }),
+      safeToContinue,
+      needsUser: checkpoint.needsUser,
+      checkpointId: checkpoint.id,
+      durableTaskIds: checkpoint.durableTaskIds,
+      publishedAt: input.now,
+    });
+    if (published.outcome === 'published') {
+      return { outcome: 'published', supervisorSync: 'OK', state: published.state };
+    }
+    return {
+      outcome: published.outcome === 'stale_epoch' ? 'stale_epoch' : 'identity_mismatch',
+      supervisorSync: 'FAILED',
+    };
+  }
+
+  private async markSupervisorSync(
+    binding: CommandRoomBindingRecord,
+    supervisorSync: Exclude<CommandRoomSupervisorSync, 'OK'>,
+    updatedAt: string,
+  ): Promise<void> {
+    if (this.supervisorStateRepository === undefined) return;
+    await this.supervisorStateRepository.markSyncStatus({
+      roomId: binding.roomId,
+      agentId: binding.agentId,
+      bindingId: binding.id,
+      connectionEpoch: binding.connectionEpoch,
+      supervisorSync,
+      updatedAt,
+    });
   }
 
   public async queueWake(input: {

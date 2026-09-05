@@ -11,6 +11,10 @@ export type CommandRoomTaskState = 'QUEUED' | 'CLAIMED' | 'RUNNING' | 'WAITING' 
 export type CommandRoomBindingState = 'CHALLENGED' | 'PAIRED' | 'STALE' | 'REVOKED' | 'REPLACED';
 export type CommandRoomWakeDeliveryState = 'QUEUED' | 'ATTEMPTING' | 'DELIVERED' | 'SUBMITTED' | 'MANUAL_FALLBACK' | 'DEAD_LETTER' | 'CANCELLED';
 export type CommandRoomWakeReason = 'TASK_ASSIGNED' | 'HANDOFF_READY' | 'USER_WAKE';
+export type CommandRoomSupervisorStatus = 'WORKING' | 'DONE' | 'WAITING' | 'BLOCKED' | 'FAILED';
+export type CommandRoomSupervisorSync = 'OK' | 'DEGRADED' | 'FAILED';
+export type CommandRoomSupervisorHandledAction = 'CONTINUE' | 'ALERT';
+
 
 export interface CommandRoomPolicy {
   readonly directLeadMessaging: boolean;
@@ -116,6 +120,29 @@ export interface CommandRoomBindingRecord {
   readonly lastSeenAt?: string;
   readonly revokedAt?: string;
   readonly replacedAt?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CommandRoomSupervisorStateRecord {
+  readonly roomId: string;
+  readonly agentId: string;
+  readonly slotKey: string;
+  readonly projectKey: string;
+  readonly workspaceId: string;
+  readonly connectionEpoch: number;
+  readonly bindingId: string;
+  readonly bindingFingerprint: string;
+  readonly status: CommandRoomSupervisorStatus;
+  readonly nextAction?: string;
+  readonly safeToContinue: boolean;
+  readonly needsUser: boolean;
+  readonly checkpointId: string;
+  readonly durableTaskIds: readonly string[];
+  readonly supervisorSync: CommandRoomSupervisorSync;
+  readonly lastHandledCheckpointId?: string;
+  readonly lastHandledAction?: CommandRoomSupervisorHandledAction;
+  readonly lastHandledAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

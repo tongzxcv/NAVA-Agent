@@ -89,6 +89,14 @@
     });
   }
 
+  async function syncSupervisor(state) {
+    return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/supervisor`), {
+      method: 'POST',
+      authToken: state.authToken,
+      body: {},
+    });
+  }
+
   async function touch(state) {
     return requestJson(endpoint(state.bridgeUrl, `/v1/bindings/${encodeURIComponent(state.bindingId)}/touch`), {
       method: 'POST',
@@ -112,5 +120,5 @@
     });
   }
 
-  globalThis.NavaBridge = Object.freeze({ createContinuationChallenge, listWakes, pair, touch, transition });
+  globalThis.NavaBridge = Object.freeze({ createContinuationChallenge, listWakes, pair, syncSupervisor, touch, transition });
 })();

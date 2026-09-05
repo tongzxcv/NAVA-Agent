@@ -122,6 +122,46 @@ describe('Command Room Extension Bridge', () => {
     });
   });
 
+  it('publishes supervisor state only through the authenticated active browser binding', async () => {
+    const service = new FakeBridgeService();
+    const handle = await startBridge(service);
+    const paired = await pair(handle);
+    const token = String(paired.body.authToken);
+
+    const response = await fetch(`${handle.url}/v1/bindings/binding-1/supervisor`, {
+      method: 'POST', headers: authHeaders(token, true), body: '{}',
+    });
+    expect(response.status).toBe(200);
+    const body = await jsonObject(response);
+    expect(body).toMatchObject({
+      ok: true,
+      outcome: 'published',
+      supervisorSync: 'OK',
+      state: {
+        roomId: 'room-1',
+        slotKey: 'LEAD-1',
+        projectKey: 'beelzebub',
+        workspaceId: 'workspace-beelzebub',
+        connectionEpoch: 7,
+        bindingId: 'binding-1',
+        status: 'DONE',
+        checkpointId: 'checkpoint-1',
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain('agentSessionId');
+    expect(service.lastSupervisorInput).toMatchObject({
+      bindingId: 'binding-1',
+      extensionInstallationId: INSTALLATION_ID,
+    });
+
+    const originless = await fetch(`${handle.url}/v1/bindings/binding-1/supervisor`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(originless.status).toBe(403);
+  });
+
   it('keeps wake delivery bounded to the authenticated binding and invalidates auth after revoke', async () => {
     const service = new FakeBridgeService();
     const handle = await startBridge(service);
@@ -298,6 +338,7 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
   };
   public wake: CommandRoomWakeDeliveryRecord | null = null;
   public lastPairInput?: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0];
+  public lastSupervisorInput?: Parameters<CommandRoomExtensionBridgeService['syncSupervisorState']>[0];
 
   public async confirmPairingByBinding(input: Parameters<CommandRoomExtensionBridgeService['confirmPairingByBinding']>[0]): ReturnType<CommandRoomExtensionBridgeService['confirmPairingByBinding']> {
     this.lastPairInput = input;
@@ -341,6 +382,33 @@ class FakeBridgeService implements CommandRoomExtensionBridgeService {
       && this.binding.extensionInstallationId === extensionInstallationId
       ? this.binding
       : null;
+  }
+
+  public async syncSupervisorState(input: Parameters<CommandRoomExtensionBridgeService['syncSupervisorState']>[0]): ReturnType<CommandRoomExtensionBridgeService['syncSupervisorState']> {
+    this.lastSupervisorInput = input;
+    return {
+      outcome: 'published',
+      supervisorSync: 'OK',
+      state: {
+        roomId: 'room-1',
+        agentId: 'lead-1',
+        slotKey: 'LEAD-1',
+        projectKey: 'beelzebub',
+        workspaceId: 'workspace-beelzebub',
+        connectionEpoch: this.binding.connectionEpoch,
+        bindingId: this.binding.id,
+        bindingFingerprint: this.binding.conversationRefFingerprint ?? 'hmac:conversation-ref-1',
+        status: 'DONE',
+        nextAction: 'Continue verified work',
+        safeToContinue: true,
+        needsUser: false,
+        checkpointId: 'checkpoint-1',
+        durableTaskIds: [],
+        supervisorSync: 'OK',
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    };
   }
 
   public async listRecoverableWakesForBinding(input: Parameters<CommandRoomExtensionBridgeService['listRecoverableWakesForBinding']>[0]): ReturnType<CommandRoomExtensionBridgeService['listRecoverableWakesForBinding']> {

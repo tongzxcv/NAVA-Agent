@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
-import { enforceResponseBudget, MCP_RESPONSE_BUDGET_BYTES } from './server.js';
+import { enforceResponseBudget, MCP_RESPONSE_BUDGET_BYTES, NAVA_SERVER_INSTRUCTIONS } from './server.js';
 
 describe('MCP response budget', () => {
   it.each([
@@ -16,6 +16,12 @@ describe('MCP response budget', () => {
     });
     expect(JSON.stringify(response)).toContain(expectedHint);
     expect(Buffer.byteLength(JSON.stringify(response), 'utf8')).toBeLessThan(MCP_RESPONSE_BUDGET_BYTES);
+  });
+
+  it('instructs browser-bound LEADs to use epoch-preserving supervisor linkage', () => {
+    expect(NAVA_SERVER_INSTRUCTIONS).toContain('authenticated active browser binding');
+    expect(NAVA_SERVER_INSTRUCTIONS).toContain('session_checkpoint');
+    expect(NAVA_SERVER_INSTRUCTIONS).toContain('never command_room_join, rebind, takeover, or rotate connectionEpoch');
   });
 
   it('leaves bounded results unchanged', () => {

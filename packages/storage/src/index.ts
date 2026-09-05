@@ -3,6 +3,7 @@ export * from './audit-repository.js';
 export * from './checkpoint-repository.js';
 export * from './command-room-repository.js';
 export * from './command-room-binding-repository.js';
+export * from './command-room-supervisor-state-repository.js';
 export * from './command-room-resource-repository.js';
 export * from './database.js';
 export * from './settings-repository.js';
