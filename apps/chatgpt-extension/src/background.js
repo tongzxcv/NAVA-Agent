@@ -45,6 +45,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     'SUPERVISOR_UNSUPPORTED',
     'TERMINAL_RECOVERY_BLOCKED',
   ]);
+  const AUTO_CONTINUATION_ENABLED = false;
   let checkInFlight = null;
   const continuationInFlightByBinding = new Map();
   const continuationSubmissionPlans = new Map();
@@ -1054,8 +1055,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       if (registry === null) return { ok: false, code: (await hasPersistedState()) ? 'LOCKED' : 'UNPAIRED', supervisorSync: 'DEGRADED' };
       return syncAllSupervisorStates(registry);
     }
-    if (message.type === 'CHECK_CONTINUATION_READY') return inspectContinuationReady();
-    if (message.type === 'CONTINUE_CONVERSATION') return autoContinueConversation();
+    if (message.type === 'CHECK_CONTINUATION_READY') return AUTO_CONTINUATION_ENABLED ? inspectContinuationReady() : { ok: false, code: 'AUTO_CONTINUATION_DISABLED' };
+    if (message.type === 'CONTINUE_CONVERSATION') return AUTO_CONTINUATION_ENABLED ? autoContinueConversation() : { ok: false, code: 'AUTO_CONTINUATION_DISABLED' };
     if (message.type === 'NAVA_VALIDATE_CONTINUATION_SUBMISSION') return validateContinuationSubmission(message, sender);
     if (message.type === 'ACK_WAKE_SUBMITTED') return acknowledgeWakeSubmitted(message, sender);
     if (message.type === 'GET_STATE') {

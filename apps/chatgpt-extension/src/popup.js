@@ -6,7 +6,6 @@
   const payloadInput = document.getElementById('pairing-payload');
   const pairButton = document.getElementById('pair-button');
   const checkButton = document.getElementById('check-button');
-  const continueButton = document.getElementById('continue-button');
   const unlockButton = document.getElementById('unlock-button');
   const copyOriginButton = document.getElementById('copy-origin-button');
   const passphraseInput = document.getElementById('passphrase');
@@ -129,25 +128,6 @@
     }
   });
 
-  continueButton.addEventListener('click', async () => {
-    continueButton.disabled = true;
-    setStatus('กำลังตรวจ Auto Continuation…');
-    try {
-      const result = await chrome.runtime.sendMessage({ type: 'CONTINUE_CONVERSATION' });
-      if (result?.ok === true && result?.outcome === 'CONTINUED') {
-        setStatus(`สร้าง continuation chat แล้ว · ${result.slotKey} · epoch ${result.connectionEpoch}`);
-        await refreshState();
-      } else if (result?.ok === true && result?.ready === false && result?.reason === 'NOT_AT_MAX_LENGTH') {
-        setStatus('Auto Continuation พร้อมทำงาน — แชทยังไม่ถึง maximum length');
-      } else {
-        setStatus('', result?.code);
-      }
-    } catch {
-      setStatus('', 'EXTENSION_INTERNAL');
-    } finally {
-      continueButton.disabled = false;
-    }
-  });
 
   copyOriginButton.addEventListener('click', async () => {
     try {

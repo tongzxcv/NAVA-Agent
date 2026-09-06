@@ -413,9 +413,9 @@ test('manifest stays narrow and the Bridge is not a generic MCP proxy', async ()
   assert.doesNotMatch(bridgeSource, /\/mcp(?:[/'"]|$)/i);
   const popupHtml = await readFile(resolve(root, 'src/popup.html'), 'utf8');
   const popupSource = await readFile(resolve(root, 'src/popup.js'), 'utf8');
-  assert.match(popupHtml, /continue-button/);
-  assert.match(popupSource, /CONTINUE_CONVERSATION/);
-  assert.match(popupHtml, /same-epoch/);
+  assert.doesNotMatch(popupHtml, /continue-button/);
+  assert.doesNotMatch(popupSource, /CONTINUE_CONVERSATION/);
+  assert.match(popupHtml, /Auto Continuation ปิดอยู่ทุก Project \/ ทุก Chat/);
   const contentSource = await readFile(resolve(root, 'src/content.js'), 'utf8');
   assert.match(contentSource, /ACK_WAKE_SUBMITTED/);
   assert.match(contentSource, /ฉันส่งในแชทแล้ว/);

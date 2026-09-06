@@ -34,7 +34,7 @@ function jsonResponse(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-async function createHarness() {
+async function createHarness({ autoContinuationEnabled = true } = {}) {
   const messageListeners = [];
   const alarmListeners = [];
   const startupListeners = [];
@@ -173,7 +173,8 @@ async function createHarness() {
     }
   };
 
-  const source = await readFile(resolve(root, 'src/background.js'), 'utf8');
+  let source = await readFile(resolve(root, 'src/background.js'), 'utf8');
+  if (autoContinuationEnabled) source = source.replace('const AUTO_CONTINUATION_ENABLED = false;', 'const AUTO_CONTINUATION_ENABLED = true;');
   vm.runInNewContext(source, sandbox, { filename: 'src/background.js' });
 
   async function dispatchRuntimeMessage(message, sender = {}) {
@@ -305,6 +306,15 @@ async function createFiveBindingHarness() {
   return { harness, refs };
 }
 
+
+test('production Auto Continuation routes are hard-disabled while wake polling remains available', async () => {
+  const harness = await createHarness({ autoContinuationEnabled: false });
+  const readiness = await harness.send({ type: 'CHECK_CONTINUATION_READY' });
+  assert.deepEqual(JSON.parse(JSON.stringify(readiness)), { ok: false, code: 'AUTO_CONTINUATION_DISABLED' });
+  const continuation = await harness.send({ type: 'CONTINUE_CONVERSATION' });
+  assert.deepEqual(JSON.parse(JSON.stringify(continuation)), { ok: false, code: 'AUTO_CONTINUATION_DISABLED' });
+  assert.deepEqual(harness.getCreatedTabUrls(), []);
+});
 
 test('pair persists only an encrypted envelope, unlocks after session loss, and starts one-minute polling', async () => {
   const harness = await createHarness();
