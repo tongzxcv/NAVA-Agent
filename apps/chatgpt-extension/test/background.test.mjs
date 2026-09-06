@@ -780,7 +780,7 @@ test('continuation fails closed before tab creation if the inspected source bind
   assert.deepEqual(harness.getCreatedTabUrls(), []);
 });
 
-test('concurrent alarm supervisor polling cannot cross-route a LEAD-1 terminal continuation', async () => {
+test('alarm supervisor polling never auto-continues a terminal LEAD', async () => {
   const { harness, refs } = await createFiveBindingHarness();
   harness.setSupervisorDelay(10);
   harness.setInspectResponseForTab(17, {
@@ -789,69 +789,50 @@ test('concurrent alarm supervisor polling cannot cross-route a LEAD-1 terminal c
     limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
     composer: { ok: true },
   });
-  for (const tabId of [18, 19, 20, 21]) {
-    const ref = ({18: refs.lead2, 19: refs.lead3, 20: refs.lead4, 21: refs.main})[tabId];
-    harness.setInspectResponseForTab(tabId, {
-      ok: true, conversationRef: 'chatgpt:' + ref, limit: { ok: true, maxLength: false }, composer: { ok: true },
-    });
-  }
 
   const selectedBefore = harness.session.values.get('nava.commandRoomBinding').bindingId;
   const alarmResult = await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
   assert.equal(alarmResult.ok, true);
   assert.equal(selectedBefore, 'binding-1234');
-  assert.deepEqual(harness.getCreatedTabUrls(), ['https://chatgpt.com/g/g-p-beelzebub/project']);
-  assert.equal(harness.getCreatedTabUrls().some((url) => /ratchet|autobots|hermes/.test(url)), false);
+  assert.deepEqual(harness.getCreatedTabUrls(), []);
+  assert.equal(harness.sentMessages.some((entry) => entry.message?.type === 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP'), false);
 });
 
-test('two terminal LEADs receive independent binding-scoped continuations without identity mixing', async () => {
+test('alarm polling does not auto-continue even when two LEAD conversations are terminal', async () => {
   const { harness, refs } = await createFiveBindingHarness();
   harness.setInspectResponseForTab(17, {
-    ok: true, conversationRef: 'chatgpt:' + refs.lead1,
-    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' }, composer: { ok: true },
+    ok: true,
+    conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
   });
   harness.setInspectResponseForTab(18, {
-    ok: true, conversationRef: 'chatgpt:' + refs.lead2,
-    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' }, composer: { ok: true },
+    ok: true,
+    conversationRef: 'chatgpt:' + refs.lead2,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
   });
-  for (const [tabId, ref] of [[19, refs.lead3], [20, refs.lead4], [21, refs.main]]) {
-    harness.setInspectResponseForTab(tabId, {
-      ok: true, conversationRef: 'chatgpt:' + ref, limit: { ok: true, maxLength: false }, composer: { ok: true },
-    });
-  }
 
   await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
-  const homes = harness.getCreatedTabUrls().sort();
-  assert.deepEqual(homes, [
-    'https://chatgpt.com/g/g-p-beelzebub/project',
-    'https://chatgpt.com/g/g-p-ratchet/project',
-  ]);
-  assert.equal(homes.some((url) => /autobots|hermes/.test(url)), false);
+  assert.deepEqual(harness.getCreatedTabUrls(), []);
   const registry = harness.session.values.get('nava.commandRoomBindings');
-  assert.equal(registry.bindings.some((state) => state.bindingId === 'binding-continuation' && state.slotKey === 'LEAD-1'), true);
-  assert.equal(registry.bindings.some((state) => state.bindingId === 'binding-lead2-continuation' && state.slotKey === 'LEAD-2'), true);
+  assert.equal(registry.bindings.some((state) => state.bindingId === 'binding-continuation'), false);
+  assert.equal(registry.bindings.some((state) => state.bindingId === 'binding-lead2-continuation'), false);
 });
 
-test('alarm repeat after exact-max submit failure does not create another tab or cycle projects', async () => {
+test('repeated alarm polling never creates continuation tabs or attempts', async () => {
   const { harness, refs } = await createFiveBindingHarness();
   harness.setInspectResponseForTab(17, {
-    ok: true, conversationRef: 'chatgpt:' + refs.lead1,
-    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' }, composer: { ok: true },
+    ok: true,
+    conversationRef: 'chatgpt:' + refs.lead1,
+    limit: { ok: true, maxLength: true, trigger: 'EXACT_MAX_LENGTH_MESSAGE' },
+    composer: { ok: true },
   });
-  for (const [tabId, ref] of [[18, refs.lead2], [19, refs.lead3], [20, refs.lead4], [21, refs.main]]) {
-    harness.setInspectResponseForTab(tabId, {
-      ok: true, conversationRef: 'chatgpt:' + ref, limit: { ok: true, maxLength: false }, composer: { ok: true },
-    });
-  }
-  harness.setContinuationSubmitResponse({ ok: false, errorCode: 'SUBMIT_FAILED' });
 
   await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
   await harness.alarmListeners[0]({ name: 'nava.commandRoomWakePoll' });
-  assert.deepEqual(harness.getCreatedTabUrls(), ['https://chatgpt.com/g/g-p-beelzebub/project']);
-  assert.equal(harness.getCreatedTabUrls().some((url) => /ratchet|autobots|hermes/.test(url)), false);
-  const attempts = harness.local.values.get('nava.continuationAttemptLedgerV2');
-  assert.equal(attempts.length, 1);
-  assert.equal(attempts[0].bindingId, 'binding-1234');
+  assert.deepEqual(harness.getCreatedTabUrls(), []);
+  assert.equal(harness.local.values.get('nava.continuationAttemptLedgerV2'), undefined);
 });
 
 test('slow new-conversation navigation does not cause a second bootstrap or second click path', async () => {

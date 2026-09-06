@@ -1075,10 +1075,9 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
   if (chrome.alarms?.onAlarm?.addListener) {
     chrome.alarms.onAlarm.addListener((alarm) => {
       if (alarm?.name !== WAKE_ALARM_NAME) return;
-      return Promise.all([
-        checkWakes().catch(() => ({ ok: false, code: 'EXTENSION_INTERNAL' })),
-        autoContinueRegistry().catch(() => []),
-      ]).then(([wakeResult]) => wakeResult);
+      // Auto Continuation is intentionally disabled globally.
+      // Alarm polling may deliver wakes/supervisor state, but it must never create ChatGPT tabs.
+      return checkWakes().catch(() => ({ ok: false, code: 'EXTENSION_INTERNAL' }));
     });
   }
   if (chrome.runtime.onStartup?.addListener) chrome.runtime.onStartup.addListener(() => void syncWakeAlarm().catch(() => {}));
