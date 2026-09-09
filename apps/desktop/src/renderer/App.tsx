@@ -169,9 +169,20 @@ export function App(): ReactElement {
   }, [locale]);
 
   useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => { void refresh(); }, 1_000);
-    return (): void => { window.clearInterval(interval); };
+    const refreshWhenVisible = (): void => {
+      if (document.visibilityState !== 'hidden') void refresh();
+    };
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+
+    refreshWhenVisible();
+    const interval = window.setInterval(refreshWhenVisible, 1_000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return (): void => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [refresh]);
 
   async function handleUpdateAction(): Promise<void> {
