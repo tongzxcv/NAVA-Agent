@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, Tray, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { access } from 'node:fs/promises';
 import { autoUpdater } from 'electron-updater';
@@ -65,7 +65,7 @@ import { createDesktopRuntime, type DesktopRuntime } from './desktop-services.js
 import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
-import { createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
+import { createTrayConnectionLabel, createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
 import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
 import { isMissingNavaReleaseFeedError, UpdateCheckScheduler } from './update-check-scheduler.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
@@ -73,6 +73,7 @@ import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
 import { CrashDiagnosticsRecorder, RendererRecoveryPolicy } from './crash-recovery.js';
 import { installProcessOutputErrorGuards } from './process-output-guard.js';
+import { TunnelConnectionMonitor, type TunnelConnectionAlert, type TunnelConnectionDisplayState } from './tunnel-connection-monitor.js';
 
 export interface DesktopIpcServices {
   listWorkspaces(): Promise<IpcResponseMap[typeof ipcChannels.listWorkspaces]>;
@@ -817,6 +818,10 @@ let pendingUpdateCheckSource: 'automatic' | 'tray' | 'renderer' | null = null;
 let crashDiagnostics: CrashDiagnosticsRecorder | null = null;
 const rendererRecoveryPolicy = new RendererRecoveryPolicy();
 let crashRecoveryConfigured = false;
+let tunnelConnectionTimer: ReturnType<typeof setInterval> | null = null;
+let tunnelConnectionPollInFlight = false;
+let tunnelConnectionState: TunnelConnectionDisplayState = 'stopped';
+const tunnelConnectionMonitor = new TunnelConnectionMonitor();
 let currentUpdateStatus: UpdateStatus = {
   phase: app.isPackaged ? 'idle' : 'unavailable',
   currentVersion: APP_VERSION,
@@ -882,8 +887,75 @@ function refreshDesktopTrayMenu(): void {
     openMainWindow: revealMainWindow,
     checkForUpdates: checkForUpdatesFromTray,
     updateLabel: createTrayUpdateLabel(currentUpdateStatus, desktopLocale),
+    connectionLabel: createTrayConnectionLabel(desktopLocale, tunnelConnectionState),
     quit: (): void => { app.quit(); },
   })));
+}
+
+function setTrayConnectionState(state: TunnelConnectionDisplayState): void {
+  if (tunnelConnectionState === state) return;
+  tunnelConnectionState = state;
+  if (tray !== null) tray.setToolTip(createTrayToolTip(desktopLocale, tunnelConnectionState));
+  refreshDesktopTrayMenu();
+}
+
+function showTunnelConnectionAlert(alert: TunnelConnectionAlert): void {
+  if (!Notification.isSupported()) return;
+  const messages = nativeMessages(desktopLocale);
+  const icon = getWindowIconPath();
+  const title = alert.kind === 'lost'
+    ? messages.connectionLostTitle
+    : alert.kind === 'recovering'
+      ? messages.connectionRecoveringTitle
+      : messages.connectionRecoveredTitle;
+  const body = alert.kind === 'lost'
+    ? messages.connectionLostBody(alert.detail ?? null)
+    : alert.kind === 'recovering'
+      ? messages.connectionRecoveringBody()
+      : messages.connectionRecoveredBody(Math.max(1, Math.round((alert.downtimeMs ?? 0) / 1_000)));
+  const notification = new Notification({
+    title,
+    body,
+    ...(icon === undefined ? {} : { icon }),
+  });
+  notification.on('click', revealMainWindow);
+  notification.show();
+}
+
+async function pollTunnelConnection(runtime: DesktopRuntime): Promise<void> {
+  if (tunnelConnectionPollInFlight || desktopRuntime !== runtime) return;
+  tunnelConnectionPollInFlight = true;
+  try {
+    const status = await runtime.services.getTunnelStatus();
+    const observation = tunnelConnectionMonitor.observe(status);
+    setTrayConnectionState(observation.state);
+    for (const alert of observation.alerts) showTunnelConnectionAlert(alert);
+  } catch (error: unknown) {
+    const observation = tunnelConnectionMonitor.observe({
+      ...emptyTunnel,
+      state: 'error',
+      message: error instanceof Error ? error.message : 'Tunnel health check failed',
+    });
+    setTrayConnectionState(observation.state);
+    for (const alert of observation.alerts) showTunnelConnectionAlert(alert);
+  } finally {
+    tunnelConnectionPollInFlight = false;
+  }
+}
+
+function startTunnelConnectionMonitor(runtime: DesktopRuntime): void {
+  stopTunnelConnectionMonitor();
+  void pollTunnelConnection(runtime);
+  tunnelConnectionTimer = setInterval(() => { void pollTunnelConnection(runtime); }, 5_000);
+  tunnelConnectionTimer.unref?.();
+}
+
+function stopTunnelConnectionMonitor(): void {
+  if (tunnelConnectionTimer !== null) {
+    clearInterval(tunnelConnectionTimer);
+    tunnelConnectionTimer = null;
+  }
+  tunnelConnectionPollInFlight = false;
 }
 
 function requestUpdateCheck(source: 'automatic' | 'tray' | 'renderer'): UpdateStatus {
@@ -968,7 +1040,7 @@ function checkForUpdatesFromTray(): void {
 
 function setDesktopLocale(locale: UiLocale): void {
   desktopLocale = locale;
-  if (tray !== null) tray.setToolTip(createTrayToolTip(locale));
+  if (tray !== null) tray.setToolTip(createTrayToolTip(locale, tunnelConnectionState));
   const localizedMessage = localizedUpdateStatusMessage(currentUpdateStatus, locale);
   if (localizedMessage !== currentUpdateStatus.message) {
     publishUpdateStatus({ ...currentUpdateStatus, message: localizedMessage });
@@ -985,7 +1057,7 @@ function createDesktopTray(): void {
   }
   tray?.destroy();
   tray = new Tray(nativeImage.createFromPath(iconPath));
-  tray.setToolTip(createTrayToolTip(desktopLocale));
+  tray.setToolTip(createTrayToolTip(desktopLocale, tunnelConnectionState));
   refreshDesktopTrayMenu();
   tray.on('click', revealMainWindow);
 }
@@ -1273,6 +1345,7 @@ function bootstrapDesktop(): void {
     }
     createDesktopWindow();
     createDesktopTray();
+    startTunnelConnectionMonitor(runtime);
     initAutoUpdater(runtime);
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createDesktopWindow(true);
@@ -1311,6 +1384,7 @@ function bootstrapLogViewerOnly(): void {
 function configureDesktopShutdown(runtime: DesktopRuntime): void {
   desktopShutdownCoordinator = new DesktopShutdownCoordinator({
     closeRuntime: async (): Promise<void> => {
+      stopTunnelConnectionMonitor();
       await runtime.close();
       if (desktopRuntime === runtime) desktopRuntime = null;
     },

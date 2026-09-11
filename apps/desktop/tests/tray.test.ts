@@ -2,6 +2,7 @@ import type { UpdateStatus } from '@lnwjud/ipc-contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { nativeMessages } from '../src/main/native-i18n.js';
 import {
+  createTrayConnectionLabel,
   createTrayMenuTemplate,
   createTrayToolTip,
   createTrayUpdateLabel,
@@ -87,6 +88,23 @@ describe('desktop tray behavior', () => {
     expect(createTrayUpdateLabel(downloading, 'en')).toBe('Downloading v4.6.2 42%');
     expect(createTrayToolTip('th')).toBe('NAVA Agent — ทำงานเบื้องหลัง');
     expect(createTrayToolTip('en')).toBe('NAVA Agent — running in background');
+  });
+
+  it('shows connection state in the tray without changing legacy tooltip behavior', () => {
+    const menu = createTrayMenuTemplate({
+      locale: 'th',
+      openMainWindow: vi.fn(),
+      checkForUpdates: vi.fn(),
+      connectionLabel: createTrayConnectionLabel('th', 'disconnected'),
+      quit: vi.fn(),
+    });
+
+    expect(menu[0]?.label).toBe('🔴 การเชื่อมต่อหลุด');
+    expect(menu[0]?.enabled).toBe(false);
+    expect(menu[1]?.type).toBe('separator');
+    expect(createTrayConnectionLabel('en', 'healthy')).toBe('🟢 Connected');
+    expect(createTrayToolTip('en')).toBe('NAVA Agent — running in background');
+    expect(createTrayToolTip('en', 'recovering')).toBe('NAVA Agent — running in background — Reconnecting');
   });
 
   it('respects the configured close behavior while still allowing an intentional quit', () => {

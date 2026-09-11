@@ -5,6 +5,16 @@ export interface NativeMessages {
   readonly trayCheckUpdates: string;
   readonly trayQuit: string;
   readonly trayTooltip: string;
+  readonly trayConnectionHealthy: string;
+  readonly trayConnectionRecovering: string;
+  readonly trayConnectionDisconnected: string;
+  readonly trayConnectionStopped: string;
+  readonly connectionLostTitle: string;
+  readonly connectionRecoveringTitle: string;
+  readonly connectionRecoveredTitle: string;
+  connectionLostBody(detail: string | null): string;
+  connectionRecoveringBody(): string;
+  connectionRecoveredBody(downtimeSeconds: number): string;
   readonly updaterUnavailablePackagedOnly: string;
   readonly updaterCheckTitle: string;
   readonly updaterUnavailable: string;
@@ -33,6 +43,16 @@ const th: NativeMessages = {
   trayCheckUpdates: 'ตรวจอัปเดต',
   trayQuit: 'ปิดโปรแกรม',
   trayTooltip: 'NAVA Agent — ทำงานเบื้องหลัง',
+  trayConnectionHealthy: '🟢 เชื่อมต่อแล้ว',
+  trayConnectionRecovering: '🟡 กำลังเชื่อมต่อใหม่',
+  trayConnectionDisconnected: '🔴 การเชื่อมต่อหลุด',
+  trayConnectionStopped: '⚪ Tunnel หยุดอยู่',
+  connectionLostTitle: 'NAVA Connection Lost',
+  connectionRecoveringTitle: 'NAVA Reconnecting',
+  connectionRecoveredTitle: 'NAVA Reconnected',
+  connectionLostBody: (detail) => `MCP tunnel ขาดการเชื่อมต่อเกิน 10 วินาที กำลังเชื่อมต่อใหม่อัตโนมัติ${detail === null ? '' : `\n${detail}`}`,
+  connectionRecoveringBody: () => 'พบ Tunnel อีกครั้งและกำลังตรวจสอบการเชื่อมต่อ…',
+  connectionRecoveredBody: (downtimeSeconds) => `การเชื่อมต่อกลับมาปกติแล้ว • หลุดไป ${downtimeSeconds} วินาที`,
   updaterUnavailablePackagedOnly: 'ระบบอัปเดตทำงานในแอปที่ติดตั้งจาก Release',
   updaterCheckTitle: 'ตรวจอัปเดต - NAVA Agent',
   updaterUnavailable: 'การตรวจอัปเดตจะทำงานเมื่อใช้แอปที่ติดตั้งจาก Release แล้ว',
@@ -61,6 +81,16 @@ const en: NativeMessages = {
   trayCheckUpdates: 'Check for Updates',
   trayQuit: 'Quit',
   trayTooltip: 'NAVA Agent — running in background',
+  trayConnectionHealthy: '🟢 Connected',
+  trayConnectionRecovering: '🟡 Reconnecting',
+  trayConnectionDisconnected: '🔴 Disconnected',
+  trayConnectionStopped: '⚪ Tunnel stopped',
+  connectionLostTitle: 'NAVA Connection Lost',
+  connectionRecoveringTitle: 'NAVA Reconnecting',
+  connectionRecoveredTitle: 'NAVA Reconnected',
+  connectionLostBody: (detail) => `The MCP tunnel has been unavailable for more than 10 seconds. Auto-reconnect is in progress.${detail === null ? '' : `\n${detail}`}`,
+  connectionRecoveringBody: () => 'The tunnel is back and NAVA is verifying the connection…',
+  connectionRecoveredBody: (downtimeSeconds) => `Connection restored successfully • downtime ${downtimeSeconds}s`,
   updaterUnavailablePackagedOnly: 'Updates are available in an installed Release build',
   updaterCheckTitle: 'Check for Updates - NAVA Agent',
   updaterUnavailable: 'Update checks are available after installing a Release build',
