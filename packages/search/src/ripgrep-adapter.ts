@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { DEFAULT_SEARCH_RESULTS, err, MAX_PROCESS_LOG_BYTES, MAX_SEARCH_RESULTS, ok, type Result } from '@lnwjud/domain';
 import { PathExecutableResolver, type ExecutableResolver } from './executable-resolver.js';
 import {
@@ -23,31 +23,55 @@ export interface ProcessRunner {
   run(command: string, args: readonly string[], cwd: string, options?: ProcessRunOptions): Promise<ProcessRunResult>;
 }
 
+const PROCESS_TERMINATION_GRACE_MS = 750;
+
 export class DirectProcessRunner implements ProcessRunner {
   public run(command: string, args: readonly string[], cwd: string, options: ProcessRunOptions = {}): Promise<ProcessRunResult> {
     return new Promise((resolve) => {
-      const child = spawn(command, [...args], { cwd, shell: false, windowsHide: true });
+      const child = spawn(command, [...args], {
+        cwd,
+        shell: false,
+        windowsHide: true,
+        // A separate process group lets POSIX terminate descendants as one unit.
+        // Windows uses taskkill /T below because ChildProcess.kill() only targets
+        // the immediate process and descendants can keep inherited stdio open.
+        detached: process.platform !== 'win32',
+      });
       let stdout = '';
       let stderr = '';
       let timedOut = false;
       let settled = false;
-      const abort = (): void => {
-        timedOut = true;
-        child.kill();
-      };
+      let terminationStarted = false;
+      let terminationTimer: ReturnType<typeof setTimeout> | undefined;
+
       const append = (current: string, chunk: Buffer): string => Buffer.from(`${current}${chunk.toString('utf8')}`, 'utf8').subarray(-MAX_PROCESS_LOG_BYTES).toString('utf8');
       const finish = (exitCode: number): void => {
         if (settled) return;
         settled = true;
         if (timer !== undefined) clearTimeout(timer);
+        if (terminationTimer !== undefined) clearTimeout(terminationTimer);
         options.signal?.removeEventListener('abort', abort);
         resolve({ exitCode, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) });
       };
+      const abort = (): void => {
+        timedOut = true;
+        if (terminationStarted || settled) return;
+        terminationStarted = true;
+        terminateProcessTree(child);
+        // Never let a process that ignores/defers termination hold the MCP call
+        // open indefinitely. Descendants can retain pipe handles on Windows even
+        // after the direct child exits, so bound completion independently of close.
+        terminationTimer = setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          child.unref();
+          finish(-1);
+        }, PROCESS_TERMINATION_GRACE_MS);
+      };
+
       const timeoutMs = options.timeoutMs;
       const timer = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
-        ? setTimeout(() => {
-          abort();
-        }, timeoutMs)
+        ? setTimeout(abort, timeoutMs)
         : undefined;
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener('abort', abort, { once: true });
@@ -59,6 +83,32 @@ export class DirectProcessRunner implements ProcessRunner {
       });
       child.on('close', (exitCode) => finish(exitCode ?? -1));
     });
+  }
+}
+
+function terminateProcessTree(child: ChildProcess): void {
+  if (child.exitCode !== null || child.pid === undefined) return;
+  if (process.platform === 'win32') {
+    try {
+      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      killer.once('error', () => {
+        try { child.kill(); } catch { /* best effort */ }
+      });
+      killer.unref();
+      return;
+    } catch {
+      try { child.kill(); } catch { /* best effort */ }
+      return;
+    }
+  }
+
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    try { child.kill('SIGKILL'); } catch { /* best effort */ }
   }
 }
 

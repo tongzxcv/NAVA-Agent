@@ -4,7 +4,7 @@ import type { ExecutableResolver } from './executable-resolver.js';
 import { DirectProcessRunner, RipgrepAdapter, type ProcessRunResult, type ProcessRunner } from './ripgrep-adapter.js';
 
 describe('RipgrepAdapter', () => {
-  it('terminates an over-budget ripgrep process and reports a timed-out partial result', async () => {
+  it('terminates an over-budget process and reports a timed-out partial result', async () => {
     const runner = new DirectProcessRunner();
     const startedAt = Date.now();
 
@@ -15,11 +15,12 @@ describe('RipgrepAdapter', () => {
       { timeoutMs: 40 },
     );
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
     expect(result.timedOut).toBe(true);
+    expect(result.stdout).not.toContain('late');
   });
 
-  it('terminates a ripgrep child when the MCP invocation is aborted', async () => {
+  it('terminates a process when the MCP invocation is aborted', async () => {
     const runner = new DirectProcessRunner();
     const controller = new AbortController();
     const startedAt = Date.now();
@@ -33,9 +34,24 @@ describe('RipgrepAdapter', () => {
     );
     clearTimeout(abortTimer);
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
     expect(result.timedOut).toBe(true);
     expect(result.stdout).not.toContain('late');
+  });
+
+  it('bounds completion when a descendant inherits stdio from the timed-out process', async () => {
+    const runner = new DirectProcessRunner();
+    const startedAt = Date.now();
+    const script = [
+      "const { spawn } = require('node:child_process');",
+      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'inherit' });",
+      'setTimeout(() => {}, 5000);',
+    ].join(' ');
+
+    const result = await runner.run(process.execPath, ['-e', script], process.cwd(), { timeoutMs: 40 });
+
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
+    expect(result.timedOut).toBe(true);
   });
 
   it('passes the invocation abort signal to process-backed text search', async () => {
