@@ -391,12 +391,14 @@ export interface TunnelGatewayHealth {
   readonly observedAt: string;
   readonly process: TunnelHealthLayer;
   readonly localMcp: TunnelHealthLayer;
+  readonly requestPath?: TunnelHealthLayer;
   readonly controlPlane: TunnelHealthLayer;
   readonly connectorSchema: TunnelHealthLayer;
   readonly message: string;
 }
 
 export interface TunnelStatus {
+  readonly recoveryExhausted?: boolean;
   readonly state: TunnelRunState;
   /** desktop = started by this app; external = started by a script or another process. */
   readonly source: 'desktop' | 'external';

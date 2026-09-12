@@ -3,7 +3,7 @@ import type { TunnelStatus } from '@lnwjud/ipc-contracts';
 export const TUNNEL_ALERT_DEBOUNCE_MS = 10_000;
 
 export type TunnelConnectionDisplayState = 'healthy' | 'recovering' | 'disconnected' | 'stopped';
-export type TunnelConnectionAlertKind = 'lost' | 'recovering' | 'recovered';
+export type TunnelConnectionAlertKind = 'lost' | 'recovering' | 'recovered' | 'failed';
 
 export interface TunnelConnectionAlert {
   readonly kind: TunnelConnectionAlertKind;
@@ -22,6 +22,11 @@ export function classifyTunnelConnection(status: TunnelStatus): TunnelConnection
   if (status.state === 'starting') return 'recovering';
   if (status.state !== 'running') return 'disconnected';
 
+  const critical = [status.health?.process, status.health?.localMcp, status.health?.requestPath];
+  if (critical.some((layer) => layer?.state === 'unhealthy' || layer?.state === 'unavailable')) return 'disconnected';
+  if (critical.some((layer) => layer?.state === 'unknown')) return 'recovering';
+  if (critical.some((layer) => layer === undefined)) return 'recovering';
+
   switch (status.health?.overall) {
     case 'live': return 'healthy';
     case 'unhealthy':
@@ -38,6 +43,7 @@ export class TunnelConnectionMonitor {
   private lostNotified = false;
   private recoveringNotified = false;
   private previousRawState: TunnelConnectionDisplayState = 'stopped';
+  private failedNotified = false;
 
   public constructor(private readonly debounceMs = TUNNEL_ALERT_DEBOUNCE_MS) {}
 
@@ -64,6 +70,10 @@ export class TunnelConnectionMonitor {
     }
 
     this.displayState = rawState;
+    if (status.recoveryExhausted && !this.failedNotified) {
+      this.failedNotified = true;
+      alerts.push({ kind: 'failed', detail: connectionDetail(status) });
+    }
     if (!this.observedHealthy) {
       this.previousRawState = rawState;
       return { state: this.displayState, alerts };
@@ -74,6 +84,7 @@ export class TunnelConnectionMonitor {
       this.lostNotified = true;
       this.recoveringNotified = rawState === 'recovering';
       alerts.push({ kind: 'lost', detail: connectionDetail(status) });
+      if (rawState === 'recovering') alerts.push({ kind: 'recovering' });
     } else if (
       this.lostNotified
       && rawState === 'recovering'
@@ -96,6 +107,7 @@ export class TunnelConnectionMonitor {
     this.failureStartedAt = null;
     this.lostNotified = false;
     this.recoveringNotified = false;
+    this.failedNotified = false;
   }
 }
 

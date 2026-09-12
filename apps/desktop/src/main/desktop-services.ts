@@ -24,6 +24,8 @@ import {
   WorkspaceQueryService,
   type FileActor,
   type DoctorProbeResult,
+  type CommandRoomSupervisorCheckpointSnapshot,
+  type CommandRoomTerminalRecoverySafetySnapshot,
 } from '@lnwjud/application';
 import { AuditService, type AuditEvent, type AuditEventRepository } from '@lnwjud/audit';
 import { CodexDiscovery, formatCodexDiscoveryError } from '@lnwjud/codex';
@@ -326,7 +328,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
   const runtimeStatePath = path.join(dataPath, 'upgrade-runtime.json');
   const commandRoomExtensionService = new CommandRoomExtensionService(commandRoomBindings, {
     supervisorStateRepository: commandRoomSupervisorStates,
-    checkpointResolver: async ({ projectKey, workspaceId }) => {
+    checkpointResolver: async ({ projectKey, workspaceId }): Promise<CommandRoomSupervisorCheckpointSnapshot | null> => {
       const workspace = await workspaceRepository.get(workspaceId);
       if (workspace === null) return null;
       return resolveLatestSupervisorCheckpoint(`${runtimeStatePath}.continuity.json`, {
@@ -335,7 +337,7 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         acceptedProjectKeys: [workspace.displayName],
       });
     },
-    terminalRecoverySafetyResolver: async ({ workspaceId, durableTaskIds }) => {
+    terminalRecoverySafetyResolver: async ({ workspaceId, durableTaskIds }): Promise<CommandRoomTerminalRecoverySafetySnapshot> => {
       const leaseStatus = await workspaceLeases.status(workspaceId);
       if (!leaseStatus.ok) return { workspaceLeaseActive: false, durableTasks: [], ambiguous: true };
       const durableTasks = await Promise.all(durableTaskIds.map(async (taskId) => {
@@ -474,8 +476,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
     maxAutoRestarts: (): number => readSettings().tunnelMaxAutoRestarts,
   });
   const readTunnelStatus = async (): Promise<TunnelStatus> => {
-    const status = await tunnelController.status();
-    return { ...status, health: await tunnelController.gatewayHealth() };
+    await tunnelController.status();
+    const health = await tunnelController.gatewayHealth();
+    tunnelController.observeHealth(health);
+    return { ...await tunnelController.status(), health };
   };
   const logHub = new LogHub({
     tunnelLogPath: tunnelController.logPath(),

@@ -12,6 +12,8 @@ export interface NativeMessages {
   readonly connectionLostTitle: string;
   readonly connectionRecoveringTitle: string;
   readonly connectionRecoveredTitle: string;
+  readonly connectionFailedTitle: string;
+  readonly connectionFailedBody: string;
   connectionLostBody(detail: string | null): string;
   connectionRecoveringBody(): string;
   connectionRecoveredBody(downtimeSeconds: number): string;
@@ -50,6 +52,8 @@ const th: NativeMessages = {
   connectionLostTitle: 'NAVA Connection Lost',
   connectionRecoveringTitle: 'NAVA Reconnecting',
   connectionRecoveredTitle: 'NAVA Reconnected',
+  connectionFailedTitle: 'NAVA Recovery failed',
+  connectionFailedBody: 'กู้คืนการเชื่อมต่อไม่สำเร็จ หยุดลองอัตโนมัติแล้ว กรุณาตรวจสอบ Tunnel',
   connectionLostBody: (detail) => `MCP tunnel ขาดการเชื่อมต่อเกิน 10 วินาที กำลังเชื่อมต่อใหม่อัตโนมัติ${detail === null ? '' : `\n${detail}`}`,
   connectionRecoveringBody: () => 'พบ Tunnel อีกครั้งและกำลังตรวจสอบการเชื่อมต่อ…',
   connectionRecoveredBody: (downtimeSeconds) => `การเชื่อมต่อกลับมาปกติแล้ว • หลุดไป ${downtimeSeconds} วินาที`,
@@ -88,6 +92,8 @@ const en: NativeMessages = {
   connectionLostTitle: 'NAVA Connection Lost',
   connectionRecoveringTitle: 'NAVA Reconnecting',
   connectionRecoveredTitle: 'NAVA Reconnected',
+  connectionFailedTitle: 'NAVA Recovery failed',
+  connectionFailedBody: 'Automatic recovery stopped. The tunnel needs attention.',
   connectionLostBody: (detail) => `The MCP tunnel has been unavailable for more than 10 seconds. Auto-reconnect is in progress.${detail === null ? '' : `\n${detail}`}`,
   connectionRecoveringBody: () => 'The tunnel is back and NAVA is verifying the connection…',
   connectionRecoveredBody: (downtimeSeconds) => `Connection restored successfully • downtime ${downtimeSeconds}s`,

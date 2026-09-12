@@ -907,12 +907,12 @@ function showTunnelConnectionAlert(alert: TunnelConnectionAlert): void {
     ? messages.connectionLostTitle
     : alert.kind === 'recovering'
       ? messages.connectionRecoveringTitle
-      : messages.connectionRecoveredTitle;
+      : alert.kind === 'failed' ? messages.connectionFailedTitle : messages.connectionRecoveredTitle;
   const body = alert.kind === 'lost'
     ? messages.connectionLostBody(alert.detail ?? null)
     : alert.kind === 'recovering'
       ? messages.connectionRecoveringBody()
-      : messages.connectionRecoveredBody(Math.max(1, Math.round((alert.downtimeMs ?? 0) / 1_000)));
+      : alert.kind === 'failed' ? messages.connectionFailedBody : messages.connectionRecoveredBody(Math.max(1, Math.round((alert.downtimeMs ?? 0) / 1_000)));
   const notification = new Notification({
     title,
     body,

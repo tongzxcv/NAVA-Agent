@@ -1,0 +1,241 @@
+diff --git a/pkg/mcpclient/serialized_forwarding_transport.go b/pkg/mcpclient/serialized_forwarding_transport.go
+index ba6802a..6571b44 100644
+--- a/pkg/mcpclient/serialized_forwarding_transport.go
++++ b/pkg/mcpclient/serialized_forwarding_transport.go
+@@ -3,7 +3,7 @@ package mcpclient
+ import (
+ 	"context"
+ 	"errors"
+-	"fmt"
++	"github.com/google/uuid"
+ 	"net/http"
+ 	"sync"
+ 
+@@ -179,15 +179,16 @@ type serializedForwardingConnection struct {
+ 	acquireLifecycle func(context.Context) error
+ 	releaseLifecycle func()
+ 
+-	stateMu           sync.Mutex
+-	lockHeld          bool
+-	writeStarted      bool
+-	writeCompleted    bool
+-	awaitingResponse  bool
+-	expectedID        jsonrpc.ID
+-	requestMethod     string
+-	deadlineRetirable bool
+-	retired           bool
++	stateMu            sync.Mutex
++	lockHeld           bool
++	writeStarted       bool
++	writeCompleted     bool
++	awaitingResponse   bool
++	expectedID         jsonrpc.ID
++	originalResponseID jsonrpc.ID
++	requestMethod      string
++	deadlineRetirable  bool
++	retired            bool
+ }
+ 
+ func (c *serializedForwardingConnection) Write(
+@@ -205,6 +206,14 @@ func (c *serializedForwardingConnection) Write(
+ 		return ForwardingWriteResult{}, err
+ 	}
+ 
++	c.stateMu.Lock()
++	wireID := c.expectedID
++	c.stateMu.Unlock()
++	if expectResponse && wireID != expectedID {
++		copyRequest := *msg.(*jsonrpc.Request)
++		copyRequest.ID = wireID
++		msg = &copyRequest
++	}
+ 	result, err := c.base.Write(ctx, header, msg)
+ 	c.markWriteCompleted(err == nil)
+ 	if err != nil && c.shouldAwaitDeadlineRetirement(ctx, err) {
+@@ -239,7 +248,16 @@ func (c *serializedForwardingConnection) Read(ctx context.Context) (jsonrpc.Mess
+ 		if c.transport != nil && c.transport.shouldDropRetiredMessage(msg) {
+ 			continue
+ 		}
+-		if c.shouldReleaseAfterRead(msg) {
++		c.stateMu.Lock()
++		originalID, wireID := c.originalResponseID, c.expectedID
++		c.stateMu.Unlock()
++		release := c.shouldReleaseAfterRead(msg)
++		if response, ok := msg.(*jsonrpc.Response); ok && originalID.IsValid() && originalID != wireID && response.ID == wireID {
++			copyResponse := *response
++			copyResponse.ID = originalID
++			msg = &copyResponse
++		}
++		if release {
+ 			c.release()
+ 		}
+ 		return msg, nil
+@@ -297,21 +315,19 @@ func (c *serializedForwardingConnection) acquire(ctx context.Context, expectResp
+ 		}
+ 	}
+ 
++	originalID := expectedID
+ 	if expectResponse && c.transport != nil && c.transport.isRetiredResponseID(expectedID) {
+-		if reuseHeldSlot {
+-			c.release()
+-		} else if c.releaseLifecycle != nil {
+-			c.releaseLifecycle()
+-		}
+-		return fmt.Errorf("MCP request ID %v is still retired", expectedID.Raw())
++		// The caller may reuse id=0 after a deadline. A fresh wire ID lets Read
++		// drain the retired response without returning it to the new caller.
++		expectedID, _ = jsonrpc.MakeID("nava-" + uuid.NewString())
+ 	}
+-
+ 	c.stateMu.Lock()
+ 	c.lockHeld = true
+ 	c.writeStarted = true
+ 	c.writeCompleted = false
+ 	c.awaitingResponse = expectResponse
+ 	c.expectedID = expectedID
++	c.originalResponseID = originalID
+ 	c.requestMethod = method
+ 	c.deadlineRetirable = false
+ 	c.retired = false
+@@ -453,6 +469,7 @@ func (c *serializedForwardingConnection) clearLifecycleStateLocked() {
+ 	c.writeCompleted = false
+ 	c.awaitingResponse = false
+ 	c.expectedID = jsonrpc.ID{}
++	c.originalResponseID = jsonrpc.ID{}
+ 	c.requestMethod = ""
+ }
+ 
+diff --git a/pkg/mcpclient/serialized_forwarding_transport_test.go b/pkg/mcpclient/serialized_forwarding_transport_test.go
+index 8b0d3fc..d0b09ab 100644
+--- a/pkg/mcpclient/serialized_forwarding_transport_test.go
++++ b/pkg/mcpclient/serialized_forwarding_transport_test.go
+@@ -503,7 +503,7 @@ func TestSerializedForwardingTransportPreservesStdioPipesAfterCanceledRead(t *te
+ 	require.False(t, writeFailed.Load(), "retiring request A must not trigger the stdio write-error callback")
+ }
+ 
+-func TestSerializedForwardingTransportRejectsRetiredResponseIDReuse(t *testing.T) {
++func TestSerializedForwardingTransportRemapsRetiredResponseIDReuse(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	baseConn := newStubSerializedForwardingConnection()
+@@ -528,10 +528,16 @@ func TestSerializedForwardingTransportRejectsRetiredResponseIDReuse(t *testing.T
+ 	connB, err := transport.Connect(context.Background())
+ 	require.NoError(t, err)
+ 	_, err = connB.Write(context.Background(), nil, &jsonrpc.Request{ID: id, Method: "tools/call"})
+-	require.Error(t, err)
+-	require.Contains(t, err.Error(), "is still retired")
+-	require.EqualValues(t, 1, baseConn.writeCalls.Load(), "reused ID must be rejected before it reaches the shared physical connection")
+-	require.True(t, serializedTransport.isRetiredResponseID(id), "failed reuse must keep the old ID retired")
++	require.NoError(t, err)
++	wireID := connB.(*serializedForwardingConnection).expectedID
++	require.NotEqual(t, id, wireID)
++	baseConn.enqueueRead(&jsonrpc.Response{ID: id}, nil)
++	baseConn.enqueueRead(&jsonrpc.Response{ID: wireID}, nil)
++	msg, err := connB.Read(context.Background())
++	require.NoError(t, err)
++	require.Equal(t, id, msg.(*jsonrpc.Response).ID)
++	require.False(t, serializedTransport.isRetiredResponseID(id))
++	require.EqualValues(t, 2, baseConn.writeCalls.Load())
+ 	requireLifecycleLockReleased(t, serializedTransport)
+ 	require.Zero(t, baseConn.closeCalls.Load())
+ }
+diff --git a/pkg/dispatcher/fxmodule.go b/pkg/dispatcher/fxmodule.go
+index 96508f6..37a6b2b 100644
+--- a/pkg/dispatcher/fxmodule.go
++++ b/pkg/dispatcher/fxmodule.go
+@@ -76,6 +76,7 @@ var Module = fx.Module(
+ 		dispatcherinternal.NewQueueListener,
+ 	),
+ 	fx.Invoke(startQueueListener),
++	fx.Invoke(registerPathHealth),
+ )
+ 
+ type configuredChannelBindingsResult struct {
+diff --git a/pkg/dispatcher/path_health.go b/pkg/dispatcher/path_health.go
+new file mode 100644
+index 0000000..db79d60
+--- /dev/null
++++ b/pkg/dispatcher/path_health.go
+@@ -0,0 +1,82 @@
++package dispatcher
++
++import (
++	"context"
++	"encoding/json"
++	"github.com/google/uuid"
++	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
++	dispatcherinternal "github.com/openai/tunnel-client/pkg/dispatcher/internal"
++	"github.com/openai/tunnel-client/pkg/httpguard"
++	"github.com/openai/tunnel-client/pkg/mcpclient"
++	"github.com/openai/tunnel-client/pkg/runtimeconfig"
++	"github.com/openai/tunnel-client/pkg/types"
++	"go.uber.org/fx"
++	"net/http"
++	"time"
++)
++
++type pathHealthParams struct {
++	fx.In
++	Mux      *http.ServeMux `name:"admin_mux"`
++	Bindings map[types.Channel]dispatcherinternal.ChannelBinding
++	Config   *runtimeconfig.MCPConfig
++}
++
++// Probe the same serialized connection as connector calls, never a second reader.
++func registerPathHealth(p pathHealthParams) {
++	httpguard.NewGuardedMux(p.Mux, false, "loopback only").HandleFunc("/api/mcp-health", func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		reply := func(code int, state string) {
++			w.WriteHeader(code)
++			_ = json.NewEncoder(w).Encode(map[string]string{"state": state})
++		}
++		if r.Method != http.MethodGet {
++			reply(405, "unavailable")
++			return
++		}
++		binding := p.Config.MainChannelBinding()
++		transport := p.Bindings[types.DefaultChannel].Transport
++		if binding == nil || binding.TransportKind != runtimeconfig.MCPTransportStdio || transport == nil {
++			reply(503, "unavailable")
++			return
++		}
++		// Waiting behind a legitimate tool is busy, not proof of a broken child.
++		acquireCtx, cancelAcquire := context.WithTimeout(r.Context(), 200*time.Millisecond)
++		conn, err := transport.Connect(mcpclient.ContextWithResponseDeadlineEnforcement(acquireCtx))
++		cancelAcquire()
++		if err != nil {
++			reply(429, "busy")
++			return
++		}
++		if conn == nil {
++			reply(503, "unhealthy")
++			return
++		}
++		ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
++		defer cancel()
++		ctx = mcpclient.ContextWithResponseDeadlineEnforcement(ctx)
++		id, _ := jsonrpc.MakeID("nava-health-" + uuid.NewString())
++		_, err = conn.Write(ctx, nil, &jsonrpc.Request{ID: id, Method: "ping"})
++		if err == nil {
++			for {
++				msg, readErr := conn.Read(ctx)
++				if readErr != nil {
++					err = readErr
++					break
++				}
++				if response, ok := msg.(*jsonrpc.Response); ok {
++					if response.ID == id && response.Error == nil {
++						reply(200, "live")
++						return
++					}
++					break
++				}
++			}
++		}
++		// Retire a timed-out probe without destroying process-affine pipes.
++		if retirement, ok := conn.(mcpclient.ResponseDeadlineRetiringConnection); ok {
++			retirement.RetireResponseDeadline()
++		}
++		reply(503, "unhealthy")
++	})
++}

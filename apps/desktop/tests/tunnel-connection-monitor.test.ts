@@ -27,6 +27,7 @@ const liveHealth: NonNullable<TunnelStatus['health']> = {
   observedAt: new Date(0).toISOString(),
   process: { state: 'live', message: 'process live' },
   localMcp: { state: 'live', message: 'mcp live' },
+  requestPath: { state: 'live', message: 'dispatcher ping live' },
   controlPlane: { state: 'live', message: 'control plane live' },
   connectorSchema: { state: 'unknown', message: 'not observable' },
   message: 'live',
@@ -91,5 +92,17 @@ describe('tunnel connection notification monitor', () => {
     monitor.observe(status('error', unhealthyHealth, 'tunnel exited'), 100);
     expect(monitor.observe(status('stopped'), 2_000)).toEqual({ state: 'stopped', alerts: [] });
     expect(monitor.observe(status('running', liveHealth), 3_000).alerts).toEqual([]);
+  });
+
+  it('reports exhausted recovery once and never shows green without a request-path observation', () => {
+    const monitor = new TunnelConnectionMonitor(1000);
+    monitor.observe(status('running', liveHealth), 0);
+    const exhausted = { ...status('error', unhealthyHealth, 'Recovery failed'), recoveryExhausted: true };
+    expect(monitor.observe(exhausted, 2000).alerts).toEqual([{ kind: 'failed', detail: 'Recovery failed' }]);
+    expect(monitor.observe(exhausted, 2500).alerts).toEqual([]);
+    expect(monitor.observe(status('stopped'), 3000).alerts).toEqual([]);
+    const unobserved = { ...liveHealth };
+    delete unobserved.requestPath;
+    expect(classifyTunnelConnection(status('running', unobserved))).toBe('recovering');
   });
 });

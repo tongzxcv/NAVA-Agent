@@ -82,6 +82,11 @@ export class TunnelController {
   private startInFlight: Promise<TunnelStatus> | null = null;
   private startAbortController: AbortController | null = null;
   private stopInFlight: Promise<TunnelStatus> | null = null;
+  private healthFailureAt: number | null = null;
+  private healthFailures = 0;
+  private recoveryPending = false;
+  private recoveryExhausted = false;
+  private stopGeneration = 0;
 
   public constructor(private readonly options: TunnelControllerOptions) {}
 
@@ -176,7 +181,7 @@ export class TunnelController {
   public async status(): Promise<TunnelStatus> {
     const clientPath = this.resolveClientPath();
     let source: TunnelStatus['source'] = 'desktop';
-    if (this.child !== null && this.child.exitCode === null) {
+    if (this.child !== null && this.child.exitCode === null && !this.recoveryPending && !this.recoveryExhausted) {
       this.state = 'running';
       this.message = null;
     } else if (this.child !== null && this.child.exitCode !== null) {
@@ -205,6 +210,7 @@ export class TunnelController {
       }
     }
     return {
+      recoveryExhausted: this.recoveryExhausted,
       state: this.state,
       source,
       hasApiKey: await this.hasApiKey(),
@@ -242,6 +248,9 @@ export class TunnelController {
   }
 
   private async startOnce(signal: AbortSignal): Promise<TunnelStatus> {
+    this.recoveryExhausted = false;
+    this.healthFailureAt = null;
+    this.healthFailures = 0;
     this.intentionalStop = false;
     this.clearRestartTimer();
     this.clearStableTimer();
@@ -294,7 +303,6 @@ export class TunnelController {
       throwIfStartCancelled(signal);
       this.spawnRun(clientPath, apiKey);
       this.state = 'running';
-      this.scheduleStableReset();
       return this.status();
     } catch (error: unknown) {
       const cancelled = signal.aborted || error instanceof StartCancelledError;
@@ -315,6 +323,10 @@ export class TunnelController {
   }
 
   private requestStop(): Promise<TunnelStatus> {
+    this.stopGeneration += 1;
+    this.recoveryExhausted = false;
+    this.healthFailureAt = null;
+    this.healthFailures = 0;
     this.intentionalStop = true;
     this.clearRestartTimer();
     this.startAbortController?.abort();
@@ -344,7 +356,7 @@ export class TunnelController {
     return result;
   }
 
-  private async killOwnedChild(): Promise<void> {
+  private async killOwnedChild(forceTree = false): Promise<void> {
     this.intentionalStop = true;
     this.clearRestartTimer();
     if (this.child !== null) {
@@ -354,6 +366,20 @@ export class TunnelController {
           this.child = null;
           this.ownedChildStartedAt = null;
         }
+        return;
+      }
+      if (forceTree && process.platform === 'win32') {
+        const pid = child.pid;
+        if (pid === undefined || this.ownedChildStartedAt === null) throw new Error('Owned process identity is unavailable');
+        const inspect = this.options.inspectOwnedProcess ?? probeProcessStart;
+        const identity = await inspect(pid);
+        if (identity.state !== 'live' || identity.processStartedAt !== this.ownedChildStartedAt) throw new Error('Owned process identity could not be verified');
+        const descendants = await (this.options.inspectOwnedProcessTree?.(pid) ?? inspectWindowsProcessTreeIdentities(pid));
+        const tree = normalizeOwnedProcessTree([{ pid, processStartedAt: this.ownedChildStartedAt }, ...descendants]);
+        await (this.options.terminateOwnedProcessTree?.(pid) ?? terminateWindowsProcessTree(pid));
+        await waitForTunnelChildExit(child, this.options.escalationTimeoutMs ?? 2000);
+        await verifyOwnedProcessTreeExited(tree, inspect);
+        if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
         return;
       }
       if (!child.kill()) throw new Error('Tunnel child did not accept stop signal; ownership retained');
@@ -409,13 +435,19 @@ export class TunnelController {
 
   public async gatewayHealth(): Promise<TunnelGatewayHealth> {
     const process = await this.processHealth();
-    const localMcp = toHealthLayer(await this.incidentHealth());
+    const address = await this.resolveHealthAddress();
+    const requestPath = process.state === 'live' && address !== null
+      ? await probeMcpRequestPath(address.host, address.port)
+      : { state: 'unavailable' as const, message: 'No running MCP request path' };
+    // A successful ping on the dispatcher's own stdio proves the child is usable.
+    // A PID or the tunnel's /healthz does not provide that evidence.
+    const localMcp = { ...requestPath };
     const controlPlane = await this.controlPlaneHealth();
     const connectorSchema: TunnelHealthLayer = {
       state: 'unknown',
       message: 'Chat connector schema freshness is not observable from the local NAVA process',
     };
-    const overall = deriveGatewayHealthState(process, localMcp, controlPlane);
+    const overall = deriveGatewayHealthState(process, localMcp, requestPath, controlPlane);
     const message = overall === 'live'
       ? 'Local tunnel path is live; remote connector schema freshness still requires a connector refresh check'
       : overall === 'unhealthy'
@@ -428,10 +460,52 @@ export class TunnelController {
       observedAt: new Date().toISOString(),
       process,
       localMcp,
+      requestPath,
       controlPlane,
       connectorSchema,
       message,
     };
+  }
+
+  public observeHealth(health: TunnelGatewayHealth, now = Date.now()): void {
+    if (this.intentionalStop || this.recoveryPending || this.restartTimer !== null || this.recoveryExhausted) return;
+    if (health.overall === 'live') {
+      this.healthFailureAt = null;
+      this.healthFailures = 0;
+      if (this.stableTimer === null) this.scheduleStableReset();
+      return;
+    }
+    this.clearStableTimer();
+    // A busy serialized queue is not an unresponsive MCP child.
+    if (health.requestPath?.state === 'unknown') { this.healthFailureAt = null; this.healthFailures = 0; return; }
+    if (health.overall !== 'unhealthy' && health.overall !== 'unavailable') return;
+    this.healthFailureAt ??= now;
+    this.healthFailures += 1;
+    if (this.healthFailures < 3 || now - this.healthFailureAt < 10_000) return;
+    if (this.child === null || this.tunnelLock === null || !this.autoReconnectEnabled()) return;
+    const clientPath = this.resolveClientPath();
+    if (clientPath === null || this.lastApiKey === null) return;
+    this.recoveryPending = true;
+    this.state = 'starting';
+    this.message = 'MCP request path failed repeatedly; recovering owned tunnel';
+    const generation = this.stopGeneration;
+    void this.enqueueLifecycle(async () => {
+      try {
+        if (generation !== this.stopGeneration) return;
+        await this.killOwnedChild(true);
+        if (generation !== this.stopGeneration) return;
+        this.intentionalStop = false;
+        await this.applyUnexpectedExit(null, clientPath);
+      } catch {
+        this.state = 'error';
+        this.recoveryExhausted = true;
+        this.message = 'Recovery failed: could not verify owned process shutdown; ownership retained';
+      } finally {
+        this.recoveryPending = false;
+        this.healthFailureAt = null;
+        this.healthFailures = 0;
+      }
+    });
   }
 
   private async processHealth(): Promise<TunnelHealthLayer> {
@@ -560,16 +634,18 @@ export class TunnelController {
       }).catch(() => undefined);
     }
     child.on('error', (error) => {
+      if (this.child !== child) return;
       if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
       this.state = 'error';
       this.message = error.message;
-      this.scheduleRestart(clientPath);
+      void this.applyUnexpectedExit(null, clientPath);
     });
     child.on('exit', (code) => {
+      if (this.child !== child) return;
       if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
       if (this.intentionalStop) {
-        this.state = 'stopped';
-        this.message = null;
+        this.state = this.recoveryPending && this.stopInFlight === null ? 'starting' : 'stopped';
+        this.message = this.state === 'starting' ? 'Recovering MCP request path' : null;
         return;
       }
       void this.applyUnexpectedExit(code, clientPath);
@@ -578,17 +654,15 @@ export class TunnelController {
 
   private async applyUnexpectedExit(code: number | null, clientPath: string): Promise<void> {
     const hint = await this.readExitHint();
+    if (this.intentionalStop || this.child !== null) return;
     this.state = 'error';
     this.message = formatTunnelExitMessage(code, hint);
-    const now = Date.now();
-    if (this.restartWindowStartedAt === 0 || now - this.restartWindowStartedAt > RESTART_WINDOW_MS) {
-      this.restartWindowStartedAt = now;
-      this.restartAttempts = 0;
-    }
+    this.clearStableTimer();
     this.restartAttempts += 1;
     if (!this.autoReconnectEnabled()) return;
     const maxAutoRestarts = this.maxAutoRestarts();
     if (this.restartAttempts > maxAutoRestarts) {
+      this.recoveryExhausted = true;
       this.message = `${this.message} — automatic reconnect paused after ${maxAutoRestarts} rapid exits; press Start Tunnel to retry`;
       return;
     }
@@ -597,7 +671,7 @@ export class TunnelController {
 
   private async readExitHint(): Promise<string> {
     try {
-      const raw = await readFile(this.logPath(), 'utf8');
+      const raw = await readBoundedTail(this.logPath(), MAX_HEALTH_METADATA_BYTES);
       const tail = raw.split(/\r?\n/).slice(-120).join('\n');
       return tunnelExitHintFromLog(tail);
     } catch {
@@ -606,21 +680,19 @@ export class TunnelController {
   }
 
   private scheduleRestart(clientPath: string): void {
-    if (this.intentionalStop || !this.autoReconnectEnabled()) return;
-    this.clearRestartTimer();
+    if (this.intentionalStop || !this.autoReconnectEnabled() || this.restartTimer !== null || this.recoveryExhausted) return;
+    this.state = 'starting';
     const delay = Math.min(RESTART_DELAY_MS * (2 ** Math.max(0, this.restartAttempts - 1)), 30_000);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       if (this.intentionalStop || this.lastApiKey === null) return;
-      void this.preferPackagedStdioCommand()
-        .then(() => {
-          if (this.intentionalStop || this.lastApiKey === null) return;
+      void this.enqueueLifecycle(async () => {
+          if (this.intentionalStop || this.lastApiKey === null || this.tunnelLock === null || this.child !== null) return;
           this.spawnRun(clientPath, this.lastApiKey);
           this.state = 'running';
           this.message = `Tunnel reconnecting (attempt ${this.restartAttempts}/${this.maxAutoRestarts()})…`;
-          this.scheduleStableReset();
         })
-        .catch(() => undefined);
+        .catch(() => { this.state = 'error'; this.recoveryExhausted = true; this.message = 'Automatic recovery failed; needs attention'; });
     }, delay);
   }
 
@@ -934,8 +1006,10 @@ function isLiveHealthBody(body: string): boolean {
 
 export function classifyTunnelControlPlaneLog(log: string): TunnelHealthLayer {
   const tail = log.slice(-MAX_HEALTH_METADATA_BYTES).toLowerCase();
-  const failureSignals = [...tail.matchAll(/exceptiongroup|transport error|error in message stream|client_internal|bad gateway|\b502\b|connection refused|connection reset|unauthorized|forbidden|probe_timeout/gi)];
-  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|health[^\r\n]{0,80}\blive\b|tunnel\s+metadata\s+fetched/gi)];
+  // Upstream MCP 502s are measured by the active request-path probe, not
+  // evidence that the independent control-plane connection failed.
+  const failureSignals = [...tail.matchAll(/unauthorized|forbidden|control.plane[^\r\n]{0,120}(?:failed|error|refused|reset)/gi)];
+  const liveSignals = [...tail.matchAll(/tunnel[^\r\n]{0,120}(connected|established|ready)|(?:connected|established|ready)[^\r\n]{0,120}tunnel|tunnel\s+metadata\s+fetched|dispatcher forwarded command to MCP server/gi)];
   const latestFailure = failureSignals.at(-1)?.index ?? -1;
   const latestLive = liveSignals.at(-1)?.index ?? -1;
   if (latestFailure >= 0 && latestFailure >= latestLive) {
@@ -947,8 +1021,35 @@ export function classifyTunnelControlPlaneLog(log: string): TunnelHealthLayer {
   return { state: 'unknown', message: 'No bounded tunnel log signal proves control-plane health' };
 }
 
-function toHealthLayer(value: { readonly state: TunnelHealthState; readonly message: string | null }): TunnelHealthLayer {
-  return { state: value.state, message: value.message ?? 'No health detail was reported' };
+export async function probeMcpRequestPath(host: string, port: number): Promise<TunnelHealthLayer> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (state: TunnelHealthState, message: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ state, message });
+    };
+    const request = httpRequest({ host, port, path: '/api/mcp-health', method: 'GET' }, (response) => {
+      let body = '';
+      response.on('data', (chunk: Buffer) => {
+        body += chunk.toString('utf8');
+        if (body.length > 4096) request.destroy(new Error('MCP probe response too large'));
+      });
+      response.on('error', () => finish('unhealthy', 'MCP probe response failed'));
+      response.on('end', () => {
+        try {
+          const result = JSON.parse(body) as { state?: unknown };
+          if (response.statusCode === 200 && result.state === 'live') return finish('live', 'Dispatcher stdio ping succeeded');
+          if (response.statusCode === 429 && result.state === 'busy') return finish('unknown', 'MCP dispatcher is busy; awaiting active request');
+        } catch { /* An old tunnel HTML page must never count as healthy. */ }
+        finish('unhealthy', 'Dispatcher MCP request path is unavailable or unresponsive');
+      });
+    });
+    const timer = setTimeout(() => request.destroy(new Error('MCP probe deadline')), 2500);
+    request.on('error', () => finish('unhealthy', 'Dispatcher MCP request path probe failed'));
+    request.end();
+  });
 }
 
 function deriveGatewayHealthState(...layers: readonly TunnelHealthLayer[]): TunnelHealthState {
