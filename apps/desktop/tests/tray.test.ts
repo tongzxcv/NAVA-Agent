@@ -103,6 +103,8 @@ describe('desktop tray behavior', () => {
     expect(menu[0]?.enabled).toBe(false);
     expect(menu[1]?.type).toBe('separator');
     expect(createTrayConnectionLabel('en', 'healthy')).toBe('🟢 Connected');
+    expect(createTrayConnectionLabel('en', 'busy')).toBe('🟡 Busy');
+    expect(createTrayToolTip('en', 'busy')).toBe('NAVA Agent — running in background — Busy');
     expect(createTrayToolTip('en')).toBe('NAVA Agent — running in background');
     expect(createTrayToolTip('en', 'recovering')).toBe('NAVA Agent — running in background — Reconnecting');
   });

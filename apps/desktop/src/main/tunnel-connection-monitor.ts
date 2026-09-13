@@ -1,8 +1,8 @@
-import type { TunnelStatus } from '@lnwjud/ipc-contracts';
+import type { TunnelHealthLayer, TunnelStatus } from '@lnwjud/ipc-contracts';
 
 export const TUNNEL_ALERT_DEBOUNCE_MS = 10_000;
 
-export type TunnelConnectionDisplayState = 'healthy' | 'recovering' | 'disconnected' | 'stopped';
+export type TunnelConnectionDisplayState = 'healthy' | 'busy' | 'recovering' | 'disconnected' | 'stopped';
 export type TunnelConnectionAlertKind = 'lost' | 'recovering' | 'recovered' | 'failed';
 
 export interface TunnelConnectionAlert {
@@ -22,8 +22,17 @@ export function classifyTunnelConnection(status: TunnelStatus): TunnelConnection
   if (status.state === 'starting') return 'recovering';
   if (status.state !== 'running') return 'disconnected';
 
-  const critical = [status.health?.process, status.health?.localMcp, status.health?.requestPath];
+  const process = status.health?.process;
+  const localMcp = status.health?.localMcp;
+  const requestPath = status.health?.requestPath;
+  const critical = [process, localMcp, requestPath];
+
   if (critical.some((layer) => layer?.state === 'unhealthy' || layer?.state === 'unavailable')) return 'disconnected';
+
+  // A 429/busy request-path response proves that the dispatcher and MCP child are alive.
+  // Long serialized calls must not look like a connection loss in the tray/notifications.
+  if (isBusyHealthLayer(requestPath) || isBusyHealthLayer(localMcp)) return 'busy';
+
   if (critical.some((layer) => layer?.state === 'unknown')) return 'recovering';
   if (critical.some((layer) => layer === undefined)) return 'recovering';
 
@@ -31,7 +40,9 @@ export function classifyTunnelConnection(status: TunnelStatus): TunnelConnection
     case 'live': return 'healthy';
     case 'unhealthy':
     case 'unavailable': return 'disconnected';
-    case 'unknown':
+    // All critical local layers are live here. An unknown non-critical layer (for example
+    // bounded control-plane evidence) must not make the user-visible connection flicker.
+    case 'unknown': return 'healthy';
     case undefined: return 'recovering';
   }
 }
@@ -65,6 +76,28 @@ export class TunnelConnectionMonitor {
       this.observedHealthy = true;
       this.resetFailure();
       this.displayState = 'healthy';
+      this.previousRawState = rawState;
+      return { state: this.displayState, alerts };
+    }
+
+    if (rawState === 'busy') {
+      this.observedHealthy = true;
+      // Busy is positive liveness evidence, not a failure. Cancel an unannounced transient
+      // failure so a 30-60s serialized request cannot trigger Lost/Reconnected notifications.
+      if (!this.lostNotified) {
+        this.resetFailure();
+        this.displayState = 'busy';
+        this.previousRawState = rawState;
+        return { state: this.displayState, alerts };
+      }
+
+      // If a real loss was already announced, a busy response means the request path is back
+      // but not idle yet. Keep recovery accounting until we observe a clean live probe.
+      this.displayState = 'recovering';
+      if (!this.recoveringNotified) {
+        this.recoveringNotified = true;
+        alerts.push({ kind: 'recovering' });
+      }
       this.previousRawState = rawState;
       return { state: this.displayState, alerts };
     }
@@ -109,6 +142,11 @@ export class TunnelConnectionMonitor {
     this.recoveringNotified = false;
     this.failedNotified = false;
   }
+}
+
+function isBusyHealthLayer(layer: TunnelHealthLayer | undefined): boolean {
+  if (layer?.state !== 'unknown') return false;
+  return /\bbusy\b|awaiting active request|active request/i.test(layer.message);
 }
 
 function connectionDetail(status: TunnelStatus): string | null {

@@ -40,6 +40,7 @@ export function createTrayConnectionLabel(locale: UiLocale, state: TunnelConnect
   const messages = nativeMessages(locale);
   switch (state) {
     case 'healthy': return messages.trayConnectionHealthy;
+    case 'busy': return messages.trayConnectionBusy;
     case 'recovering': return messages.trayConnectionRecovering;
     case 'disconnected': return messages.trayConnectionDisconnected;
     case 'stopped': return messages.trayConnectionStopped;

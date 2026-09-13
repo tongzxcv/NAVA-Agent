@@ -6,6 +6,7 @@ export interface NativeMessages {
   readonly trayQuit: string;
   readonly trayTooltip: string;
   readonly trayConnectionHealthy: string;
+  readonly trayConnectionBusy: string;
   readonly trayConnectionRecovering: string;
   readonly trayConnectionDisconnected: string;
   readonly trayConnectionStopped: string;
@@ -46,6 +47,7 @@ const th: NativeMessages = {
   trayQuit: 'ปิดโปรแกรม',
   trayTooltip: 'NAVA Agent — ทำงานเบื้องหลัง',
   trayConnectionHealthy: '🟢 เชื่อมต่อแล้ว',
+  trayConnectionBusy: '🟡 กำลังทำงาน',
   trayConnectionRecovering: '🟡 กำลังเชื่อมต่อใหม่',
   trayConnectionDisconnected: '🔴 การเชื่อมต่อหลุด',
   trayConnectionStopped: '⚪ Tunnel หยุดอยู่',
@@ -86,6 +88,7 @@ const en: NativeMessages = {
   trayQuit: 'Quit',
   trayTooltip: 'NAVA Agent — running in background',
   trayConnectionHealthy: '🟢 Connected',
+  trayConnectionBusy: '🟡 Busy',
   trayConnectionRecovering: '🟡 Reconnecting',
   trayConnectionDisconnected: '🔴 Disconnected',
   trayConnectionStopped: '⚪ Tunnel stopped',
