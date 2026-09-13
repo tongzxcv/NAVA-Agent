@@ -439,7 +439,7 @@ export class TunnelController {
     const requestPath = process.state === 'live' && address !== null
       ? await probeMcpRequestPath(address.host, address.port)
       : { state: 'unavailable' as const, message: 'No running MCP request path' };
-    // A successful ping on the dispatcher's own stdio proves the child is usable.
+    // A successful MCP health call on the dispatcher's own stdio proves the child is usable.
     // A PID or the tunnel's /healthz does not provide that evidence.
     const localMcp = { ...requestPath };
     const controlPlane = await this.controlPlaneHealth();

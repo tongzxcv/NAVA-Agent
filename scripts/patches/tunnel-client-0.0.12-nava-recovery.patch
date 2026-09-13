@@ -153,10 +153,10 @@ index 96508f6..37a6b2b 100644
  type configuredChannelBindingsResult struct {
 diff --git a/pkg/dispatcher/path_health.go b/pkg/dispatcher/path_health.go
 new file mode 100644
-index 0000000..db79d60
+index 0000000..2969125e
 --- /dev/null
 +++ b/pkg/dispatcher/path_health.go
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,86 @@
 +package dispatcher
 +
 +import (
@@ -215,7 +215,11 @@ index 0000000..db79d60
 +		defer cancel()
 +		ctx = mcpclient.ContextWithResponseDeadlineEnforcement(ctx)
 +		id, _ := jsonrpc.MakeID("nava-health-" + uuid.NewString())
-+		_, err = conn.Write(ctx, nil, &jsonrpc.Request{ID: id, Method: "ping"})
++		// lnwjud's stdio server is modern-only. Probe with a real lightweight
++		// MCP tool call and the required 2026 envelope instead of JSON-RPC ping,
++		// which this server does not expose as a method.
++		params := json.RawMessage(`{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}},"name":"mcp_health","arguments":{}}`)
++		_, err = conn.Write(ctx, nil, &jsonrpc.Request{ID: id, Method: "tools/call", Params: params})
 +		if err == nil {
 +			for {
 +				msg, readErr := conn.Read(ctx)

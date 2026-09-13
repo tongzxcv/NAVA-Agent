@@ -29,8 +29,9 @@ upstream commit above. It gives a request colliding with a retired ID a fresh
 wire ID and restores the caller's original ID on the matching response. Late
 responses remain filtered. The patch includes the regression test.
 
-It also adds a loopback-only `GET /api/mcp-health` endpoint that sends `ping`
-through the **same serialized dispatcher transport** as connector calls:
+It also adds a loopback-only `GET /api/mcp-health` endpoint that sends the
+modern-envelope `tools/call mcp_health` probe through the **same serialized
+dispatcher transport** as connector calls:
 
 - 200/live: matching response received;
 - 429/busy: another request owns the serializer; do not interrupt it;
