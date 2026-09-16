@@ -83,6 +83,29 @@ describe('MCP stdio transport', () => {
     }
   }, 30_000);
 
+  it('times out a stuck tool before the stdio transport is poisoned and serves the next call', async () => {
+    const environment = { ...process.env, NAVA_TEST_MAX_TOOL_DURATION_MS: '30' } as Record<string, string>;
+    const transport = new StdioClientTransport({ command: process.execPath, args: [fixturePath], env: environment, stderr: 'pipe' });
+    const client = new Client(
+      { name: 'nava-stdio-timeout-test', version: '0.1.0' },
+      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+    );
+    try {
+      await client.connect(transport);
+      const timedOut = await client.callTool({ name: 'search_text', arguments: { query: 'slow' } });
+      expect(timedOut).toMatchObject({
+        isError: true,
+        structuredContent: { error: { code: 'PROCESS_TIMEOUT', recoverable: true } },
+      });
+
+      const followUp = await client.callTool({ name: 'search_text', arguments: { query: 'fast' } });
+      expect(followUp.isError).not.toBe(true);
+      expect(followUp).toMatchObject({ structuredContent: { matches: [], truncated: false } });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
   it('recovers one project checkpoint through a fresh MCP client and server process', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'nava-stdio-continuity-'));
     const statePath = path.join(directory, 'runtime.json');

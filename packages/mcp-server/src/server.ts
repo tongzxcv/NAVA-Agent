@@ -49,6 +49,8 @@ export interface McpServerOptions {
   readonly incrementalVerifier?: IncrementalVerifier;
   /** Shared across per-request server factories so the run clock starts at the first tool call. */
   readonly runBudgetGuard?: RunBudgetGuard;
+  /** Bounds one tool response so stdio callers cannot hold a serialized transport forever. */
+  readonly maxToolDurationMs?: number;
 }
 
 export function createMcpServer(options: McpServerOptions): McpServer {
@@ -61,6 +63,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     ...(options.codexToolsEnabled === undefined ? {} : { codexToolsEnabled: options.codexToolsEnabled }),
     ...(options.commandRoomEnabled === undefined ? {} : { commandRoomEnabled: options.commandRoomEnabled }),
     ...(options.incrementalVerifier === undefined ? {} : { incrementalVerifier: options.incrementalVerifier }),
+    ...(options.maxToolDurationMs === undefined ? {} : { maxToolDurationMs: options.maxToolDurationMs }),
   });
   const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
   // tasks capability (MCP spec 2025-11-25) exposes existing durable shell

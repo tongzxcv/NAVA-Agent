@@ -340,7 +340,8 @@ export class TunnelController {
   }
 
   private async stopOnce(): Promise<TunnelStatus> {
-    await this.killOwnedChild();
+    const canForceTree = process.platform === 'win32' && this.ownedChildStartedAt !== null && Number.isInteger(this.child?.pid) && (this.child?.pid ?? 0) > 0;
+    await this.killOwnedChild(canForceTree);
     await this.releaseTunnelLock();
     this.state = 'stopped';
     this.message = null;
@@ -373,11 +374,13 @@ export class TunnelController {
         if (pid === undefined || this.ownedChildStartedAt === null) throw new Error('Owned process identity is unavailable');
         const inspect = this.options.inspectOwnedProcess ?? probeProcessStart;
         const identity = await inspect(pid);
-        if (identity.state !== 'live' || identity.processStartedAt !== this.ownedChildStartedAt) throw new Error('Owned process identity could not be verified');
+        if (identity.state === 'unverifiable') throw new Error(`Tunnel child liveness is unverifiable (${identity.reason}); ownership retained`);
+        if (identity.state === 'gone') throw new Error('Owned tunnel child is already gone; descendant cleanup requires the unexpected-exit path');
+        if (identity.processStartedAt !== this.ownedChildStartedAt) throw new Error('Tunnel child process identity changed; targeted termination refused and ownership retained');
         const descendants = await (this.options.inspectOwnedProcessTree?.(pid) ?? inspectWindowsProcessTreeIdentities(pid));
         const tree = normalizeOwnedProcessTree([{ pid, processStartedAt: this.ownedChildStartedAt }, ...descendants]);
         await (this.options.terminateOwnedProcessTree?.(pid) ?? terminateWindowsProcessTree(pid));
-        await waitForTunnelChildExit(child, this.options.escalationTimeoutMs ?? 2000);
+        await waitForTunnelChildExit(child, this.options.escalationTimeoutMs ?? 2000).catch(() => undefined);
         await verifyOwnedProcessTreeExited(tree, inspect);
         if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
         return;
@@ -642,14 +645,51 @@ export class TunnelController {
     });
     child.on('exit', (code) => {
       if (this.child !== child) return;
+      const exitedPid = child.pid;
+      const exitedStartedAt = this.ownedChildStartedAt;
       if (this.child === child) { this.child = null; this.ownedChildStartedAt = null; }
       if (this.intentionalStop) {
         this.state = this.recoveryPending && this.stopInFlight === null ? 'starting' : 'stopped';
         this.message = this.state === 'starting' ? 'Recovering MCP request path' : null;
         return;
       }
-      void this.applyUnexpectedExit(code, clientPath);
+      void this.handleUnexpectedOwnedChildExit(code, clientPath, exitedPid, exitedStartedAt);
     });
+  }
+
+  private async handleUnexpectedOwnedChildExit(
+    code: number | null,
+    clientPath: string,
+    rootPid: number | undefined,
+    rootStartedAt: string | null,
+  ): Promise<void> {
+    try {
+      if (process.platform === 'win32' && Number.isInteger(rootPid) && (rootPid ?? 0) > 0 && rootStartedAt !== null) {
+        await this.cleanupExitedOwnedDescendants(rootPid as number, rootStartedAt);
+      }
+    } catch (error: unknown) {
+      this.state = 'error';
+      this.recoveryExhausted = true;
+      this.message = `Tunnel exited but its MCP child tree could not be cleaned safely: ${error instanceof Error ? error.message : 'unknown cleanup failure'}`;
+      return;
+    }
+    await this.applyUnexpectedExit(code, clientPath);
+  }
+
+  private async cleanupExitedOwnedDescendants(rootPid: number, rootStartedAt: string): Promise<void> {
+    const descendants = normalizeOwnedProcessTree(await (this.options.inspectOwnedProcessTree?.(rootPid) ?? inspectWindowsProcessTreeIdentities(rootPid)));
+    const rootStartedMs = Date.parse(rootStartedAt);
+    const eligible = descendants.filter((identity) => Date.parse(identity.processStartedAt) >= rootStartedMs);
+    if (eligible.length === 0) return;
+    const inspect = this.options.inspectOwnedProcess ?? probeProcessStart;
+    const terminate = this.options.terminateOwnedProcessTree ?? terminateWindowsProcessTree;
+    for (const identity of eligible) {
+      const probe = await inspect(identity.pid);
+      if (probe.state === 'unverifiable') throw new Error(`orphan PID ${identity.pid} liveness is unverifiable (${probe.reason})`);
+      if (probe.state !== 'live' || probe.processStartedAt !== identity.processStartedAt) continue;
+      await terminate(identity.pid);
+    }
+    await verifyOwnedProcessTreeExited(eligible, inspect);
   }
 
   private async applyUnexpectedExit(code: number | null, clientPath: string): Promise<void> {

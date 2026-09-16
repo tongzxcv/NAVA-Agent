@@ -7,6 +7,10 @@ export interface McpStdioOptions extends McpServerOptions {
   readonly onError?: (error: Error) => void;
 }
 
+// Keep this comfortably below tunnel-client's command response deadline (~120s).
+// A timed-out tool is cancelled and returns PROCESS_TIMEOUT, freeing serialized stdio.
+export const MCP_STDIO_TOOL_RESPONSE_BUDGET_MS = 90_000;
+
 export function isBenignStdioPipeError(error: Error): boolean {
   return /EPIPE|ECONNRESET|broken pipe/i.test(error.message);
 }
@@ -23,7 +27,12 @@ export function startMcpStdio(options: McpStdioOptions): StdioServerHandle {
   const runBudgetGuard = options.runBudgetGuard ?? new RunBudgetGuard();
   const incrementalVerifier = options.incrementalVerifier ?? new IncrementalVerifier();
   return serveStdio(
-    () => createMcpServer({ ...options, runBudgetGuard, incrementalVerifier }),
+    () => createMcpServer({
+      ...options,
+      runBudgetGuard,
+      incrementalVerifier,
+      maxToolDurationMs: options.maxToolDurationMs ?? MCP_STDIO_TOOL_RESPONSE_BUDGET_MS,
+    }),
     { legacy: 'reject', onerror: options.onError ?? writeStdioDiagnostic },
   );
 }

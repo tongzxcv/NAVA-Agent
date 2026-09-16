@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { err, ok, type AppError, type Result } from '@lnwjud/domain';
+import { appError, err, ok, type AppError, type Result } from '@lnwjud/domain';
 import { isAbsoluteFsPath, type FileActor, type GitService, type SearchService } from '@lnwjud/application';
 import { classifyContextPath } from '@lnwjud/search';
 import type { McpApplicationServices } from './tools/tool-types.js';
@@ -165,6 +165,7 @@ const DEFAULT_RESPONSE_TARGET_BYTES = 256 * 1024;
 const MAX_RESPONSE_TARGET_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PAGE_SIZE: Record<ContextMode, number> = { optimized: 12, full: 50, exhaustive: 200 };
 const SEARCH_LIMIT: Record<ContextMode, number> = { optimized: 100, full: 300, exhaustive: 500 };
+const SEARCH_ALL_RESPONSE_BUDGET_MS = 50_000;
 
 export class ContextEngine {
   private readonly continuations = new Map<string, Continuation>();
@@ -174,6 +175,7 @@ export class ContextEngine {
     private readonly services: McpApplicationServices,
     private readonly actor: FileActor,
     private readonly economy: ContextEconomyRuntime = new ContextEconomyRuntime(),
+    private readonly searchAllBudgetMs: number = SEARCH_ALL_RESPONSE_BUDGET_MS,
   ) {}
 
   public async collect(request: WorkspaceContextRequest): Promise<Result<WorkspaceContextResult>> {
@@ -213,20 +215,49 @@ export class ContextEngine {
     }, continuation);
   }
 
-  public async searchAll(request: SearchAllRequest): Promise<Result<SearchAllResult>> {
+  public async searchAll(request: SearchAllRequest, signal?: AbortSignal): Promise<Result<SearchAllResult>> {
     this.economy.beginRequest();
     if (request.query.trim().length === 0) return err({ code: 'INVALID_INPUT', message: 'Search query is required', recoverable: false });
+    if (signal?.aborted === true) return err(appError('PROCESS_TIMEOUT', 'search_all was cancelled', true));
     const workspaceIds = await this.resolveWorkspaceIds(request.workspaceId);
     if (!workspaceIds.ok) return workspaceIds;
     if (this.services.search === undefined) return err({ code: 'INTERNAL_ERROR', message: 'Search service is unavailable', recoverable: true });
     const maxResults = Math.max(1, Math.min(500, Math.floor(request.maxResults ?? 500)));
-    const settled = await Promise.allSettled(workspaceIds.value.map(async (workspaceId) => {
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let onParentAbort: (() => void) | undefined;
+    let abortReason: 'budget' | 'parent' | null = null;
+    const abortSignal = new Promise<'aborted'>((resolve) => {
+      const abort = (reason: 'budget' | 'parent'): void => {
+        if (controller.signal.aborted) return;
+        abortReason = reason;
+        resolve('aborted');
+        controller.abort();
+      };
+      onParentAbort = (): void => { abort('parent'); };
+      signal?.addEventListener('abort', onParentAbort, { once: true });
+      timeout = setTimeout(() => { abort('budget'); }, Math.max(1, this.searchAllBudgetMs));
+    });
+    const operation = Promise.allSettled(workspaceIds.value.map(async (workspaceId) => {
       const [text, files] = await Promise.all([
-        this.safeSearchText(workspaceId, { query: request.query, ...(request.includeIgnored === undefined ? {} : { includeIgnored: request.includeIgnored }), ...(request.path === undefined ? {} : { path: request.path }) }, maxResults),
-        this.safeSearchFiles(workspaceId, { query: request.query, ...(request.includeIgnored === undefined ? {} : { includeIgnored: request.includeIgnored }), ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob),
+        this.safeSearchText(workspaceId, { query: request.query, ...(request.includeIgnored === undefined ? {} : { includeIgnored: request.includeIgnored }), ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, controller.signal),
+        this.safeSearchFiles(workspaceId, { query: request.query, ...(request.includeIgnored === undefined ? {} : { includeIgnored: request.includeIgnored }), ...(request.path === undefined ? {} : { path: request.path }) }, maxResults, request.glob, controller.signal),
       ]);
       return { workspaceId, text, files };
     }));
+    const outcome = await Promise.race([
+      operation.then((settled) => ({ kind: 'settled' as const, settled })),
+      abortSignal.then(() => ({ kind: 'aborted' as const })),
+    ]);
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (onParentAbort !== undefined) signal?.removeEventListener('abort', onParentAbort);
+    if (outcome.kind === 'aborted') {
+      void operation.then(() => undefined, () => undefined);
+      return err(appError('PROCESS_TIMEOUT', abortReason === 'budget'
+        ? `search_all exceeded its ${Math.ceil(this.searchAllBudgetMs / 1000)}s response budget and was cancelled`
+        : 'search_all was cancelled', true));
+    }
+    const settled = outcome.settled;
     const matches: ContextMatch[] = [];
     const paths: Array<{ readonly workspaceId: string; readonly path: string }> = [];
     let hasMore = false;
@@ -511,27 +542,27 @@ export class ContextEngine {
     });
   }
 
-  private async safeSearchText(workspaceId: string, request: WorkspaceContextRequest, maxResults: number): Promise<Awaited<ReturnType<SearchService['searchText']>>> {
+  private async safeSearchText(workspaceId: string, request: WorkspaceContextRequest, maxResults: number, signal?: AbortSignal): Promise<Awaited<ReturnType<SearchService['searchText']>>> {
     try {
       return await this.services.search!.searchText(this.actor, workspaceId, {
         query: request.query,
         maxResults,
         discovery: request.includeIgnored === true ? 'explicit' : 'automatic',
         ...(request.path === undefined ? {} : { path: request.path }),
-      });
+      }, signal);
     } catch {
       return err({ code: 'INTERNAL_ERROR', message: 'Context text search failed', recoverable: true });
     }
   }
 
-  private async safeSearchFiles(workspaceId: string, request: WorkspaceContextRequest, maxResults: number, glob?: string): Promise<Awaited<ReturnType<SearchService['searchFiles']>>> {
+  private async safeSearchFiles(workspaceId: string, request: WorkspaceContextRequest, maxResults: number, glob?: string, signal?: AbortSignal): Promise<Awaited<ReturnType<SearchService['searchFiles']>>> {
     try {
       return await this.services.search!.searchFiles(this.actor, workspaceId, {
         maxResults,
         discovery: request.includeIgnored === true ? 'explicit' : 'automatic',
         ...(glob === undefined ? {} : { glob }),
         ...(request.path === undefined ? {} : { path: request.path }),
-      });
+      }, signal);
     } catch {
       return err({ code: 'INTERNAL_ERROR', message: 'Context filename search failed', recoverable: true });
     }

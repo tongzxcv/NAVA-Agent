@@ -169,6 +169,29 @@ describe('TunnelController lifecycle', () => {
     expect(await readTunnelLock(fixture.profileDir)).toEqual(fixture.owner);
   });
 
+  it('cleans a verified orphan MCP descendant before handling an unexpected tunnel exit', async () => {
+    const parentStartedAt = '2026-08-20T00:00:00.000Z';
+    const descendantStartedAt = '2026-08-20T00:00:01.000Z';
+    let descendantLive = true;
+    const terminated: number[] = [];
+    const fixture = await ownedController(() => true, 20, {
+      inspectOwnedProcessTree: async () => [{ pid: 8766, processStartedAt: descendantStartedAt }],
+      inspectOwnedProcess: async (pid) => pid === 8766 && descendantLive
+        ? { state: 'live', processStartedAt: descendantStartedAt }
+        : { state: 'gone' },
+      terminateOwnedProcessTree: async (pid) => { terminated.push(pid); descendantLive = false; },
+      autoReconnect: () => false,
+    });
+    controllerInternals(fixture.controller).child = null;
+
+    await (fixture.controller as unknown as { handleUnexpectedOwnedChildExit(code: number | null, clientPath: string, rootPid: number, rootStartedAt: string): Promise<void> })
+      .handleUnexpectedOwnedChildExit(1, 'fixture-client.exe', 7659, parentStartedAt);
+
+    expect(terminated).toEqual([8766]);
+    expect(descendantLive).toBe(false);
+    expect(controllerInternals(fixture.controller).state).toBe('error');
+  });
+
   it('defers shutdown and retains child plus lock when targeted escalation cannot verify exit', async () => {
     let probes = 0;
     const fixture = await ownedController(() => true, 20, {
@@ -501,6 +524,7 @@ async function ownedController(kill: () => boolean, stopTimeoutMs = 2_000, shutd
   inspectOwnedProcess?: (pid: number) => Promise<import('@lnwjud/mcp-server').ProcessProbeResult>;
   inspectOwnedProcessTree?: (rootPid: number) => Promise<readonly { readonly pid: number; readonly processStartedAt: string }[]>;
   escalationTimeoutMs?: number;
+  autoReconnect?: () => boolean;
 } = {}, lockHooks?: NonNullable<Parameters<typeof acquireTunnelLock>[0]['hooks']>): Promise<{
   controller: TunnelController;
   child: FakeChild;

@@ -5,6 +5,17 @@ process.stderr.write('lnwjud-stdio-test-diagnostic\n');
 startMcpStdio({
   services: {
     runtimeStatePath: process.env.NAVA_TEST_RUNTIME_STATE_PATH,
+    search: {
+      async searchText(_actor, _workspaceId, input, signal) {
+        if (input.query === 'fast') return { ok: true, value: { matches: [], truncated: false } };
+        return new Promise((resolve) => {
+          signal?.addEventListener('abort', () => resolve({ ok: true, value: { matches: [], truncated: true } }), { once: true });
+        });
+      },
+      async searchFiles() {
+        return { ok: true, value: { paths: [], truncated: false } };
+      },
+    },
     file: {
       async readFile(_actor, _workspaceId, input) {
         if (input.path !== 'large-response.txt') return { ok: false, error: { code: 'FILE_NOT_FOUND', message: 'File was not found', recoverable: false } };
@@ -24,4 +35,7 @@ startMcpStdio({
     },
   },
   actor: { clientId: 'stdio-test', clientName: 'stdio-test' },
+  ...(process.env.NAVA_TEST_MAX_TOOL_DURATION_MS === undefined
+    ? {}
+    : { maxToolDurationMs: Number(process.env.NAVA_TEST_MAX_TOOL_DURATION_MS) }),
 });

@@ -74,14 +74,14 @@ export function contextTools(context: McpToolContext, engine: ContextEngine): Mc
       permission: 'READ',
       annotations: { readOnlyHint: true, destructiveHint: false },
       inputSchema: searchAllSchema,
-      handler: async (input) => engine.searchAll({
+      handler: async (input, signal) => engine.searchAll({
         query: input.query,
         ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
         ...(input.path === undefined ? {} : { path: input.path }),
         ...(input.glob === undefined ? {} : { glob: input.glob }),
         ...(input.maxResults === undefined ? {} : { maxResults: input.maxResults }),
         includeIgnored: input.includeIgnored,
-      }),
+      }, signal),
     }),
     defineTool({
       name: 'read_many_files',

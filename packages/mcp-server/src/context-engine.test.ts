@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ok } from '@lnwjud/domain';
 import type { McpApplicationServices } from './tools/tool-types.js';
 import { ContextEngine, type WorkspaceContextRequest } from './context-engine.js';
+import { ContextEconomyRuntime } from './context-economy.js';
 
 const actor = { clientId: 'context-test', clientName: 'context-test' };
 
@@ -200,6 +201,32 @@ describe('context engine', () => {
     expect(started).toEqual(expect.arrayContaining([
       'text:workspace-1', 'files:workspace-1', 'text:workspace-2', 'files:workspace-2',
     ]));
+  });
+
+  it('bounds search_all and aborts underlying search work before it can hold stdio indefinitely', async () => {
+    let aborted = false;
+    const slowServices = services();
+    slowServices.search = {
+      async searchText(_actor, _workspaceId, _request, signal): Promise<ReturnType<typeof ok>> {
+        return new Promise((resolve) => {
+          signal?.addEventListener('abort', () => {
+            aborted = true;
+            resolve(ok({ matches: [], truncated: true }));
+          }, { once: true });
+        });
+      },
+      async searchFiles(): Promise<ReturnType<typeof ok>> {
+        return ok({ paths: [], truncated: false });
+      },
+    };
+    const engine = new ContextEngine(slowServices, actor, new ContextEconomyRuntime(), 20);
+    const started = Date.now();
+
+    const result = await engine.searchAll({ query: 'hung' });
+
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(result).toMatchObject({ ok: false, error: { code: 'PROCESS_TIMEOUT', recoverable: true } });
+    expect(aborted).toBe(true);
   });
 
   it('uses the context ledger to avoid resending unchanged files', async () => {
