@@ -10,6 +10,8 @@ import {
   CommandRoomExtensionService,
   hashPairingChallengeForTest,
   type CommandRoomExtensionRepositoryPort,
+  type CommandRoomSupervisorCheckpointResolver,
+  type CommandRoomTerminalRecoverySafetyResolver,
 } from './command-room-extension-service.js';
 
 const NOW = '2026-08-30T00:00:00.000Z';
@@ -106,7 +108,7 @@ describe('CommandRoomExtensionService', () => {
     const supervisor = new FakeSupervisorStateRepository();
     const service = new CommandRoomExtensionService(repository, {
       supervisorStateRepository: supervisor,
-      checkpointResolver: async () => ({
+      checkpointResolver: async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
         id: 'checkpoint-1',
         projectKey: 'beelzebub',
         workspaceId: 'workspace-beelzebub',
@@ -151,7 +153,7 @@ describe('CommandRoomExtensionService', () => {
     const repository = new FakeExtensionRepository();
     repository.activeBinding = pairedBinding();
     const supervisor = new FakeSupervisorStateRepository();
-    const checkpointResolver = async () => ({
+    const checkpointResolver = async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
       id: 'checkpoint-1',
       projectKey: 'beelzebub',
       workspaceId: 'workspace-beelzebub',
@@ -186,7 +188,7 @@ describe('CommandRoomExtensionService', () => {
     repository.activeBinding = pairedBinding();
     const mismatch = new CommandRoomExtensionService(repository, {
       supervisorStateRepository: supervisor,
-      checkpointResolver: async () => ({
+      checkpointResolver: async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
         id: 'checkpoint-wrong',
         projectKey: 'beelzebub',
         workspaceId: 'workspace-other',
@@ -208,7 +210,7 @@ describe('CommandRoomExtensionService', () => {
     const supervisor = new FakeSupervisorStateRepository();
     const service = new CommandRoomExtensionService(repository, {
       supervisorStateRepository: supervisor,
-      checkpointResolver: async () => { throw new Error('continuity store unavailable'); },
+      checkpointResolver: async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => { throw new Error('continuity store unavailable'); },
       randomId: (): string => 'wake-after-sync-failure',
     });
 
@@ -279,7 +281,7 @@ describe('CommandRoomExtensionService', () => {
     const service = new CommandRoomExtensionService(repository, {
       randomId: (): string => ids.shift() ?? 'unexpected-id',
       randomChallenge: (): string => RAW_CHALLENGE,
-      checkpointResolver: async () => ({
+      checkpointResolver: async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
         id: 'checkpoint-safe',
         projectKey: 'beelzebub',
         workspaceId: 'workspace-beelzebub',
@@ -289,7 +291,7 @@ describe('CommandRoomExtensionService', () => {
         needsUser: false,
         durableTaskIds: ['durable-1'],
       }),
-      terminalRecoverySafetyResolver: async () => ({
+      terminalRecoverySafetyResolver: async (): ReturnType<CommandRoomTerminalRecoverySafetyResolver> => ({
         workspaceLeaseActive: false,
         durableTasks: [{ taskId: 'durable-1', state: 'running' }],
         ambiguous: false,
@@ -334,7 +336,7 @@ describe('CommandRoomExtensionService', () => {
     const service = new CommandRoomExtensionService(repository, {
       randomId: (): string => ids.shift() ?? 'unexpected-id',
       randomChallenge: (): string => RAW_CHALLENGE,
-      checkpointResolver: async () => ({
+      checkpointResolver: async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
         id: 'checkpoint-safe',
         projectKey: 'beelzebub',
         workspaceId: 'workspace-beelzebub',
@@ -344,7 +346,7 @@ describe('CommandRoomExtensionService', () => {
         needsUser: false,
         durableTaskIds: ['durable-complete'],
       }),
-      terminalRecoverySafetyResolver: async () => ({
+      terminalRecoverySafetyResolver: async (): ReturnType<CommandRoomTerminalRecoverySafetyResolver> => ({
         workspaceLeaseActive: false,
         durableTasks: [{ taskId: 'durable-complete', state: 'completed' }],
         ambiguous: false,
@@ -405,7 +407,7 @@ describe('CommandRoomExtensionService', () => {
   it('terminal timeout recovery fails closed for wrong identity, unsafe checkpoint, workspace lease, and ambiguous durable evidence', async () => {
     const repository = new FakeExtensionRepository();
     repository.activeBinding = pairedBinding();
-    const safeCheckpoint = async () => ({
+    const safeCheckpoint = async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
       id: 'checkpoint-safe',
       projectKey: 'beelzebub',
       workspaceId: 'workspace-beelzebub',
@@ -418,7 +420,7 @@ describe('CommandRoomExtensionService', () => {
     let safety = { workspaceLeaseActive: false, durableTasks: [] as Array<{ taskId: string; state: 'missing' }>, ambiguous: false };
     const service = new CommandRoomExtensionService(repository, {
       checkpointResolver: safeCheckpoint,
-      terminalRecoverySafetyResolver: async () => safety,
+      terminalRecoverySafetyResolver: async (): ReturnType<CommandRoomTerminalRecoverySafetyResolver> => safety,
       randomId: (): string => 'recovery-unsafe',
       randomChallenge: (): string => RAW_CHALLENGE,
     });
@@ -430,11 +432,11 @@ describe('CommandRoomExtensionService', () => {
     })).resolves.toEqual({ outcome: 'failed', reason: 'IDENTITY_MISMATCH' });
 
     const unsafe = new CommandRoomExtensionService(repository, {
-      checkpointResolver: async () => ({
+      checkpointResolver: async (): ReturnType<CommandRoomSupervisorCheckpointResolver> => ({
         id: 'checkpoint-wait', projectKey: 'beelzebub', workspaceId: 'workspace-beelzebub',
         status: 'WAITING', nextAction: 'Do not continue', safeToContinue: false, needsUser: true, durableTaskIds: [],
       }),
-      terminalRecoverySafetyResolver: async () => ({ workspaceLeaseActive: false, durableTasks: [], ambiguous: false }),
+      terminalRecoverySafetyResolver: async (): ReturnType<CommandRoomTerminalRecoverySafetyResolver> => ({ workspaceLeaseActive: false, durableTasks: [], ambiguous: false }),
     });
     await expect(unsafe.assessTerminalRecovery({
       bindingId: 'binding-1', extensionInstallationId: 'extension-installation-random-1',

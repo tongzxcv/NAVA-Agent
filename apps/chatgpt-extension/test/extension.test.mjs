@@ -109,7 +109,7 @@ async function createContentHarness() {
     location,
     navigator: { clipboard: { writeText: async () => {} } },
     URL,
-    window: { setTimeout, clearTimeout, setInterval, clearInterval },
+    window: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval },
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(sharedSource, sandbox, { filename: 'src/shared.js' });
@@ -237,7 +237,7 @@ test('continuation bootstrap waits for a send button that appears asynchronously
   const harness = await createContentHarness();
   const bootstrap = 'SYSTEM BOOTSTRAP';
   const button = harness.makeButton(false);
-  setTimeout(() => { harness.state.buttons = [button]; }, 10);
+  globalThis.setTimeout(() => { harness.state.buttons = [button]; }, 10);
   const result = await harness.submit({
     type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
     expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
@@ -258,7 +258,7 @@ test('continuation bootstrap waits for a disabled send button to become enabled'
   const bootstrap = 'SYSTEM BOOTSTRAP';
   const button = harness.makeButton(true);
   harness.state.buttons = [button];
-  setTimeout(() => {
+  globalThis.setTimeout(() => {
     button.disabled = false;
     button.getAttribute = (name) => name === 'aria-disabled' ? 'false' : null;
   }, 10);
@@ -278,7 +278,7 @@ test('continuation bootstrap tolerates React replacing the contenteditable when 
   const harness = await createContentHarness();
   const bootstrap = 'SYSTEM BOOTSTRAP';
   const button = harness.makeButton(false);
-  setTimeout(() => {
+  globalThis.setTimeout(() => {
     harness.state.composers = [harness.makeControl(bootstrap)];
     harness.state.buttons = [button];
   }, 10);
@@ -298,7 +298,7 @@ test('continuation bootstrap tolerates React replacing the contenteditable when 
 test('continuation bootstrap fails closed if a user draft appears while waiting', async () => {
   const harness = await createContentHarness();
   const bootstrap = 'SYSTEM BOOTSTRAP';
-  setTimeout(() => { harness.state.composers = [harness.makeControl('user draft')]; }, 10);
+  globalThis.setTimeout(() => { harness.state.composers = [harness.makeControl('user draft')]; }, 10);
   const result = await harness.submit({
     type: 'NAVA_SUBMIT_CONTINUATION_BOOTSTRAP',
     expectedProjectRef: 'chatgpt-project:https://chatgpt.com/g/g-p-project',
@@ -338,7 +338,7 @@ test('continuation bootstrap fails closed if the project changes before submit',
   const harness = await createContentHarness();
   const bootstrap = 'SYSTEM BOOTSTRAP';
   const button = harness.makeButton(false);
-  setTimeout(() => {
+  globalThis.setTimeout(() => {
     harness.location.href = 'https://chatgpt.com/g/g-p-other/project';
     harness.state.buttons = [button];
   }, 10);

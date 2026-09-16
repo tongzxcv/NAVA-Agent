@@ -255,6 +255,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     return stateForActiveTab(registry, validState(stored?.[SESSION_STATE_KEY]) ? stored[SESSION_STATE_KEY] : null);
   }
 
+  // Retained for the opt-in continuation path; AUTO_CONTINUATION_ENABLED is false in production.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function updateSessionState(state) {
     return queueRegistryMutation(async () => {
       const registry = await readRegistry();
@@ -772,7 +774,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       }
       if (NavaExtension.projectRefFromUrl(tab?.url) === expectedProjectRef
         && NavaExtension.conversationRefFromUrl(tab?.url) === null) return { ok: true, tab };
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
     }
     return { ok: false, code: 'CONTINUATION_TIMEOUT' };
   }
@@ -791,7 +793,7 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
       if (projectRef === expectedProjectRef && conversationRef !== null && conversationRef !== oldConversationRef) {
         return { ok: true, conversationRef };
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
     }
     return { ok: false, code: 'CONTINUATION_TIMEOUT' };
   }
@@ -951,6 +953,8 @@ importScripts('shared.js', 'crypto.js', 'bridge.js');
     }
   }
 
+  // Retained for the opt-in continuation path; see AUTO_CONTINUATION_ENABLED.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function autoContinueRegistry() {
     const registry = await readRegistry();
     if (registry === null) return [];

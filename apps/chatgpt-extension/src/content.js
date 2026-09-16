@@ -131,14 +131,14 @@
     control.focus?.();
     if (control.tagName === 'TEXTAREA') {
       control.value = bootstrap;
-      control.dispatchEvent?.(new Event('input', { bubbles: true }));
+      control.dispatchEvent?.(new globalThis.Event('input', { bubbles: true }));
       return;
     }
     let inserted = false;
     if (typeof document.execCommand === 'function') inserted = document.execCommand('insertText', false, bootstrap) === true;
     if (!inserted) {
       control.textContent = bootstrap;
-      control.dispatchEvent?.(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: bootstrap }));
+      control.dispatchEvent?.(new globalThis.InputEvent('input', { bubbles: true, inputType: 'insertText', data: bootstrap }));
     }
   }
 

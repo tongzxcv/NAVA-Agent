@@ -102,7 +102,7 @@ async function createHarness({ autoContinuationEnabled = true } = {}) {
           if (target) {
             const base = String(message.expectedProjectRef).replace(/^chatgpt-project:/, '');
             const nextUrl = base + '/c/conversation-' + tabId;
-            if (submitNavigationDelayMs > 0) setTimeout(() => { target.url = nextUrl; }, submitNavigationDelayMs);
+            if (submitNavigationDelayMs > 0) globalThis.setTimeout(() => { target.url = nextUrl; }, submitNavigationDelayMs);
             else target.url = nextUrl;
           }
           return { ok: true, submitted: true, projectRef: message.expectedProjectRef };
@@ -134,7 +134,7 @@ async function createHarness({ autoContinuationEnabled = true } = {}) {
       if (!bridgeOnline) throw new Error('offline');
       if (String(url).endsWith('/v1/pair/confirm')) {
         let requestedBindingId = 'binding-1234';
-        try { requestedBindingId = JSON.parse(options.body ?? '{}').bindingId ?? requestedBindingId; } catch {}
+        try { requestedBindingId = JSON.parse(options.body ?? '{}').bindingId ?? requestedBindingId; } catch { /* keep default binding id */ }
         return jsonResponse({
           outcome: 'paired',
           authToken: requestedBindingId === 'binding-continuation' ? 'nava-v1.continuation-token-value-123456' : 'nava-v1.secret-token-value-123456',
@@ -144,7 +144,7 @@ async function createHarness({ autoContinuationEnabled = true } = {}) {
       if (String(url).endsWith('/recover')) return jsonResponse({ ok: true, bindings: recoveryBindings });
       if (String(url).endsWith('/terminal-recovery')) return jsonResponse(terminalRecoveryResponse.body, terminalRecoveryResponse.status);
       if (String(url).endsWith('/supervisor')) {
-        if (supervisorDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, supervisorDelayMs));
+        if (supervisorDelayMs > 0) await new Promise((resolve) => globalThis.setTimeout(resolve, supervisorDelayMs));
         return jsonResponse(supervisorResponse.body, supervisorResponse.status);
       }
       if (String(url).includes('/wakes?limit=')) return jsonResponse({ wakes });
@@ -163,7 +163,7 @@ async function createHarness({ autoContinuationEnabled = true } = {}) {
     TextDecoder,
     TextEncoder,
     URL,
-    setTimeout,
+    setTimeout: globalThis.setTimeout,
   };
   sandbox.globalThis = sandbox;
   sandbox.importScripts = (...names) => {
@@ -858,7 +858,7 @@ test('slow new-conversation navigation does not cause a second bootstrap or seco
   harness.setSubmitNavigationDelay(100);
 
   const first = harness.send({ type: 'CONTINUE_CONVERSATION' });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => globalThis.setTimeout(resolve, 20));
   const second = harness.send({ type: 'CONTINUE_CONVERSATION' });
   const [a, b] = await Promise.all([first, second]);
   assert.equal(a.ok, true, JSON.stringify(a));
