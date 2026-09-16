@@ -19,7 +19,7 @@
 
 ---
 
-> **Status (2026-09-02):** the published stable release is now **v4.12.1**, which is also the version deployed on the operator's local runtime. Source `main` tracks `v4.12.1` Phase 3 development. Next phase in progress: 3D browser extension integration (unmerged work on `feature/command-room-phase3d`).
+> **Status (2026-09-16):** the published stable release remains **v4.12.1**. The default branch now matches the operator's deployed **v4.12.1 post-release production-hardening build** through commit `b63ef3f` (`fix search output flood starving MCP timers`). Phase 3D browser-extension acceptance is closed; current work is reliability hardening for long-running/multi-chat MCP use. No newer public installer is claimed by this source snapshot.
 
 ## What is NAVA Agent?
 
@@ -42,14 +42,38 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current source target: v4.12.1 (Phase 3 development)
+## Current source target: v4.12.1 (deployed post-release hardening)
 
-The current published stable installer remains `v4.12.1`. The default branch now tracks `v4.12.1` Phase 3 development, so source on `main` can be newer than the latest stable GitHub Release. The default runtime advertises
+The current published stable installer remains `v4.12.1`. The default branch is a newer, deployed hardening line built on that release; it is intentionally **not** labeled as a new public release until a new installer/tag is produced. The default runtime advertises
 **221 MCP tools**; enabling Command Room adds its 8 opt-in `command_room_*` tools.
 The earlier 184-tool snapshot remains only as the compatibility baseline used by
 the v4 architecture; new v4 gateway capabilities are additive.
 
 เริ่มใช้งานแบบทีละขั้นได้ที่ [คู่มือ NAVA ภาษาไทย](docs/NAVA_QUICK_START_TH.md)
+
+### Production hardening after v4.12.1 — September 2026
+
+The deployed source line now includes the post-release reliability work through
+`b63ef3f`. These commits are on `main` but do **not** represent a separately
+published installer version yet.
+
+- Added same-epoch multi-chat continuation/supervisor recovery and disabled unsafe
+  automatic rollover paths that could route work to the wrong conversation.
+- Hardened Windows Git polling/startup and process-tree cleanup for timed-out searches.
+- Added Windows tray connection notifications plus a distinct **Busy** state so a
+  serialized long-running MCP request is not misreported as a disconnect.
+- Patched the tunnel dispatcher retired-request-ID failure that could poison the
+  serialized stdio connection after a timeout; request-path health now probes the
+  modern `tools/call mcp_health` envelope and uses bounded recovery/backoff.
+- Added MCP-wide response budgets and orphan-child cleanup so a stuck operation
+  cannot hold the shared stdio path indefinitely after its caller has timed out.
+- Fixed the remaining large-tree failure mode where `rg --files` could flood stdout
+  and starve Node timers: search capture is bounded, output-limit termination returns
+  partial `truncated=true` results, and automatic text search skips files above 2 MiB.
+- Production acceptance on 2026-09-16 reproduced the previously problematic
+  `MT5_PORTABLE\RATCHET_C65_EXACT3` search and completed it in about 118 ms, with
+  no post-restart tunnel deadline, HTTP 502, WARN, or ERROR records observed in the
+  acceptance window.
 
 ### What's new in v4.12.1 — Security hardening and release reliability
 
@@ -384,7 +408,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current published stable release is `nava-agent-Setup-4.12.1.exe`; `main` targets `4.12.1` Phase 3 development.
+   The current published stable release is `nava-agent-Setup-4.12.1.exe`; `main` contains the deployed post-release production-hardening line through `b63ef3f`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission

@@ -103,3 +103,31 @@ fixtures concurrently with another copy using those ports.
 Before production deployment, back up every replaced file, including the external
 tunnel executable. Compare authority/epoch, pairing-secret and workspace hashes
 before and after. Do not copy fixture databases or profiles into production.
+
+## 2026-09-16 follow-up: serialized search starvation hardening
+
+The retired-ID tunnel fix remains required, but later production incidents exposed
+two additional failure modes above the same serialized stdio path. They are now
+covered by source and regression tests on `main`:
+
+1. `9b57b56` adds a bounded MCP tool-response budget, propagates cancellation into
+   process-backed searches, and verifies/cleans the owned `cmd.exe -> lnwjud-node.exe`
+   descendant tree before reconnect. A timed-out tool must release the stdio request
+   path and the next request must still succeed in the same session.
+2. `b63ef3f` fixes event-loop starvation caused by high-volume ripgrep stdout. The
+   previous runner repeatedly rebuilt a growing captured string/buffer; on a large
+   MT5 tree this could keep the Node event loop busy enough that the 50 s search and
+   90 s MCP response timers did not run on time. Capture is now chunked and bounded;
+   search stdout is capped at 2 MiB, output-limit termination kills the owned process
+   tree, and partial results are returned as `truncated=true`. Automatic text search
+   also uses `--max-filesize 2M`.
+
+Post-deploy acceptance reproduced the formerly problematic
+`D:\EA\RATCHET EA_Lab\MT5_PORTABLE\RATCHET_C65_EXACT3` search. The production
+`search_all` call completed successfully in 118 ms, the following calls remained
+usable, and the observed post-restart tunnel window contained zero response-deadline,
+HTTP 502, WARN, or ERROR records.
+
+The deployed package metadata remains `4.12.1`; these are post-release production
+hardening commits on `main`, not a claim that a newer public installer has been
+published.
