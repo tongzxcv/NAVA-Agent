@@ -39,6 +39,28 @@ describe('RipgrepAdapter', () => {
     expect(result.stdout).not.toContain('late');
   });
 
+  it('bounds a stdout flood before it can starve MCP response timers', async () => {
+    const runner = new DirectProcessRunner();
+    const startedAt = Date.now();
+    const maxStdoutBytes = 256 * 1024;
+    const script = [
+      "const chunk = Buffer.alloc(64 * 1024, 120);",
+      "const pump = () => { while (process.stdout.write(chunk)) {} process.stdout.once('drain', pump); };",
+      'pump();',
+      'setInterval(() => {}, 1000);',
+    ].join(' ');
+
+    const result = await runner.run(process.execPath, ['-e', script], process.cwd(), {
+      timeoutMs: 5_000,
+      maxStdoutBytes,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(result.outputLimited).toBe(true);
+    expect(result.timedOut).not.toBe(true);
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(maxStdoutBytes);
+  });
+
   it('bounds completion when a descendant inherits stdio from the timed-out process', async () => {
     const runner = new DirectProcessRunner();
     const startedAt = Date.now();
@@ -129,6 +151,21 @@ describe('RipgrepAdapter', () => {
     });
   });
 
+  it('treats an output-limited search as a truncated partial result instead of a process failure', async () => {
+    const runner: ProcessRunner = {
+      async run(): Promise<ProcessRunResult> {
+        return { exitCode: -1, stdout: ['src\\app.ts', 'src\\worker.ts'].join('\n'), stderr: '', outputLimited: true };
+      },
+    };
+    const resolver: ExecutableResolver = { resolve: async (): Promise<Result<string>> => ({ ok: true, value: 'rg.exe' }) };
+    const adapter = new RipgrepAdapter(resolver, runner);
+
+    await expect(adapter.searchFiles({ rootPath: 'C:\\workspace' })).resolves.toEqual({
+      ok: true,
+      value: { paths: ['src\\app.ts', 'src\\worker.ts'], truncated: true },
+    });
+  });
+
   it('returns partial filename results with a warning when ripgrep reports a recoverable enumeration error', async () => {
     const runner: ProcessRunner = {
       async run(): Promise<ProcessRunResult> {
@@ -188,6 +225,8 @@ describe('RipgrepAdapter', () => {
 
     await adapter.searchText({ rootPath: 'C:\\workspace', query: 'needle' });
     expect(receivedArgs).not.toContain('--binary-files');
+    expect(receivedArgs).toContain('--max-filesize');
+    expect(receivedArgs).toContain('2M');
 
     const explicit = await adapter.searchFiles({ rootPath: 'C:\\workspace', discovery: 'explicit' });
     expect(explicit).toEqual({

@@ -12,11 +12,13 @@ export interface ProcessRunResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly timedOut?: boolean;
+  readonly outputLimited?: boolean;
 }
 
 export interface ProcessRunOptions {
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
+  readonly maxStdoutBytes?: number;
 }
 
 export interface ProcessRunner {
@@ -37,24 +39,41 @@ export class DirectProcessRunner implements ProcessRunner {
         // the immediate process and descendants can keep inherited stdio open.
         detached: process.platform !== 'win32',
       });
-      let stdout = '';
-      let stderr = '';
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
       let timedOut = false;
+      let outputLimited = false;
       let settled = false;
       let terminationStarted = false;
       let terminationTimer: ReturnType<typeof setTimeout> | undefined;
+      const maxStdoutBytes = normalizeCaptureLimit(options.maxStdoutBytes, MAX_PROCESS_LOG_BYTES);
 
-      const append = (current: string, chunk: Buffer): string => Buffer.from(`${current}${chunk.toString('utf8')}`, 'utf8').subarray(-MAX_PROCESS_LOG_BYTES).toString('utf8');
+      const capture = (chunks: Buffer[], currentBytes: number, chunk: Buffer, limit: number): { readonly bytes: number; readonly limited: boolean } => {
+        const remaining = Math.max(0, limit - currentBytes);
+        if (remaining === 0) return { bytes: currentBytes, limited: chunk.byteLength > 0 };
+        const captured = chunk.byteLength > remaining ? chunk.subarray(0, remaining) : chunk;
+        if (captured.byteLength > 0) chunks.push(Buffer.from(captured));
+        return { bytes: currentBytes + captured.byteLength, limited: chunk.byteLength > remaining };
+      };
       const finish = (exitCode: number): void => {
         if (settled) return;
         settled = true;
         if (timer !== undefined) clearTimeout(timer);
         if (terminationTimer !== undefined) clearTimeout(terminationTimer);
         options.signal?.removeEventListener('abort', abort);
-        resolve({ exitCode, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) });
+        resolve({
+          exitCode,
+          stdout: Buffer.concat(stdoutChunks, stdoutBytes).toString('utf8'),
+          stderr: Buffer.concat(stderrChunks, stderrBytes).toString('utf8'),
+          ...(timedOut ? { timedOut: true } : {}),
+          ...(outputLimited ? { outputLimited: true } : {}),
+        });
       };
-      const abort = (): void => {
-        timedOut = true;
+      const terminate = (reason: 'timeout' | 'output-limit'): void => {
+        if (reason === 'timeout') timedOut = true;
+        else outputLimited = true;
         if (terminationStarted || settled) return;
         terminationStarted = true;
         terminateProcessTree(child);
@@ -68,6 +87,7 @@ export class DirectProcessRunner implements ProcessRunner {
           finish(-1);
         }, PROCESS_TERMINATION_GRACE_MS);
       };
+      const abort = (): void => { terminate('timeout'); };
 
       const timeoutMs = options.timeoutMs;
       const timer = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
@@ -75,15 +95,32 @@ export class DirectProcessRunner implements ProcessRunner {
         : undefined;
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener('abort', abort, { once: true });
-      child.stdout?.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
-      child.stderr?.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+      child.stdout?.on('data', (chunk: Buffer) => {
+        if (settled) return;
+        const captured = capture(stdoutChunks, stdoutBytes, chunk, maxStdoutBytes);
+        stdoutBytes = captured.bytes;
+        if (captured.limited) terminate('output-limit');
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        if (settled) return;
+        const captured = capture(stderrChunks, stderrBytes, chunk, MAX_PROCESS_LOG_BYTES);
+        stderrBytes = captured.bytes;
+        if (captured.limited) terminate('output-limit');
+      });
       child.on('error', (error: Error) => {
-        stderr = `${stderr}${error.message}`;
+        const captured = capture(stderrChunks, stderrBytes, Buffer.from(error.message, 'utf8'), MAX_PROCESS_LOG_BYTES);
+        stderrBytes = captured.bytes;
         finish(-1);
       });
       child.on('close', (exitCode) => finish(exitCode ?? -1));
     });
   }
+}
+
+function normalizeCaptureLimit(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.max(1024, Math.floor(value))
+    : fallback;
 }
 
 function terminateProcessTree(child: ChildProcess): void {
@@ -148,6 +185,8 @@ export interface SearchFilesResult {
 }
 
 const SEARCH_PROCESS_TIMEOUT_MS = 45_000;
+const SEARCH_PROCESS_CAPTURE_BYTES = 2 * 1024 * 1024;
+const AUTOMATIC_TEXT_MAX_FILE_SIZE = '2M';
 
 export class RipgrepAdapter {
   public constructor(
@@ -164,10 +203,17 @@ export class RipgrepAdapter {
     if (!executable.ok) return executable;
     const discovery = request.discovery ?? 'automatic';
     const args = ['--json', '--no-heading', '--color', 'never', '--hidden', '--no-ignore'];
-    if (discovery === 'automatic') this.appendDefaultGlobs(args);
+    if (discovery === 'automatic') {
+      this.appendDefaultGlobs(args);
+      args.push('--max-filesize', AUTOMATIC_TEXT_MAX_FILE_SIZE);
+    }
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--', request.query, '.');
-    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS, ...(request.signal === undefined ? {} : { signal: request.signal }) });
+    const processResult = await this.runner.run(executable.value, args, request.rootPath, {
+      timeoutMs: SEARCH_PROCESS_TIMEOUT_MS,
+      maxStdoutBytes: SEARCH_PROCESS_CAPTURE_BYTES,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+    });
     const warning = searchProcessWarning(processResult);
     const matches: SearchMatch[] = [];
     for (const line of processResult.stdout.split(/\r?\n/)) {
@@ -182,7 +228,7 @@ export class RipgrepAdapter {
     }
     return ok({
       matches,
-      truncated: processResult.timedOut === true || warning !== undefined || matches.length >= maxResults && processResult.stdout.includes('"type":"match"'),
+      truncated: processResult.timedOut === true || processResult.outputLimited === true || warning !== undefined || matches.length >= maxResults && processResult.stdout.includes('"type":"match"'),
       ...(warning === undefined ? {} : { warning }),
     });
   }
@@ -199,7 +245,11 @@ export class RipgrepAdapter {
     if (discovery === 'automatic') this.appendDefaultGlobs(args);
     if (request.glob !== undefined) args.push('--glob', request.glob);
     args.push('--');
-    const processResult = await this.runner.run(executable.value, args, request.rootPath, { timeoutMs: SEARCH_PROCESS_TIMEOUT_MS, ...(request.signal === undefined ? {} : { signal: request.signal }) });
+    const processResult = await this.runner.run(executable.value, args, request.rootPath, {
+      timeoutMs: SEARCH_PROCESS_TIMEOUT_MS,
+      maxStdoutBytes: SEARCH_PROCESS_CAPTURE_BYTES,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+    });
     const warning = searchProcessWarning(processResult);
     const discoveredPaths = processResult.stdout
       .split(/\r?\n/)
@@ -211,7 +261,7 @@ export class RipgrepAdapter {
     const paths = discoveredPaths.slice(0, maxResults);
     return ok({
       paths,
-      truncated: processResult.timedOut === true || warning !== undefined || discoveredPaths.length > maxResults,
+      truncated: processResult.timedOut === true || processResult.outputLimited === true || warning !== undefined || discoveredPaths.length > maxResults,
       ...(warning === undefined ? {} : { warning }),
     });
   }
@@ -241,7 +291,7 @@ export class RipgrepAdapter {
 }
 
 function searchProcessWarning(result: ProcessRunResult): string | undefined {
-  if (result.timedOut === true || result.exitCode === 0 || result.exitCode === 1) return undefined;
+  if (result.timedOut === true || result.outputLimited === true || result.exitCode === 0 || result.exitCode === 1) return undefined;
   const diagnostic = result.stderr.trim().replace(/\s+/g, ' ').slice(0, 240);
   return `Search process exited with code ${result.exitCode}${diagnostic.length === 0 ? '' : `: ${diagnostic}`}`;
 }
