@@ -269,6 +269,8 @@ export class UpgradeRuntimeService {
         return ok({ categories: this.categories().categories, totalUpgradeTools: UPGRADE_TOOL_CATALOG.length, primitiveToolsRemainAvailable: true });
       case 'route_intent':
         return ok(routeIntent(readString(input, 'prompt') ?? readString(input, 'query') ?? ''));
+      case 'research_orchestrator':
+        return ok(researchOrchestration(input));
       case 'recipe_list':
       case 'recipe_catalog':
         return ok({ recipes: recipeCatalog() });
@@ -1477,6 +1479,7 @@ function routeIntent(prompt: string): {
 } {
   const normalized = prompt.toLowerCase();
   const rules: readonly { readonly route: string; readonly domain: string; readonly confidence: 'high' | 'medium'; readonly terms: readonly (readonly [string, string])[] }[] = [
+    { route: 'research', domain: 'external/research', confidence: 'high' as const, terms: [['deep research', 'deep-research'], ['research', 'research'], ['evidence', 'evidence'], ['literature', 'literature'], ['paper', 'paper'], ['วิจัย', 'research-th'], ['งานวิจัย', 'research-th']] },
     { route: 'debug', domain: 'desktop/mcp/logging', confidence: 'high' as const, terms: [['live log', 'live-logs'], ['mcp activity', 'mcp'], ['tunnel', 'tunnel'], ['stdio', 'stdio'], ['connect', 'connect'], ['debug', 'debug'], ['wsl', 'wsl'], ['timeout', 'timeout'], ['crash', 'crash']] },
     { route: 'test', domain: 'project/tests', confidence: 'high' as const, terms: [['test', 'test'], ['vitest', 'vitest'], ['jest', 'jest'], ['playwright', 'playwright'], ['pytest', 'pytest']] },
     { route: 'review', domain: 'git/code', confidence: 'high' as const, terms: [['review', 'review'], ['diff', 'diff'], ['pull request', 'pull-request'], ['changed', 'changed']] },
@@ -1500,6 +1503,60 @@ function routeIntent(prompt: string): {
     reasonCodes: selected.matches.map(([, reason]) => `keyword:${reason}`),
     authorizationUnchanged: true,
   };
+}
+
+function researchOrchestration(input: Record<string, unknown>): Record<string, unknown> {
+  const objective = summarize(readString(input, 'objective') ?? readString(input, 'prompt') ?? 'external research handoff');
+  const source = summarize(readString(input, 'source') ?? 'chatgpt-research');
+  const workspaceId = readString(input, 'workspaceId') ?? null;
+  const evidence = researchItems(input.evidence, 'evidence');
+  const hypotheses = researchItems(input.hypotheses ?? input.candidates, 'candidate');
+  const constraints = researchItems(input.constraints, 'constraint');
+  return {
+    source,
+    workspaceId,
+    objective,
+    gate: 'validation-required',
+    productionTruth: false,
+    automaticPromotion: false,
+    evidenceCount: evidence.length,
+    candidateCount: hypotheses.length,
+    evidence,
+    candidates: hypotheses.map((item, index) => ({
+      id: 'candidate-' + (index + 1),
+      hypothesis: item.summary,
+      evidenceDigest: item.digest,
+      status: 'unvalidated',
+    })),
+    constraints: constraints.map((item) => item.summary),
+    stages: ['external_research', 'evidence_review', 'candidate_design', 'offline_validation', 'native_validation', 'promotion_review'],
+    validationPolicy: {
+      externalResearchIsEvidenceOnly: true,
+      implementationRequiresWorkspaceEvidence: true,
+      promotionRequiresMeasuredValidation: true,
+      productionMutationAutomatic: false,
+    },
+    recommendedNextActions: [
+      'inspect the target workspace and frozen baseline',
+      'map each candidate to an isolated implementation hypothesis',
+      'run offline/read-only screening before expensive native validation',
+      'compare native results against the frozen baseline',
+      'promote only after explicit measured pass criteria',
+    ],
+    authorizationUnchanged: true,
+  };
+}
+
+function researchItems(value: unknown, prefix: string): readonly { readonly id: string; readonly digest: string; readonly summary: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 24).map((item, index) => {
+    const serialized = typeof item === 'string' ? item : JSON.stringify(item);
+    return {
+      id: prefix + '-' + (index + 1),
+      digest: digest(item),
+      summary: summarize(serialized),
+    };
+  });
 }
 
 interface RecipeDefinition {
@@ -1690,6 +1747,7 @@ function recipeCatalog(): readonly RecipeDefinition[] {
     recipe('bugfix', 'Inspect, fix, and verify a code defect.', 'debug', ['workspace_context', 'git_context', 'test_context', 'live_logs_query'], ['filesystem.read', 'git.read'], false),
     recipe('code-review', 'Review changed code and affected tests.', 'review', ['review_context', 'changed_symbols', 'discover_tests'], ['filesystem.read', 'git.read'], false),
     recipe('frontend-debug', 'Inspect browser and UI evidence without assuming an attached browser.', 'frontend', ['debug_ui', 'console_context', 'network_context', 'capture_ui_state'], ['filesystem.read', 'browser.read'], true),
+    recipe('external-research-to-lab', 'Turn ChatGPT/other external research into evidence-gated local candidates, then validate before any promotion.', 'research', ['research_orchestrator', 'workspace_context', 'parallel_delegate', 'execution_plan', 'session_checkpoint'], ['filesystem.read'], false),
     recipe('release-check', 'Run the generic release evidence gate.', 'release', ['git_context', 'regression_report', 'benchmark_run'], ['filesystem.read', 'git.read', 'process.execute'], false),
     recipe('safe-git-commit-and-push', 'Inspect scope, verify, scan, commit, and push only task-owned changes.', 'release', ['git_status', 'git_diff', 'skill_match', 'project_test', 'git'], ['filesystem.read', 'git.read', 'process.execute', 'git.write', 'network.write'], true),
     recipe('nava-release-build-install-verify', 'Prepare a NAVA release gate; installation and restart require a later explicit confirmation.', 'release', ['diagnostic_bundle_create', 'git_context', 'discover_tests', 'project_lint', 'project_typecheck', 'project_build', 'regression_report'], ['filesystem.read', 'git.read', 'process.execute', 'filesystem.write'], true),
@@ -1705,13 +1763,15 @@ function recipe(name: string, description: string, route: string, steps: readonl
 
 function planFor(prompt: string): { readonly route: string; readonly operations: readonly string[]; readonly permissions: readonly string[] } {
   const route = routeIntent(prompt);
-  const operations = route.route === 'debug'
-    ? ['workspace_context', 'git_context', 'live_logs_query', 'test_context']
-    : route.route === 'test'
-      ? ['workspace_context', 'discover_tests', 'test_context']
-      : route.route === 'review'
-        ? ['git_context', 'review_changes', 'changed_symbols', 'discover_tests']
-        : ['workspace_context', 'repo_map'];
+  const operations = route.route === 'research'
+    ? ['research_orchestrator', 'workspace_context', 'parallel_delegate', 'execution_plan', 'session_checkpoint']
+    : route.route === 'debug'
+      ? ['workspace_context', 'git_context', 'live_logs_query', 'test_context']
+      : route.route === 'test'
+        ? ['workspace_context', 'discover_tests', 'test_context']
+        : route.route === 'review'
+          ? ['git_context', 'review_changes', 'changed_symbols', 'discover_tests']
+          : ['workspace_context', 'repo_map'];
   return { route: route.route, operations, permissions: ['filesystem.read', 'git.read'] };
 }
 

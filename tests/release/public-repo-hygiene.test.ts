@@ -69,8 +69,8 @@ describe('public repository hygiene', () => {
     expect(readme).toContain('current published stable installer remains `v4.12.1`');
     expect(readme).toContain('The default branch is a newer, deployed hardening line built on that release');
     expect(readme).toContain('No newer public installer is claimed by this source snapshot');
-    expect(readme).toContain('227 configurable tools');
-    expect(readme).toContain('221 are advertised by default');
+    expect(readme).toContain('228 configurable tools');
+    expect(readme).toContain('222 are advertised by default');
     expect(readme).not.toContain(['Verify the ', '184-tool catalog'].join(''));
     expect(readme).not.toContain(['current v3.0.0 catalog contains ', '184 tools'].join(''));
     expect(readme).not.toContain('packaged v3.0.0 build');

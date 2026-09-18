@@ -103,7 +103,7 @@ test('desktop serves the real MCP client development workflow', async () => {
       ...UPGRADE_TOOL_CATALOG.map((entry) => entry.name),
       'tool_batch',
     ]);
-    expect(advertisedTools).toHaveLength(221);
+    expect(advertisedTools).toHaveLength(222);
     expect(advertisedTools.some((name) => name.startsWith('codex_'))).toBe(false);
 
     if (process.platform === 'win32') {

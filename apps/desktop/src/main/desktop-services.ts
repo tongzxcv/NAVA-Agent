@@ -510,10 +510,10 @@ export function createDesktopRuntime(dataPath: string, options: DesktopRuntimeOp
         'workspace_lease_acquire', 'workspace_lease_status', 'workspace_lease_renew',
         'workspace_lease_release', 'workspace_lease_call', 'skills_list', 'skills_read',
         'session_checkpoint', 'session_resume', 'session_handoff', 'live_logs_query',
-        'diagnostic_bundle_create',
+        'diagnostic_bundle_create', 'research_orchestrator',
       ];
       const missing = required.filter((name) => !names.has(name));
-      const minimum = (codexToolsEnabled ? 227 : 221) + (commandRoomEnabled ? 8 : 0);
+      const minimum = (codexToolsEnabled ? 228 : 222) + (commandRoomEnabled ? 8 : 0);
       if (missing.length > 0 || tools.length < minimum) {
         return { status: 'fail', message: `${tools.length} MCP tools advertised; missing: ${missing.join(', ') || `expected at least ${minimum}`}` };
       }

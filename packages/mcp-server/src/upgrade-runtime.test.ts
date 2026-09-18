@@ -22,6 +22,7 @@ describe('upgrade runtime', () => {
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'wse_experience_capture')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'wse_strategy_promote')).toBe(true);
     expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'workspace_authority')).toBe(true);
+    expect(UPGRADE_TOOL_CATALOG.some((entry) => entry.name === 'research_orchestrator')).toBe(true);
   });
 
   it('smoke-invokes every phase tool through the normal registry boundary', async () => {
@@ -73,6 +74,47 @@ describe('upgrade runtime', () => {
     const search = await runtime.execute('tool_search', { query: 'postgres schema inspection' });
     expect(search.ok).toBe(true);
     if (search.ok) expect(search.value).toHaveProperty('matches');
+  });
+
+  it('orchestrates external research into a validation-gated lab plan', async () => {
+    const runtime = new UpgradeRuntimeService({}, actor);
+    const route = await runtime.execute('route_intent', { prompt: 'วิจัย external evidence แล้วเอา candidate ไปทดสอบใน lab' });
+    expect(route).toMatchObject({ ok: true, value: { route: 'research', domain: 'external/research' } });
+
+    const orchestrated = await runtime.execute('research_orchestrator', {
+      workspaceId: 'ws-ratchet',
+      objective: 'reduce drawdown without sacrificing expectancy',
+      source: 'chatgpt-deep-research',
+      evidence: [
+        { ref: 'paper-1', finding: 'volatility-aware spacing can reduce concentration risk' },
+        { ref: 'paper-2', finding: 'walk-forward validation is needed before promotion' },
+      ],
+      hypotheses: ['adaptive spacing', 'regime gate'],
+      constraints: ['production must remain unchanged until validation passes'],
+    });
+    expect(orchestrated).toMatchObject({
+      ok: true,
+      value: {
+        source: 'chatgpt-deep-research',
+        workspaceId: 'ws-ratchet',
+        gate: 'validation-required',
+        productionTruth: false,
+        automaticPromotion: false,
+        evidenceCount: 2,
+        candidateCount: 2,
+        stages: ['external_research', 'evidence_review', 'candidate_design', 'offline_validation', 'native_validation', 'promotion_review'],
+      },
+    });
+
+    const recipe = await runtime.execute('recipe_describe', { name: 'external-research-to-lab' });
+    expect(recipe).toMatchObject({
+      ok: true,
+      value: {
+        name: 'external-research-to-lab',
+        route: 'research',
+        steps: expect.arrayContaining(['research_orchestrator', 'workspace_context', 'parallel_delegate', 'execution_plan', 'session_checkpoint']),
+      },
+    });
   });
 
   it('publishes the NAVA operating recipes and keeps execution dry-run by default', async () => {

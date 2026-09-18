@@ -1,5 +1,16 @@
 # NAVA Phase Progress
 
+## 2026-09-19 — Research Orchestrator / single-chat Research + NAVA Lab
+
+- Added read-only `research_orchestrator` to convert external/ChatGPT research into bounded evidence digests, unvalidated candidate hypotheses, constraints, and an explicit validation pipeline. External research is evidence only; it is never treated as production truth and automatic promotion remains disabled.
+- `route_intent` now recognizes English/Thai research prompts as `research / external/research`, and `execution_plan` routes them through `research_orchestrator -> workspace_context -> parallel_delegate -> execution_plan -> session_checkpoint`.
+- Added the `external-research-to-lab` recipe so one chat can use ChatGPT research for discovery and NAVA for local code/workspace/test validation without building a duplicate web-research engine inside NAVA.
+- Tool-count contracts were synchronized to 228 configurable / 222 default tools, including Desktop Doctor, stdio/HTTP integration expectations, acceptance tests, packaging metadata, README, and generated tool-contract documentation.
+- Validation passed: MCP package 215/215, Desktop acceptance 16/16, packaging 4/4, release extras 33/33, focused research-orchestrator suite 24/24, MCP/Desktop typecheck, docs catalog check, and full ESLint.
+- Desktop bundle generation completed except the normal launcher step initially rejected system Node 25.8.2; the gate was preserved and rerun with the installed private Node 24.19.0.
+- New MCP bundle SHA-256: `4F1AA37FDD0E766DB5898C06DF9207CA5D04BCF2613B7F3E76521A90CF4F1E8A`. The on-disk bundle was synchronized to both `D:\Program` and `D:\Program Files\NAVA Agent` with matching hash.
+- Pre-sync backup: `E:\AI_CACHE\nava-agent-setup\runtime-backup-20260919-062047-research-orchestrator`. The active NAVA/tunnel/stdio process was intentionally not restarted, so an already-open connector may keep its old advertised schema until the next normal reconnect/refresh.
+
 ## 2026-08-29 — v4.11.4 Phase 2B release / Phase 3 preparation
 
 - Phase 2B baseline commit before release docs: `beb496f`.

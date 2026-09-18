@@ -42,6 +42,7 @@ export const UPGRADE_TOOL_CATALOG: readonly UpgradeToolCatalogEntry[] = [
   read('frontend_context', 7, 'Gather frontend project context.', ['frontend', 'context'], { streamable: true }),
   read('backend_context', 7, 'Gather backend project context.', ['backend', 'context'], { streamable: true }),
   read('route_intent', 8, 'Classify a prompt with a deterministic, overridable route.', ['router', 'intent']),
+  read('research_orchestrator', 8, 'Convert externally gathered research into bounded evidence, candidate hypotheses, and validation gates for the local lab.', ['research', 'evidence', 'candidate', 'validation']),
   read('recipe_list', 9, 'List built-in and user recipe names.', ['recipe']),
   read('recipe_describe', 9, 'Describe a recipe plan and permissions.', ['recipe']),
   execute('recipe_run', 9, 'Preview or run a deterministic recipe plan.', ['recipe', 'workflow']),
