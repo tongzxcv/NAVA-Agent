@@ -65,7 +65,7 @@ describe('public repository hygiene', () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     expect(typeof rootPackage.version).toBe('string');
 
-    expect(readme).toContain(`## Current source target: v${rootPackage.version as string} (deployed post-release hardening)`);
+    expect(readme).toContain(`## Current source target: v${rootPackage.version as string} (locally deployed; public source pre-release)`);
     expect(readme).toContain('current published stable installer remains `v4.12.1`');
     expect(readme).toContain('The default branch is a newer, deployed hardening line built on that release');
     expect(readme).toContain('No newer public installer is claimed by this source snapshot');

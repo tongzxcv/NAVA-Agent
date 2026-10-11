@@ -92,6 +92,7 @@ async function syncAllVersions() {
     let readmeContent = await readFile(readmePath, 'utf8');
     readmeContent = readmeContent
       .replace(/(?:lnwjud|nava-agent)-Setup-[0-9.]+\.exe/g, `nava-agent-Setup-${version}.exe`)
+      .replace(/(## Current source target: v)[0-9.]+/g, '$1' + version)
       .replace(/## Current release: v[0-9.]+/g, `## Current release: v${version}`)
       .replace(/current published installer and runtime contract are `v[0-9.]+`/g, 'current published installer and runtime contract are `v' + version + '`')
       .replace(/current v[0-9.]+ `ToolRegistry`/g, 'current v' + version + ' `ToolRegistry`')

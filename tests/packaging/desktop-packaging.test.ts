@@ -8,11 +8,11 @@ const desktopRoot = path.resolve(import.meta.dirname, '..', '..', 'apps', 'deskt
 const repositoryRoot = path.resolve(desktopRoot, '..', '..');
 
 describe('Windows desktop packaging', () => {
-  it('pins the product release to v4.12.1', async () => {
+  it('pins the product release to v4.12.2', async () => {
     const rootPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'package.json'), 'utf8')) as { version?: unknown };
     const desktopPackage = JSON.parse(await readFile(path.join(desktopRoot, 'package.json'), 'utf8')) as { version?: unknown };
-    expect(rootPackage.version).toBe('4.12.1');
-    expect(desktopPackage.version).toBe('4.12.1');
+    expect(rootPackage.version).toBe('4.12.2');
+    expect(desktopPackage.version).toBe('4.12.2');
   });
 
   it('publishes complete desktop application metadata', async () => {
@@ -54,6 +54,8 @@ describe('Windows desktop packaging', () => {
     expect(config).toContain('windows-capability-bridge.ps1');
     expect(config).toContain('build/lnwjud-node.exe');
     expect(config).toContain('to: lnwjud-node.exe');
+    expect(config).toContain('from: ../../native/windows-ocr/bin');
+    expect(config).toContain('lnwjud-windows-ocr.exe');
     await access(path.join(desktopRoot, 'build', 'lnwjud-node.exe'));
     const stdioLauncher = await readFile(path.join(desktopRoot, 'build', 'lnwjud-mcp-stdio.cmd'), 'utf8');
     expect(stdioLauncher).toContain('lnwjud-node.exe');
@@ -72,6 +74,33 @@ describe('Windows desktop packaging', () => {
     expect(mainBundle).toContain('LNWJUD_DATA_PATH');
     expect(mainBundle).toContain('LNWJUD_UNRESTRICTED');
     expect(mainBundle).toContain('setPath("userData"');
+  });
+
+  it('defines a compatible OCR sparse identity and an opt-in registration', async () => {
+    const ocrRoot = path.join(repositoryRoot, 'native', 'windows-ocr');
+    const msix = await readFile(path.join(ocrRoot, 'sparse-package.appxmanifest'), 'utf8');
+    const executable = await readFile(path.join(ocrRoot, 'ocr-helper.app.manifest'), 'utf8');
+    const registration = await readFile(path.join(repositoryRoot, 'scripts', 'register-windows-ocr.ps1'), 'utf8');
+    const builder = await readFile(path.join(repositoryRoot, 'scripts', 'build-windows-ocr.ps1'), 'utf8');
+    const packaging = await readFile(path.join(desktopRoot, 'electron-builder.yml'), 'utf8');
+    expect(msix).toContain('<uap10:AllowExternalContent>true</uap10:AllowExternalContent>');
+    expect(msix).toContain('uap10:RuntimeBehavior="win32App"');
+    expect(msix).toContain('uap10:TrustLevel="mediumIL"');
+    expect(msix).toContain('Name="runFullTrust"');
+    expect(msix).toContain('Name="unvirtualizedResources"');
+    expect(msix).toContain('Name="Windows.Desktop"');
+    expect(msix).not.toContain('EntryPoint="Windows.FullTrustApplication"');
+    expect(executable).toContain('xmlns="urn:schemas-microsoft-com:msix.v1"');
+    expect(executable).toContain('packageName="com.lnwjud.windowsocr"');
+    expect(executable).toContain('applicationId="LnwjudWindowsOcr"');
+    expect(builder).toContain('ocr-helper.identity.manifest');
+    expect(builder).toContain('ApplicationManifest=');
+    expect(registration).toContain('/nv /d $stage /p $msix');
+    expect(registration).toContain('if ($Register -and -not $ConfirmRegistration)');
+    expect(registration).toContain('PREPARE_ONLY=true');
+    expect(registration).not.toContain('LocalMachine\\TrustedPeople');
+    expect(registration).not.toContain('??');
+    expect(packaging).toContain('to: windows-ocr/Assets');
   });
 
   it('runs the stdio launcher with the bundled Node runtime even when PATH contains no system Node', async () => {

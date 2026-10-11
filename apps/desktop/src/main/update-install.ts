@@ -7,6 +7,24 @@ export interface UpdateReadyDialogOptions {
   readonly cancelId: 1;
 }
 
+export interface PreUpdateBackupGuardOptions {
+  readonly backup: () => Promise<unknown>;
+  readonly install: () => void;
+  readonly onBackupFailure: (error: unknown) => void;
+}
+
+/** Never hand off to the native updater unless the pre-update backup succeeded. */
+export async function installAfterPreUpdateBackup(options: PreUpdateBackupGuardOptions): Promise<boolean> {
+  try {
+    await options.backup();
+  } catch (error: unknown) {
+    options.onBackupFailure(error);
+    return false;
+  }
+  options.install();
+  return true;
+}
+
 export interface UpdateInstallCoordinatorOptions {
   readonly activeCallCount: () => number;
   readonly activityRevision?: () => number;

@@ -129,13 +129,20 @@ function inspectShell(value: Record<string, unknown>): DestructivePolicyDecision
   const joined = args.join(' ').toLowerCase();
 
   if (executable === 'git' || executable === 'git.exe') return inspectGit({ args });
+  if (['taskkill', 'taskkill.exe', 'tskill', 'tskill.exe'].includes(executable)) {
+    return destructive(`${executable} can terminate arbitrary processes`);
+  }
   if (['del', 'del.exe', 'erase', 'erase.exe', 'rm', 'rm.exe', 'rmdir', 'rmdir.exe', 'rd', 'rd.exe', 'unlink', 'unlink.exe'].includes(executable)) {
     return destructive(`${executable} deletes filesystem data`);
   }
   if (['powershell', 'powershell.exe', 'pwsh', 'pwsh.exe'].includes(executable)) {
+    if (/\bstop-process\b/i.test(joined)) return destructive('PowerShell Stop-Process can terminate arbitrary processes');
     const withoutGitRm = joined.replace(/\bgit(?:\.exe)?\s+rm\b/g, ' ');
     if (/\b(remove-item|clear-content|rm|del)\b/i.test(withoutGitRm)) return destructive('PowerShell command can delete or truncate data');
     if (/\bset-content\b/i.test(joined) && !/\b-addcontent\b/i.test(joined)) return destructive('PowerShell Set-Content can overwrite data');
+  }
+  if (['cmd', 'cmd.exe'].includes(executable) && /(^|[\s&|])(taskkill|tskill)\b/i.test(joined)) {
+    return destructive('cmd process-termination command can terminate arbitrary processes');
   }
   if (['cmd', 'cmd.exe'].includes(executable) && /(^|[\s&|])(del|erase|rd|rmdir)\b/i.test(joined)) {
     return destructive('cmd command deletes filesystem data');

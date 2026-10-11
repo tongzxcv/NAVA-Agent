@@ -1,8 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { UpdateDownloadedDialogController, UpdateInstallCoordinator, updateReadyDialogOptions, type UpdateSharedActivitySnapshot } from '../src/main/update-install.js';
+import { UpdateDownloadedDialogController, UpdateInstallCoordinator, installAfterPreUpdateBackup, updateReadyDialogOptions, type UpdateSharedActivitySnapshot } from '../src/main/update-install.js';
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('pre-update backup gate', () => {
+  it('does not restart or install if the pre-update backup rejects', async () => {
+    const install = vi.fn();
+    const onBackupFailure = vi.fn();
+    const ok = await installAfterPreUpdateBackup({
+      backup: async () => { throw new Error('backup failed'); },
+      install,
+      onBackupFailure,
+    });
+    expect(ok).toBe(false);
+    expect(install).not.toHaveBeenCalled();
+    expect(onBackupFailure).toHaveBeenCalledOnce();
+  });
+
+  it('installs only after a successful backup has completed', async () => {
+    const order: string[] = [];
+    const onBackupFailure = vi.fn();
+    const ok = await installAfterPreUpdateBackup({
+      backup: async () => { order.push('backup'); },
+      install: () => { order.push('install'); },
+      onBackupFailure,
+    });
+    expect(ok).toBe(true);
+    expect(order).toEqual(['backup', 'install']);
+    expect(onBackupFailure).not.toHaveBeenCalled();
+  });
 });
 
 describe('downloaded update installation', () => {

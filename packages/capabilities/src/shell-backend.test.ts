@@ -445,6 +445,88 @@ describe('ShellCapabilityBackend unrestricted', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
   });
 
+  it('requires explicit confirmation for process-termination shell commands', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      unrestricted: true,
+      executableResolver: { async resolve(executable: string): Promise<Result<string>> { return ok(executable); } },
+    });
+
+    const powershell = await backend.execute({
+      operation: 'run',
+      executable: 'powershell.exe',
+      arguments: ['-NoProfile', '-Command', 'Get-Process pythonw | Stop-Process -Force'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+    const taskkill = await backend.execute({
+      operation: 'run',
+      executable: 'taskkill.exe',
+      arguments: ['/PID', '1234', '/F'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+    const cmdTaskkill = await backend.execute({
+      operation: 'run',
+      executable: 'cmd.exe',
+      arguments: ['/c', 'taskkill /PID 1234 /F'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+
+    expect(powershell).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    expect(taskkill).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+    expect(cmdTaskkill).toMatchObject({ ok: false, error: { code: 'PERMISSION_REQUIRED' } });
+  });
+
+  it('allows an explicitly confirmed process-termination command as dry-run', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      unrestricted: true,
+      executableResolver: { async resolve(executable: string): Promise<Result<string>> { return ok(executable); } },
+    });
+
+    const result = await backend.execute({
+      operation: 'run',
+      executable: 'powershell.exe',
+      arguments: ['-NoProfile', '-Command', 'Get-Process pythonw | Stop-Process -Force'],
+      cwd: root,
+      dry_run: true,
+      userConfirmed: true,
+      execution: 'foreground',
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { dry_run: true } });
+  });
+
+  it('does not require destructive confirmation for read-only process inspection', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
+    temporaryRoots.push(root);
+    const backend = new ShellCapabilityBackend({
+      allowedRoots: [root],
+      unrestricted: true,
+      executableResolver: { async resolve(executable: string): Promise<Result<string>> { return ok(executable); } },
+    });
+
+    const result = await backend.execute({
+      operation: 'run',
+      executable: 'powershell.exe',
+      arguments: ['-NoProfile', '-Command', 'Get-Process pythonw'],
+      cwd: root,
+      dry_run: true,
+      execution: 'foreground',
+    });
+
+    expect(result).toMatchObject({ ok: true, value: { dry_run: true } });
+  });
+
   it('allows git rm and git reset as dry-run', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lnwjud-shell-'));
     temporaryRoots.push(root);

@@ -24,7 +24,7 @@ export interface NativeMessages {
   readonly updaterAlreadyChecking: string;
   readonly updaterChecking: string;
   readonly updaterCheckFailed: string;
-  readonly updaterReleaseNotPublished: string;
+  readonly updaterReleaseFeedInaccessible: string;
   readonly updaterInstallWaiting: string;
   readonly updaterAvailableTitle: string;
   readonly ok: string;
@@ -65,7 +65,7 @@ const th: NativeMessages = {
   updaterAlreadyChecking: 'กำลังตรวจอัปเดตอยู่ กรุณารอผลการตรวจสอบ',
   updaterChecking: 'กำลังตรวจหาเวอร์ชันใหม่…',
   updaterCheckFailed: 'ไม่สามารถตรวจอัปเดตได้',
-  updaterReleaseNotPublished: 'ยังไม่มี NAVA release ออนไลน์ — รุ่นที่ติดตั้งยังใช้งานได้ตามปกติ',
+  updaterReleaseFeedInaccessible: 'เข้าถึง GitHub Release Feed ของ NAVA ไม่ได้ (HTTP 404) — Repository อาจเป็น Private หรือยังไม่มี Release ที่เผยแพร่ ระบบจะไม่ติดตั้งอัปเดต',
   updaterInstallWaiting: 'กำลังรอให้งานที่ใช้งานอยู่เสร็จก่อนรีสตาร์ตเพื่อติดตั้ง…',
   updaterAvailableTitle: 'พบอัปเดต - NAVA Agent',
   ok: 'ตกลง',
@@ -106,7 +106,7 @@ const en: NativeMessages = {
   updaterAlreadyChecking: 'An update check is already running. Please wait for it to finish.',
   updaterChecking: 'Checking for a newer version…',
   updaterCheckFailed: 'Unable to check for updates',
-  updaterReleaseNotPublished: 'No NAVA release is published yet — the installed build remains fully usable',
+  updaterReleaseFeedInaccessible: 'NAVA GitHub Release Feed is inaccessible (HTTP 404) — the repository may be private or no release may be published. No update will be installed.',
   updaterInstallWaiting: 'Waiting for active work to finish before restarting to install…',
   updaterAvailableTitle: 'Update Available - NAVA Agent',
   ok: 'OK',

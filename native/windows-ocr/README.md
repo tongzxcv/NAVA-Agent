@@ -1,27 +1,35 @@
-# Windows OCR helper
+# Windows OCR helper and sparse identity
 
-This helper is deliberately separate from the TypeScript process. `Windows.Media.Ocr` requires package identity for desktop use, so the normal NSIS application keeps its existing installer while a signed sparse package supplies identity for this helper.
+The standalone .NET 8 Windows OCR helper uses Windows.Media.Ocr only when
+Windows grants package identity. The standard NAVA NSIS installer does not
+automatically grant that identity. Until registration succeeds the capability
+reports package_identity_required.
 
-The helper reads one JSON request per stdin line and writes one `{ ok, value }` response per stdout line. It accepts the existing `vision` OCR payload (`action: "ocr"`, `image_base64`) and returns `available: false` when package identity or a supported user-profile language is unavailable.
+## Prepare without modifying Windows trust or app registrations
 
-Build on a Windows machine with the .NET 8 SDK:
+From repository root on Windows with .NET 8 SDK and Windows SDK:
 
-```powershell
-# from the repository root
-powershell -File scripts\build-windows-ocr.ps1
-```
+    powershell -NoProfile -File scripts\build-windows-ocr.ps1
+    powershell -NoProfile -File scripts\register-windows-ocr.ps1
 
-Register the sparse package (dev mode uses a self-signed certificate; run once
-from an elevated prompt so the cert can be trusted in TrustedPeople):
+By default, the registration script validates the EXE's embedded identity and
+packs an unsigned sparse MSIX in native/windows-ocr/obj. It does not trust
+certificates, install software or call Add-AppxPackage.
 
-```powershell
-powershell -File scripts\register-windows-ocr.ps1
-# release: -ReleaseCertPfx <pfx> -ReleaseCertPassword <password>
-```
+## Signed registration is a separate explicit action
 
-The scripts require the Windows SDK `makeappx.exe`/`signtool.exe` and verify
-the result by probing the helper (`{"op":"probe"}`) for `package_identity`.
+The publisher of the sparse MSIX and the EXE-embedded identity must match the
+exact Subject of the signing certificate. Rebuild with -Publisher or set
+NAVA_OCR_PUBLISHER when using a production signing certificate.
 
-The runtime discovers the helper through `LNWJUD_WINDOWS_OCR_HELPER` or the packaged `windows-ocr\lnwjud-windows-ocr.exe` location. The host performs a one-shot cached identity probe through the helper before delegating, and until a signed sparse package is registered, the public `vision` OCR action remains truthfully unavailable.
+Registration requires an appropriately trusted PFX and an installed OCR
+external directory containing the EXE and Assets folder. Pass -ReleaseCertPfx,
+-ReleaseCertPassword, -ExternalLocation and BOTH -Register and
+-ConfirmRegistration to scripts/register-windows-ocr.ps1. This script does not
+trust self-signed certificates or remove any existing package to force updates.
 
-The manifest is a release template only. A release pipeline must replace the placeholder publisher, sign the sparse package, register its external location, and include the published helper next to the NSIS application resources (`electron-builder.yml` ships `native/windows-ocr/bin` as the `windows-ocr` extra resource). No certificate or private key belongs in this repository.
+A signed NAVA Installer does not itself register a sparse identity package.
+Only claim full OCR readiness when the installed helper passes a live probe.
+Never check private keys into the source repository.
+
+Reference: https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps

@@ -79,3 +79,10 @@ docs/benchmarks/*
 .DS_Store
 Thumbs.db
 lnwjud-incident.json
+
+# Isolated CDP recovery smoke-test profiles and evidence
+.nava-cdp-smoke/
+
+# Native .NET helper build outputs (do not commit executable artifacts)
+native/windows-ocr/bin/
+native/windows-ocr/obj/
