@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$SourceOnlyCI)
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -65,6 +65,18 @@ try {
     }
     Write-Host "Packaged-app smoke artifact: $expectedInstaller"
 
+    # Source-only CI verifies the actual packaging output, but does not create
+    # a public release. The tag-driven release workflow always checks real
+    # trusted signatures before publishing a Windows installer.
+    if ($SourceOnlyCI) {
+        if ($env:GITHUB_ACTIONS -ne 'true' -or
+            $env:GITHUB_EVENT_NAME -notin @('push', 'pull_request') -or
+            $env:GITHUB_REF -notmatch '^refs/(heads|pull)/') {
+            throw 'Unsigned source CI mode is restricted to GitHub branch or pull request verification; never release tags.'
+        }
+        Write-Host 'Source-only CI packaging verified; unsigned artifacts cannot be published as a signed release.'
+    }
+    else {
     # A builder log line saying "signing" does not establish that a signature
     # was actually embedded. Require a trusted Authenticode signature for each
     # executable shipped by the release before publishing a public installer.
@@ -101,6 +113,8 @@ try {
         $ocrMsix.GetAttribute('packageName') -cne 'com.lnwjud.windowsocr' -or
         $ocrMsix.GetAttribute('applicationId') -cne 'LnwjudWindowsOcr') {
         throw 'Signed release blocked: OCR executable MSIX publisher/name/application does not match certificate.'
+    }
+
     }
 
     Assert-RepositoryChecks
