@@ -1,8 +1,16 @@
 export const AUTO_UPDATE_STARTUP_DELAY_MS = 5_000;
 export const AUTO_UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1_000;
 
-export function isMissingNavaReleaseFeedError(message: string): boolean {
-  return /\b404\b/.test(message) && /github\.com\/tongzxcv\/NAVA-Agent\/releases\.atom/i.test(message);
+/**
+ * A 404 on NAVA's own release endpoints is ambiguous: the repository may be
+ * private, or the release / update manifest may not exist. Never call this
+ * "up to date", and never use the upstream project's release channel.
+ */
+export function isNavaReleaseFeedInaccessibleError(message: string): boolean {
+  if (!/\b404\b/.test(message)) return false;
+  return /https:\/\/github\.com\/tongzxcv\/NAVA-Agent\/releases\.atom(?:\b|[?#])/i.test(message)
+    || /https:\/\/api\.github\.com\/repos\/tongzxcv\/NAVA-Agent\/releases\/(?:latest|tags\/[^\s/?#]+)(?:\b|[?#])/i.test(message)
+    || /https:\/\/github\.com\/tongzxcv\/NAVA-Agent\/releases\/download\/[^\s/?#]+\/latest\.yml(?:\b|[?#])/i.test(message);
 }
 
 export interface UpdateCheckSchedulerOptions {

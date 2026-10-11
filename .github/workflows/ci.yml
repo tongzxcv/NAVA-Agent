@@ -36,7 +36,7 @@ jobs:
 
       - name: Run authoritative verification gate
         shell: powershell
-        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/verify-release.ps1
+        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/verify-release.ps1 -SourceOnlyCI
 
       - name: Capture Windows E2E failure state
         if: failure()

@@ -66,8 +66,8 @@ import { DesktopShutdownCoordinator } from './desktop-shutdown.js';
 import { shouldHoldSingleInstanceLock, wantsMcpStdio } from './instance-lock.js';
 import { createLogViewerWindow, createMainWindow, getRendererEntryPath, getWindowIconPath, isAllowedRendererUrl } from './window.js';
 import { createTrayConnectionLabel, createTrayMenuTemplate, createTrayToolTip, createTrayUpdateLabel, shouldHideMainWindowOnClose } from './tray.js';
-import { UpdateInstallCoordinator, type UpdateSharedActivitySnapshot } from './update-install.js';
-import { isMissingNavaReleaseFeedError, UpdateCheckScheduler } from './update-check-scheduler.js';
+import { UpdateInstallCoordinator, installAfterPreUpdateBackup, type UpdateSharedActivitySnapshot } from './update-install.js';
+import { isNavaReleaseFeedInaccessibleError, UpdateCheckScheduler } from './update-check-scheduler.js';
 import { atomicWrite, type IncidentReport } from './incident-report.js';
 import { IncidentSaveCoordinator } from './incident-save.js';
 import { localizedUpdateStatusMessage, nativeMessages } from './native-i18n.js';
@@ -1000,10 +1000,12 @@ function requestUpdateCheck(source: 'automatic' | 'tray' | 'renderer'): UpdateSt
     if (pendingUpdateCheckSource !== source) return;
     pendingUpdateCheckSource = null;
     const message = error instanceof Error ? error.message : nativeMessages(desktopLocale).updaterCheckFailed;
-    if (isMissingNavaReleaseFeedError(message)) {
+    if (isNavaReleaseFeedInaccessibleError(message)) {
+      console.warn('[AutoUpdater] NAVA release feed HTTP 404; access or publication status is unverified.');
+      recordUpdaterEvent('unavailable:nava-release-feed-404');
       const currentMessages = nativeMessages(desktopLocale);
-      patchUpdateStatus({ phase: 'unavailable', lastCheckedAt: new Date().toISOString(), message: currentMessages.updaterReleaseNotPublished, canInstall: false });
-      if (source === 'tray') void dialog.showMessageBox({ type: 'info', title: currentMessages.updaterCheckTitle, message: currentMessages.updaterReleaseNotPublished, buttons: [currentMessages.ok] });
+      patchUpdateStatus({ phase: 'unavailable', lastCheckedAt: new Date().toISOString(), message: currentMessages.updaterReleaseFeedInaccessible, canInstall: false });
+      if (source === 'tray') void dialog.showMessageBox({ type: 'info', title: currentMessages.updaterCheckTitle, message: currentMessages.updaterReleaseFeedInaccessible, buttons: [currentMessages.ok] });
       return;
     }
     console.error(`[AutoUpdater] ${source} check failed: ${message}`);
@@ -1194,10 +1196,15 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
           : { state: snapshot.state, reason: snapshot.reason };
       },
       install: (): void => {
-        void runtime.createBackup('pre-update').catch((error: unknown) => {
-          console.error(`Pre-update backup failed: ${error instanceof Error ? error.message : 'unknown error'}`);
-        }).finally(() => {
-          void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install');
+        void installAfterPreUpdateBackup({
+          backup: () => runtime.createBackup('pre-update'),
+          install: () => { void desktopShutdownCoordinator?.requestQuit(() => autoUpdater.quitAndInstall(), 'install'); },
+          onBackupFailure: (error: unknown) => {
+            const message = error instanceof Error ? error.message : 'unknown error';
+            console.error('Pre-update backup failed; installation cancelled: ' + message);
+            recordUpdaterEvent('error:pre-update-backup-failed');
+            patchUpdateStatus({ phase: 'error', message: 'Pre-update backup failed; installation cancelled.', canInstall: false });
+          },
         });
       },
     });
@@ -1297,9 +1304,11 @@ function initAutoUpdater(runtime: DesktopRuntime): void {
       console.error('[AutoUpdater] error:', err.message);
       const messages = nativeMessages(desktopLocale);
       const message = err.message || messages.updaterCheckFailed;
-      if (isMissingNavaReleaseFeedError(message)) {
-        patchUpdateStatus({ phase: 'unavailable', lastCheckedAt: new Date().toISOString(), message: messages.updaterReleaseNotPublished, canInstall: false });
-        if (requestedFromTray) void dialog.showMessageBox({ type: 'info', title: messages.updaterCheckTitle, message: messages.updaterReleaseNotPublished, buttons: [messages.ok] });
+      if (isNavaReleaseFeedInaccessibleError(message)) {
+        console.warn('[AutoUpdater] NAVA release feed HTTP 404; access or publication status is unverified.');
+        recordUpdaterEvent('unavailable:nava-release-feed-404');
+        patchUpdateStatus({ phase: 'unavailable', lastCheckedAt: new Date().toISOString(), message: messages.updaterReleaseFeedInaccessible, canInstall: false });
+        if (requestedFromTray) void dialog.showMessageBox({ type: 'info', title: messages.updaterCheckTitle, message: messages.updaterReleaseFeedInaccessible, buttons: [messages.ok] });
         return;
       }
       patchUpdateStatus({

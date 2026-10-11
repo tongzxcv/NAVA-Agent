@@ -67,6 +67,21 @@ describe('MVP release verification gate', () => {
     }
   });
 
+  it('allows unsigned Windows installer checks only for branch and PR CI, never public tag releases', async () => {
+    const script = await readFile(path.join(repositoryRoot, 'scripts', 'verify-release.ps1'), 'utf8');
+    const ciWorkflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const releaseWorkflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+    expect(ciWorkflow).toContain('verify-release.ps1 -SourceOnlyCI');
+    expect(releaseWorkflow).toContain('scripts/verify-release.ps1');
+    expect(releaseWorkflow).not.toContain('verify-release.ps1 -SourceOnlyCI');
+    expect(script).toContain('if ($SourceOnlyCI)');
+    expect(script).toContain("$env:GITHUB_ACTIONS -ne 'true'");
+    expect(script).toContain("$env:GITHUB_EVENT_NAME -notin @('push', 'pull_request')");
+    expect(script).toContain("$env:GITHUB_REF -notmatch '^refs/(heads|pull)/'");
+    expect(script).toContain('Get-AuthenticodeSignature');
+    expect(script).toContain('SignatureStatus]::Valid');
+  });
+
   it('rejects release tags that do not match the packaged application version', async () => {
     const workflow = await readFile(path.join(repositoryRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     expect(workflow).toContain('github.ref_name');

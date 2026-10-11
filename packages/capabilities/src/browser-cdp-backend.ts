@@ -20,6 +20,10 @@ export interface BrowserCdpProtocol {
 export interface BrowserCdpBackendOptions {
   readonly protocol?: BrowserCdpProtocol;
   readonly launcher?: (url: string | undefined, signal?: AbortSignal) => Promise<Result<unknown>>;
+  /** Bounded recovery applies only to a browser started by this backend. */
+  readonly recoveryBackoffMs?: number;
+  readonly recoveryMaxFailures?: number;
+  readonly now?: () => number;
 }
 
 type BrowserAction = 'launch' | 'status' | 'list_tabs' | 'new_tab' | 'close_tab' | 'navigate' | 'evaluate' | 'query' | 'click' | 'type' | 'wait' | 'screenshot';
@@ -40,10 +44,22 @@ const MAX_TIMEOUT_SECONDS = 3600;
 export class BrowserCdpBackend implements CapabilityBackend {
   private readonly protocol: BrowserCdpProtocol;
   private readonly launcher: ((url: string | undefined, signal?: AbortSignal) => Promise<Result<unknown>>) | undefined;
+  private readonly recoveryBackoffMs: number;
+  private readonly recoveryMaxFailures: number;
+  private readonly now: () => number;
+  private managedLaunch = false;
+  private recoveryEpoch = 0;
+  private refreshTabsRequired = false;
+  private recoveryFailures = 0;
+  private retryAfter = 0;
+  private recoveryInFlight: Promise<Result<{ readonly recovered: boolean }>> | null = null;
 
   public constructor(options: BrowserCdpBackendOptions = {}) {
     this.protocol = options.protocol ?? new NodeBrowserCdpProtocol();
     this.launcher = options.launcher;
+    this.recoveryBackoffMs = Math.max(1_000, options.recoveryBackoffMs ?? 5_000);
+    this.recoveryMaxFailures = Math.max(1, options.recoveryMaxFailures ?? 3);
+    this.now = options.now ?? Date.now;
   }
 
   public async execute(input: unknown, signal?: AbortSignal): Promise<Result<unknown>> {
@@ -65,11 +81,15 @@ export class BrowserCdpBackend implements CapabilityBackend {
 
   private async executeSteps(request: BrowserRequest, signal?: AbortSignal): Promise<Result<unknown>> {
     const values: unknown[] = [];
+    const initialRecoveryEpoch = this.recoveryEpoch;
     for (const step of request.steps ?? []) {
       const aborted = cancellationResult(signal);
       if (aborted !== null) return aborted;
       const result = await this.executeAction(request, step.action, step.parameters, signal);
       if (!result.ok) return result;
+      if (this.recoveryEpoch !== initialRecoveryEpoch) {
+        return err(appError('INVALID_INPUT', 'Chrome reconnected during DOM steps; reselect tabs and submit a new request'));
+      }
       const abortedAfterStep = cancellationResult(signal);
       if (abortedAfterStep !== null) return abortedAfterStep;
       values.push(result.value);
@@ -81,13 +101,43 @@ export class BrowserCdpBackend implements CapabilityBackend {
     const aborted = cancellationResult(signal);
     if (aborted !== null) return aborted;
     if (request.dryRun) return ok({ dry_run: true, action, parameters });
+    if (action === 'status') {
+      const status = await this.protocol.status(signal);
+      return ok({ ...status, recovery: this.recoverySnapshot() });
+    }
+    if (action === 'launch') {
+      if (this.launcher === undefined) return err(appError('INTERNAL_ERROR', 'Browser launcher is not configured', true));
+      const launched = await this.launcher(readString(parameters, 'url'), signal);
+      if (launched.ok) {
+        if (isRecord(launched.value) && launched.value.launched === true) this.managedLaunch = true;
+        this.recoveryFailures = 0;
+        this.retryAfter = 0;
+        this.refreshTabsRequired = false;
+      }
+      return launched;
+    }
+    // Status and dry-run never start Chrome. Only a previously managed session
+    // can recover, and recovery never silently replays a tab-specific operation.
+    const recovery = await this.recoverManagedBrowser(signal);
+    if (!recovery.ok) return recovery;
+    if (recovery.value.recovered) {
+      this.refreshTabsRequired = true;
+      this.recoveryEpoch += 1;
+    }
+    if (this.refreshTabsRequired && action !== 'list_tabs' && action !== 'new_tab') {
+      return err(appError('INVALID_INPUT', 'Managed Chrome reconnected; list tabs and select the target again before continuing'));
+    }
     switch (action) {
-      case 'status': return ok(await this.protocol.status(signal));
-      case 'launch':
-        if (this.launcher === undefined) return err(appError('INTERNAL_ERROR', 'Browser launcher is not configured', true));
-        return this.launcher(readString(parameters, 'url'), signal);
-      case 'list_tabs': return ok({ tabs: await this.protocol.listTabs(signal) });
-      case 'new_tab': return ok(await this.protocol.newTab(readString(parameters, 'url') ?? 'about:blank', signal));
+      case 'list_tabs': {
+        const tabs = await this.protocol.listTabs(signal);
+        this.refreshTabsRequired = false;
+        return ok({ tabs });
+      }
+      case 'new_tab': {
+        const tab = await this.protocol.newTab(readString(parameters, 'url') ?? 'about:blank', signal);
+        this.refreshTabsRequired = false;
+        return ok(tab);
+      }
       case 'close_tab': {
         const tabId = request.tabId ?? readString(parameters, 'tab_id');
         return tabId === undefined ? err(appError('INVALID_INPUT', 'Tab ID is required')) : ok(await this.protocol.closeTab(tabId, signal));
@@ -107,6 +157,76 @@ export class BrowserCdpBackend implements CapabilityBackend {
         return data === undefined ? err(appError('INTERNAL_ERROR', 'Browser screenshot response was invalid', true)) : ok({ format: 'png', data_base64: data });
       }, signal);
     }
+  }
+
+  private recoverySnapshot(): Record<string, unknown> {
+    return {
+      armed: this.managedLaunch,
+      recovering: this.recoveryInFlight !== null,
+      requiresTabRefresh: this.refreshTabsRequired,
+      consecutiveFailures: this.recoveryFailures,
+      attemptsRemaining: Math.max(0, this.recoveryMaxFailures - this.recoveryFailures),
+      retryAfterMs: Math.max(0, this.retryAfter - this.now()),
+      mode: 'on-demand',
+    };
+  }
+
+  private async recoverManagedBrowser(signal?: AbortSignal): Promise<Result<{ readonly recovered: boolean }>> {
+    if (!this.managedLaunch || this.launcher === undefined) return ok({ recovered: false });
+    const aborted = cancellationResult(signal);
+    if (aborted !== null) return aborted;
+    // Include the readiness probe inside the shared promise. Concurrent calls
+    // must never race multiple Chrome spawns.
+    if (this.recoveryInFlight === null) {
+      const attempt = this.attemptManagedRecovery(signal);
+      this.recoveryInFlight = attempt;
+      void attempt.finally(() => { if (this.recoveryInFlight === attempt) this.recoveryInFlight = null; });
+    }
+    const result = await this.recoveryInFlight;
+    return cancellationResult(signal) ?? result;
+  }
+
+  private async attemptManagedRecovery(signal?: AbortSignal): Promise<Result<{ readonly recovered: boolean }>> {
+    try {
+      const status = await this.protocol.status(signal);
+      const cancelled = cancellationResult(signal);
+      if (cancelled !== null) return cancelled;
+      if (status.ready) return ok({ recovered: false });
+      if (this.recoveryFailures >= this.recoveryMaxFailures) {
+        return err(appError('PROCESS_TIMEOUT', 'Managed Chrome recovery exhausted; use an explicit launch to rearm', true));
+      }
+      if (this.now() < this.retryAfter) {
+        return err(appError('PROCESS_TIMEOUT', 'Managed Chrome recovery is in backoff; retry later', true));
+      }
+      // The launcher verifies the endpoint itself before spawning and uses
+      // NAVA's isolated Chrome profile; it does not terminate other browsers.
+      const launched = await this.launcher!(undefined, signal);
+      const abortedAfterLaunch = cancellationResult(signal);
+      if (abortedAfterLaunch !== null) return abortedAfterLaunch;
+      if (!launched.ok) {
+        this.recordRecoveryFailure();
+        return launched;
+      }
+      const after = await this.protocol.status(signal);
+      const abortedAfterStatus = cancellationResult(signal);
+      if (abortedAfterStatus !== null) return abortedAfterStatus;
+      if (!after.ready) {
+        this.recordRecoveryFailure();
+        return err(appError('PROCESS_TIMEOUT', 'Managed Chrome recovery returned without a ready CDP port', true));
+      }
+      this.recoveryFailures = 0;
+      this.retryAfter = 0;
+      return ok({ recovered: true });
+    } catch {
+      if (signal?.aborted === true) return cancellationResult(signal)!;
+      this.recordRecoveryFailure();
+      return err(appError('PROCESS_TIMEOUT', 'Managed Chrome auto-recovery failed', true));
+    }
+  }
+
+  private recordRecoveryFailure(): void {
+    this.recoveryFailures += 1;
+    this.retryAfter = this.now() + this.recoveryBackoffMs * Math.min(8, 2 ** (this.recoveryFailures - 1));
   }
 
   private async waitFor(request: BrowserRequest, parameters: Record<string, unknown>, signal?: AbortSignal): Promise<Result<unknown>> {

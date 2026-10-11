@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AUTO_UPDATE_CHECK_INTERVAL_MS, AUTO_UPDATE_STARTUP_DELAY_MS, isMissingNavaReleaseFeedError, UpdateCheckScheduler } from '../src/main/update-check-scheduler.js';
+import { AUTO_UPDATE_CHECK_INTERVAL_MS, AUTO_UPDATE_STARTUP_DELAY_MS, isNavaReleaseFeedInaccessibleError, UpdateCheckScheduler } from '../src/main/update-check-scheduler.js';
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe('automatic update check scheduler', () => {
-  it('recognizes only the unpublished NAVA GitHub release feed', () => {
-    expect(isMissingNavaReleaseFeedError('404 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(true);
-    expect(isMissingNavaReleaseFeedError('404 method: GET url: https://github.com/example/other/releases.atom')).toBe(false);
-    expect(isMissingNavaReleaseFeedError('500 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(false);
+  it('recognizes only HTTP 404 on NAVA-owned release endpoints', () => {
+    expect(isNavaReleaseFeedInaccessibleError('404 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(true);
+    expect(isNavaReleaseFeedInaccessibleError('404 method: GET url: https://github.com/example/other/releases.atom')).toBe(false);
+    expect(isNavaReleaseFeedInaccessibleError('404 method: GET url: https://api.github.com/repos/tongzxcv/NAVA-Agent/releases/latest')).toBe(true);
+    expect(isNavaReleaseFeedInaccessibleError('404 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases/download/v4.12.1/latest.yml')).toBe(true);
+    expect(isNavaReleaseFeedInaccessibleError('404 method: GET url: https://github.com/engasnm111/lnwjud/releases.atom')).toBe(false);
+    expect(isNavaReleaseFeedInaccessibleError('403 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(false);
+    expect(isNavaReleaseFeedInaccessibleError('500 method: GET url: https://github.com/tongzxcv/NAVA-Agent/releases.atom')).toBe(false);
   });
   it('checks once shortly after startup and then every 30 minutes', async () => {
     vi.useFakeTimers();

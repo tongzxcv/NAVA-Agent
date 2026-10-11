@@ -42,7 +42,7 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current source target: v4.12.1 (deployed post-release hardening)
+## Current source target: v4.12.2 (locally deployed; public source pre-release)
 
 The current published stable installer remains `v4.12.1`. The default branch is a newer, deployed hardening line built on that release; it is intentionally **not** labeled as a new public release until a new installer/tag is produced. The default runtime advertises
 **222 MCP tools**; enabling Command Room adds its 8 opt-in `command_room_*` tools.
@@ -408,7 +408,7 @@ stops the current local HTTP listener.
 
 1. Download the latest published installer from
    [NAVA Agent Releases](https://github.com/tongzxcv/NAVA-Agent/releases/latest).
-   The current published stable release is `nava-agent-Setup-4.12.1.exe`; `main` contains the deployed post-release production-hardening line through `b63ef3f`.
+   The current published stable release is `nava-agent-Setup-4.12.2.exe`; `main` contains the deployed post-release production-hardening line through `b63ef3f`.
 2. Run the NSIS installer and launch **NAVA Agent**.
 3. Add or select the project/workspace you want NAVA to operate on.
 4. Review **Settings** before attaching an AI client, especially Permission
@@ -655,7 +655,7 @@ corepack pnpm@10.15.0 package:windows
 The x64 NSIS installer is written to:
 
 ```text
-apps/desktop/dist/installers/nava-agent-Setup-4.12.1.exe
+apps/desktop/dist/installers/nava-agent-Setup-4.12.2.exe
 ```
 
 The installer is per-user by default. A common installed executable path is:
@@ -1004,7 +1004,7 @@ After changing tool metadata or restarting the tunnel, refresh the connector and
 
 ## Complete MCP tool catalog (228 configurable tools; 222 advertised by default)
 
-This index is generated from the current v4.12.1 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
+This index is generated from the current v4.12.2 `ToolRegistry`, not copied from an older release document. Optional/planned tools still appear in the advertised contract and report their availability/requirements at runtime where applicable.
 
 | # | Tool | Permission | Runtime description |
 | ---: | --- | --- | --- |

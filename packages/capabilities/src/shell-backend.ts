@@ -54,7 +54,7 @@ export interface ShellCapabilityOptions {
   /**
    * Full-access mode: cwd may be any existing directory, the full environment is
    * passed through, and .cmd/.bat argument metacharacters are not rejected.
-   * Delete-like commands require explicit human confirmation in every mode.
+   * Destructive filesystem and process-termination commands require explicit human confirmation in every mode.
    */
   readonly unrestricted?: boolean;
 }
@@ -146,10 +146,10 @@ export class ShellCapabilityBackend implements CapabilityBackend {
   private async run(request: ShellRequest, signal?: AbortSignal): Promise<Result<unknown>> {
     if (request.executable === undefined) return err(appError('INVALID_INPUT', 'Executable is required'));
     if (request.privilege === 'admin') return err(appError('PERMISSION_DENIED', 'Administrator access is not available to the local runner'));
-    if (isDeleteLikeShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
+    if (isDestructiveShellCommand(request.executable, request.arguments) && !request.userConfirmed) {
       return err(appError(
         'PERMISSION_REQUIRED',
-        'Delete/remove commands require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true',
+        'Destructive delete/remove or process-termination commands require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true',
       ));
     }
 
@@ -237,8 +237,8 @@ export class ShellCapabilityBackend implements CapabilityBackend {
     if (request.steps.length === 0) return err(appError('INVALID_INPUT', 'Workflow requires at least one step'));
     const prepared: Array<{ id: string; executable: string; arguments: readonly string[]; cwd: string; windowsVerbatimArguments?: boolean }> = [];
     for (const step of request.steps) {
-      if (isDeleteLikeShellCommand(step.executable, step.arguments) && !request.userConfirmed) {
-        return err(appError('PERMISSION_REQUIRED', 'Delete/remove workflow steps require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true'));
+      if (isDestructiveShellCommand(step.executable, step.arguments) && !request.userConfirmed) {
+        return err(appError('PERMISSION_REQUIRED', 'Destructive delete/remove or process-termination workflow steps require explicit user confirmation. Ask the user in chat first, then retry with userConfirmed: true'));
       }
       const cwd = await this.resolveCwd(step.cwd ?? request.cwd);
       if (!cwd.ok) return cwd;
@@ -633,6 +633,23 @@ function clampNumber(value: number, minimum: number, maximum: number): number {
 
 function isVerifiedTerminal(state: TaskState): boolean {
   return state === 'completed' || state === 'failed' || state === 'timed_out' || state === 'cancelled';
+}
+
+function isDestructiveShellCommand(executable: string, args: readonly string[]): boolean {
+  return isDeleteLikeShellCommand(executable, args) || isProcessTerminationLikeShellCommand(executable, args);
+}
+
+function isProcessTerminationLikeShellCommand(executable: string, args: readonly string[]): boolean {
+  const basename = path.win32.basename(executable).toLowerCase();
+  if (basename === 'taskkill' || basename === 'taskkill.exe' || basename === 'tskill' || basename === 'tskill.exe') return true;
+  const joined = args.map((entry) => entry.toLowerCase()).join(' ');
+  if (basename === 'powershell.exe' || basename === 'powershell' || basename === 'pwsh.exe' || basename === 'pwsh') {
+    return /\bstop-process\b/.test(joined);
+  }
+  if (basename === 'cmd.exe' || basename === 'cmd') {
+    return /(^|[\s&|])(taskkill|tskill)\b/.test(joined);
+  }
+  return false;
 }
 
 function isDeleteLikeShellCommand(executable: string, args: readonly string[]): boolean {

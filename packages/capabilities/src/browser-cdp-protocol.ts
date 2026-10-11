@@ -11,6 +11,8 @@ interface BrowserCdpProtocolOptions {
   readonly port?: number;
   readonly profileDir?: string;
   readonly chromeExecutable?: string;
+  /** Opt-in for isolated, noninteractive Chrome smoke tests. */
+  readonly headless?: boolean;
   readonly terminator?: ProcessTreeTerminator;
   readonly terminationRetryMs?: number;
 }
@@ -19,6 +21,7 @@ export class NodeBrowserCdpProtocol implements BrowserCdpProtocol {
   public readonly port: number;
   private readonly profileDir: string;
   private readonly chromeExecutable: string | undefined;
+  private readonly headless: boolean;
   private readonly terminator: ProcessTreeTerminator;
   private readonly terminationRetryMs: number;
 
@@ -26,13 +29,18 @@ export class NodeBrowserCdpProtocol implements BrowserCdpProtocol {
     this.port = options.port ?? readPort(process.env.LNWJUD_BROWSER_CDP_PORT);
     this.profileDir = options.profileDir ?? process.env.LNWJUD_BROWSER_PROFILE ?? path.join(os.tmpdir(), 'lnwjud-browser-profile');
     this.chromeExecutable = options.chromeExecutable ?? process.env.LNWJUD_BROWSER_EXECUTABLE;
+    this.headless = options.headless ?? false;
     this.terminator = options.terminator ?? new WindowsProcessTree();
     this.terminationRetryMs = Math.max(1, options.terminationRetryMs ?? 250);
   }
 
   public async status(signal?: AbortSignal): Promise<{ readonly ready: boolean; readonly port: number }> {
     try {
-      const response = await fetch(this.endpoint('/json/version'), signal === undefined ? undefined : { signal });
+      // Bound health probes when a process holds CDP open but never responds.
+      const probeSignal = signal === undefined
+        ? AbortSignal.timeout(2_000)
+        : AbortSignal.any([signal, AbortSignal.timeout(2_000)]);
+      const response = await fetch(this.endpoint('/json/version'), { signal: probeSignal });
       return { ready: response.ok, port: this.port };
     } catch {
       return { ready: false, port: this.port };
@@ -83,8 +91,10 @@ export class NodeBrowserCdpProtocol implements BrowserCdpProtocol {
       const args = [
         `--remote-debugging-port=${this.port}`,
         `--user-data-dir=${this.profileDir}`,
+        '--remote-debugging-address=127.0.0.1',
         '--no-first-run',
         '--no-default-browser-check',
+        ...(this.headless ? ['--headless=new', '--disable-gpu'] : []),
         ...(url === undefined ? [] : [url]),
       ];
       const child = spawn(executable, args, { shell: false, windowsHide: true, detached: false, stdio: 'ignore' });

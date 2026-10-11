@@ -14,6 +14,9 @@ concurrency:
 
 jobs:
   build-release:
+    # Fail closed: source-only pre-release tags must not publish local
+    # development or unsigned public Windows installers.
+    if: ${{ vars.NAVA_PUBLISH_SIGNED_WINDOWS_RELEASE == 'true' }}
     name: Verify & Publish Windows Release
     runs-on: windows-latest
 
@@ -36,6 +39,11 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
+      - name: Setup .NET SDK 8 for Windows OCR
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Enable Corepack & Setup pnpm
         run: |
           corepack enable
@@ -49,6 +57,9 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/verify-release.ps1
         env:
+          NAVA_OCR_PUBLISHER: ${{ vars.NAVA_OCR_PUBLISHER }}
+          CSC_LINK: ${{ secrets.NAVA_WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.NAVA_WINDOWS_CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

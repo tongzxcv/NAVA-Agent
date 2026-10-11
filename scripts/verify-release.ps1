@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$SourceOnlyCI)
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -64,6 +64,59 @@ try {
         throw "Packaged-app smoke could not find the versioned installer '$expectedInstallerName' in: $installerDirectory"
     }
     Write-Host "Packaged-app smoke artifact: $expectedInstaller"
+
+    # Source-only CI verifies the actual packaging output, but does not create
+    # a public release. The tag-driven release workflow always checks real
+    # trusted signatures before publishing a Windows installer.
+    if ($SourceOnlyCI) {
+        if ($env:GITHUB_ACTIONS -ne 'true' -or
+            $env:GITHUB_EVENT_NAME -notin @('push', 'pull_request') -or
+            $env:GITHUB_REF -notmatch '^refs/(heads|pull)/') {
+            throw 'Unsigned source CI mode is restricted to GitHub branch or pull request verification; never release tags.'
+        }
+        Write-Host 'Source-only CI packaging verified; unsigned artifacts cannot be published as a signed release.'
+    }
+    else {
+    # A builder log line saying "signing" does not establish that a signature
+    # was actually embedded. Require a trusted Authenticode signature for each
+    # executable shipped by the release before publishing a public installer.
+    $requiredSignedExecutables = @(
+        $expectedInstaller
+        (Join-Path $installerDirectory 'win-unpacked\NAVA Agent.exe')
+        (Join-Path $installerDirectory 'win-unpacked\resources\windows-ocr\lnwjud-windows-ocr.exe')
+    )
+    foreach ($signedExecutable in $requiredSignedExecutables) {
+        if (-not (Test-Path -LiteralPath $signedExecutable -PathType Leaf)) {
+            throw "Required signed release executable missing: $signedExecutable"
+        }
+        $signature = Get-AuthenticodeSignature -LiteralPath $signedExecutable
+        if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+            throw "Public NAVA release blocked: Authenticode signature is $($signature.Status) for $signedExecutable"
+        }
+        if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.NotAfter -le (Get-Date)) {
+            throw "Public NAVA release blocked: missing or expired signing certificate for $signedExecutable"
+        }
+    }
+
+    # Even a signed helper cannot acquire its MSIX identity if it was compiled
+    # with the development publisher instead of the signing certificate subject.
+    $ocrIdentityManifest = Join-Path $repositoryRoot 'native\windows-ocr\obj\ocr-helper.identity.manifest'
+    if (-not (Test-Path -LiteralPath $ocrIdentityManifest -PathType Leaf)) {
+        throw 'Signed release blocked: generated OCR executable identity manifest is absent.'
+    }
+    [xml]$ocrEmbeddedIdentity = Get-Content -LiteralPath $ocrIdentityManifest -Raw
+    $ocrMsix = $ocrEmbeddedIdentity.SelectSingleNode("//*[local-name()='msix' and namespace-uri()='urn:schemas-microsoft-com:msix.v1']")
+    $ocrExecutable = Join-Path $installerDirectory 'win-unpacked\resources\windows-ocr\lnwjud-windows-ocr.exe'
+    $ocrCert = (Get-AuthenticodeSignature -LiteralPath $ocrExecutable).SignerCertificate
+    if ($null -eq $ocrMsix -or $null -eq $ocrCert -or
+        $ocrMsix.GetAttribute('publisher') -cne $ocrCert.Subject -or
+        $ocrMsix.GetAttribute('packageName') -cne 'com.lnwjud.windowsocr' -or
+        $ocrMsix.GetAttribute('applicationId') -cne 'LnwjudWindowsOcr') {
+        throw 'Signed release blocked: OCR executable MSIX publisher/name/application does not match certificate.'
+    }
+
+    }
+
     Assert-RepositoryChecks
     Write-Host 'Release verification gate completed.'
 }

@@ -37,6 +37,27 @@ describe('central destructive policy', () => {
     }).destructive).toBe(true);
   });
 
+  it('classifies process termination as destructive across shell boundaries', () => {
+    expect(inspectDestructiveOperation('shell', {
+      operation: 'run', executable: 'powershell.exe', arguments: ['-Command', 'Get-Process pythonw | Stop-Process -Force'],
+    }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('process_start', {
+      executable: 'powershell.exe', args: ['-Command', 'Stop-Process -Id 1234 -Force'],
+    }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('shell', {
+      operation: 'run', executable: 'taskkill.exe', arguments: ['/PID', '1234', '/F'],
+    }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('shell', {
+      operation: 'run', executable: 'cmd.exe', arguments: ['/c', 'taskkill /PID 1234 /F'],
+    }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('remote_ssh', {
+      operation: 'run', executable: 'taskkill.exe', arguments: ['/PID', '1234', '/F'],
+    }).destructive).toBe(true);
+    expect(inspectDestructiveOperation('shell', {
+      operation: 'run', executable: 'powershell.exe', arguments: ['-Command', 'Get-Process pythonw'],
+    }).destructive).toBe(false);
+  });
+
   it('treats opaque UI and delegated-agent mutation boundaries conservatively', () => {
     expect(inspectDestructiveOperation('dom_cdp', { action: 'click', parameters: { selector: '#submit' } }).destructive).toBe(true);
     expect(inspectDestructiveOperation('accessibility', { action: 'click', parameters: { name: 'OK' } }).destructive).toBe(true);

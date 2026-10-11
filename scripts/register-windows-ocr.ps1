@@ -1,115 +1,139 @@
-# Builds, signs, and registers the sparse package that gives the WinRT OCR
-# helper package identity (Wave 3). Two modes:
-#   dev (default): creates/reuses a self-signed certificate, trusts it in
-#                  LocalMachine\TrustedPeople (requires an elevated prompt for
-#                  the trust step), and registers the package for the user.
-#   release:       -ReleaseCertPfx/-ReleaseCertPassword with the real release
-#                  certificate; the publisher in the manifest must match it.
-# Requires: dotnet SDK 8+, Windows SDK makeappx.exe + signtool.exe (searched
-# under C:\Program Files (x86)\Windows Kits\10\bin\<ver>\x64).
+# Sparse identity for the Windows OCR helper.
+# Default is PREPARE-ONLY: does not sign, trust certificates, or register a package.
+# Registration requires -Register -ConfirmRegistration with a trusted release PFX.
 [CmdletBinding()]
 param(
-  [string]$ReleaseCertPfx,
-  [string]$ReleaseCertPassword,
-  [string]$DevCertSubject = 'CN=lnwjud-windows-ocr-dev'
+  [string]$Publisher = '',
+  [string]$ReleaseCertPfx = '',
+  [string]$ReleaseCertPassword = '',
+  [string]$ExternalLocation = '',
+  [switch]$Register,
+  [switch]$ConfirmRegistration
 )
-
 $ErrorActionPreference = 'Stop'
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$ocrDir = Join-Path $projectRoot 'native\windows-ocr'
-$binDir = Join-Path $ocrDir 'bin'
-$helper = Join-Path $binDir 'lnwjud-windows-ocr.exe'
-if (-not (Test-Path $helper)) {
-  Write-Error "Helper not built. Run scripts\build-windows-ocr.ps1 first."
-}
-
+$root = Split-Path -Parent $PSScriptRoot
+$ocrDir = Join-Path $root 'native\windows-ocr'
+$defaultExternal = Join-Path $ocrDir 'bin'
+$helper = Join-Path $defaultExternal 'lnwjud-windows-ocr.exe'
+$kitRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
 function Find-SdkTool([string]$Name) {
-  $found = Get-Command $Name -ErrorAction SilentlyContinue
-  if ($found) { return $found.Source }
-  $kitsRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
-  if (Test-Path $kitsRoot) {
-    $candidate = Get-ChildItem $kitsRoot -Directory |
-      ForEach-Object { Join-Path $_.FullName "x64\$Name" } |
-      Where-Object { Test-Path $_ } |
-      Sort-Object -Descending |
-      Select-Object -First 1
-    if ($candidate) { return $candidate }
+  $command = Get-Command $Name -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
+  if (Test-Path -LiteralPath $kitRoot) {
+    $candidates = @(Get-ChildItem -LiteralPath $kitRoot -Directory | Where-Object { $_.Name -match '^\d+\.' } | Sort-Object Name -Descending)
+    foreach ($version in $candidates) {
+      $tool = Join-Path (Join-Path $version.FullName 'x64') $Name
+      if (Test-Path -LiteralPath $tool -PathType Leaf) { return $tool }
+    }
   }
-  Write-Error "$Name not found. Install the Windows SDK (makeappx/signtool) or add it to PATH."
+  throw "Windows SDK tool $Name not found. Install Windows SDK."
 }
 
-$makeappx = Find-SdkTool 'makeappx.exe'
-$signtool = Find-SdkTool 'signtool.exe'
-Write-Host "makeappx: $makeappx"
-Write-Host "signtool: $signtool"
-
-# Resolve the certificate and the publisher string it implies.
-if ($ReleaseCertPfx) {
-  if (-not $ReleaseCertPassword) { Write-Error '-ReleaseCertPassword is required with -ReleaseCertPfx.' }
-  $publisher = & $signtool dump /f $ReleaseCertPfx /p $ReleaseCertPassword |
-    Select-String -Pattern 'Issuer:\s+(CN=.+)$'
-  if (-not $publisher) { Write-Error 'Could not read the certificate subject. Is the password correct?' }
-  $publisher = $publisher.Matches[0].Groups[1].Value.Trim()
-} else {
-  $existing = Get-ChildItem Cert:\CurrentUser\My |
-    Where-Object { $_.Subject -eq $DevCertSubject -and $_.HasPrivateKey } |
-    Sort-Object NotAfter -Descending |
-    Select-Object -First 1
-  if ($existing) {
-    Write-Host "Reusing dev certificate $($existing.Thumbprint)"
-  } else {
-    $created = New-SelfSignedCertificate -Type Custom -Subject $DevCertSubject `
-      -KeyUsage DigitalSignature -FriendlyName 'lnwjud Windows OCR dev signing' `
-      -CertStoreLocation 'Cert:\CurrentUser\My' `
-      -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
-    Write-Host "Created dev certificate $($created.Thumbprint)"
-  }
-  $cert = $existing ?? $created
-  $publisher = $cert.Subject
-  # Sparse-package signature validation requires the signer in TrustedPeople
-  # (machine scope). Best-effort with clear guidance when not elevated.
+if ($ConfirmRegistration -and -not $Register) { throw '-ConfirmRegistration requires -Register.' }
+if ($Register -and -not $ConfirmRegistration) { throw 'Registration is opt-in; supply both -Register and -ConfirmRegistration.' }
+if ($Register -and [string]::IsNullOrWhiteSpace($ReleaseCertPfx)) {
+  throw 'Registration requires a real trusted signing PFX. Self-signed development trust is not installed automatically.'
+}
+if (-not [string]::IsNullOrWhiteSpace($ReleaseCertPfx)) {
+  if (-not (Test-Path -LiteralPath $ReleaseCertPfx -PathType Leaf)) { throw 'Release signing PFX not found.' }
+  if ([string]::IsNullOrWhiteSpace($ReleaseCertPassword)) { throw 'Release PFX password is required.' }
+  $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+    $ReleaseCertPfx, $ReleaseCertPassword,
+    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+  )
   try {
-    $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('TrustedPeople', 'LocalMachine')
-    $store.Open('ReadWrite')
-    $store.Add($cert)
-    $store.Close()
-    Write-Host 'Trusted the dev certificate in LocalMachine\TrustedPeople.'
-  } catch {
-    Write-Warning "Could not write to LocalMachine\TrustedPeople ($($_.Exception.Message))."
-    Write-Warning 'Run this script from an elevated prompt once, or import the cert manually:'
-    Write-Warning "  certutil -addstore TrustedPeople ``"$($cert.Subject)``" (after exporting the public key)"
+    if ([string]::IsNullOrWhiteSpace($Publisher)) { $Publisher = $cert.Subject }
+    if ($Publisher -ne $cert.Subject) { throw 'Sparse package publisher must exactly match release certificate subject.' }
+  } finally { $cert.Dispose() }
+}
+if ([string]::IsNullOrWhiteSpace($Publisher)) {
+  $Publisher = if (-not [string]::IsNullOrWhiteSpace($env:NAVA_OCR_PUBLISHER)) { $env:NAVA_OCR_PUBLISHER } else { 'CN=lnwjud-windows-ocr-dev' }
+}
+if ($Publisher -notmatch '^(CN|O|OU|C|L|S|ST)=' -or $Publisher -match '[<>]') {
+  throw 'Invalid package publisher distinguished name.'
+}
+
+if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) {
+  throw 'Windows OCR helper is not built. Run scripts\build-windows-ocr.ps1 first.'
+}
+$mt = Find-SdkTool 'mt.exe'
+$makeappx = Find-SdkTool 'makeappx.exe'
+$stage = Join-Path $ocrDir ('obj\sparse-staging-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+# Verify identity embedded in the EXE matches the package to be registered.
+$extracted = Join-Path $ocrDir ('obj\embedded-helper-' + [guid]::NewGuid().ToString('N') + '.manifest')
+& $mt "-inputresource:$helper;#1" "-out:$extracted"
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $extracted -PathType Leaf)) {
+  throw 'OCR helper does not contain the required embedded application manifest.'
+}
+[xml]$embedded = Get-Content -LiteralPath $extracted -Raw
+$appIdentity = $embedded.SelectSingleNode("//*[local-name()='msix' and namespace-uri()='urn:schemas-microsoft-com:msix.v1']")
+if ($null -eq $appIdentity -or $appIdentity.GetAttribute('publisher') -cne $Publisher -or
+    $appIdentity.GetAttribute('packageName') -cne 'com.lnwjud.windowsocr' -or
+    $appIdentity.GetAttribute('applicationId') -cne 'LnwjudWindowsOcr') {
+  throw 'Embedded OCR executable package identity does not match sparse manifest publisher/name/application.'
+}
+
+$ver = (Get-Content -LiteralPath (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+if ($ver -notmatch '^\d+\.\d+\.\d+$') { throw 'Root package version is not a valid x.y.z version.' }
+[xml]$xml = Get-Content -LiteralPath (Join-Path $ocrDir 'sparse-package.appxmanifest') -Raw
+$identity = $xml.SelectSingleNode("//*[local-name()='Identity']")
+$identity.SetAttribute('Publisher', $Publisher)
+$identity.SetAttribute('Version', ($ver + '.0'))
+$xml.Save((Join-Path $stage 'AppxManifest.xml'))
+# Pack only the identity manifest: logo files live at the external app location.
+$msix = Join-Path $ocrDir 'obj\lnwjud-windows-ocr.sparse.msix'
+& $makeappx pack /o /nv /d $stage /p $msix
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $msix -PathType Leaf)) {
+  throw 'Windows SDK MakeAppx sparse package validation/packaging failed.'
+}
+Write-Output ('SPARSE_PREPARED=' + $msix)
+Write-Output ('OCR_PACKAGE_PUBLISHER=' + $Publisher)
+Write-Output ('OCR_PACKAGE_VERSION=' + $ver + '.0')
+
+if (-not $Register) {
+  Write-Output 'PREPARE_ONLY=true; no certificate changes or package registration performed.'
+  return
+}
+$signTool = Find-SdkTool 'signtool.exe'
+if ([string]::IsNullOrWhiteSpace($ExternalLocation)) {
+  throw '-ExternalLocation must specify the final installed windows-ocr directory when registering.'
+}
+$external = (Resolve-Path -LiteralPath $ExternalLocation).Path
+$installedHelper = Join-Path $external 'lnwjud-windows-ocr.exe'
+if (-not (Test-Path -LiteralPath $installedHelper -PathType Leaf)) { throw 'ExternalLocation lacks OCR helper.' }
+foreach ($asset in @('StoreLogo.png','Square150x150Logo.png','Square44x44Logo.png')) {
+  if (-not (Test-Path -LiteralPath (Join-Path $external ('Assets\' + $asset)) -PathType Leaf)) {
+    throw "ExternalLocation missing required OCR sparse asset: $asset"
   }
 }
-
-Write-Host "Publisher: $publisher"
-
-# Stage the MSIX payload (manifest with the real publisher + assets).
-$staging = Join-Path $ocrDir 'obj\sparse-staging'
-if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
-New-Item $staging -ItemType Directory | Out-Null
-$manifest = Get-Content (Join-Path $ocrDir 'sparse-package.appxmanifest') -Raw
-$manifest = $manifest.Replace('CN=REPLACE_WITH_SIGNING_CERTIFICATE', $publisher)
-Set-Content (Join-Path $staging 'AppxManifest.xml') -Value $manifest -Encoding UTF8
-Copy-Item (Join-Path $ocrDir 'Assets') -Destination (Join-Path $staging 'Assets') -Recurse
-
-$msix = Join-Path $ocrDir 'obj\lnwjud-windows-ocr.sparse.msix'
-& $makeappx pack /v /h sha256 /d $staging /p $msix /nw
-if ($LASTEXITCODE -ne 0) { Write-Error 'makeappx failed.' }
-
-if ($ReleaseCertPfx) {
-  & $signtool sign /fd SHA256 /f $ReleaseCertPfx /p $ReleaseCertPassword $msix
-} else {
-  & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint $msix
+# Do not link a trusted sparse identity to a mismatched/unsigned installed EXE.
+$installedSig = Get-AuthenticodeSignature -LiteralPath $installedHelper
+if ($installedSig.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+    $null -eq $installedSig.SignerCertificate -or $installedSig.SignerCertificate.Subject -cne $Publisher) {
+  throw 'Installed OCR executable is not signed by the sparse package publisher.'
 }
-if ($LASTEXITCODE -ne 0) { Write-Error 'signtool failed.' }
-
-Add-AppxPackage -Path $msix -ExternalLocation $binDir
-Write-Host 'Sparse package registered with external location.'
-
-# Verify identity end to end through the helper's probe op.
-$probe = '{"op":"probe"}' | & $helper
-Write-Host "Helper probe: $probe"
-if ($probe -notmatch '"package_identity":\s*true') {
-  Write-Error 'Registration did not grant package identity to the helper.'
+$installedManifest = Join-Path $stage 'installed-helper.manifest'
+& $mt "-inputresource:$installedHelper;#1" "-out:$installedManifest"
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installedManifest -PathType Leaf)) {
+  throw 'Installed OCR executable lacks embedded identity.'
 }
-Write-Host 'Wave 3 registration complete: vision OCR should now report available.'
+[xml]$installedXml = Get-Content -LiteralPath $installedManifest -Raw
+$installedIdentity = $installedXml.SelectSingleNode("//*[local-name()='msix' and namespace-uri()='urn:schemas-microsoft-com:msix.v1']")
+if ($null -eq $installedIdentity -or $installedIdentity.GetAttribute('publisher') -cne $Publisher -or
+    $installedIdentity.GetAttribute('packageName') -cne 'com.lnwjud.windowsocr' -or
+    $installedIdentity.GetAttribute('applicationId') -cne 'LnwjudWindowsOcr') {
+  throw 'Installed OCR executable identity does not match signed sparse package.'
+}
+& $signTool sign /fd SHA256 /f $ReleaseCertPfx /p $ReleaseCertPassword $msix
+if ($LASTEXITCODE -ne 0) { throw 'Sparse MSIX signing failed.' }
+& $signTool verify /pa $msix
+if ($LASTEXITCODE -ne 0) { throw 'Sparse MSIX signing certificate is not trusted.' }
+# No implicit re-registration or removal of an existing package on conflict.
+Add-AppxPackage -Path $msix -ExternalLocation $external -ErrorAction Stop
+$probe = '{"op":"probe"}' | & $installedHelper
+if ($LASTEXITCODE -ne 0 -or $probe -notmatch '"package_identity":\s*true') {
+  throw 'OCR sparse registration did not grant package identity to installed helper.'
+}
+Write-Output 'OCR_PACKAGE_REGISTERED_AND_PROBED=true'

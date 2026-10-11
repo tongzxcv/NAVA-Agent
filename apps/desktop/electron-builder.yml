@@ -31,6 +31,14 @@ extraResources:
     to: lnwjud-node.exe
   - from: ../../native/windows-ocr/bin
     to: windows-ocr
+    # Self-contained single-file helper only; never bundle build intermediates,
+    # symbols or the nested Release/ output tree.
+    filter:
+      - lnwjud-windows-ocr.exe
+  - from: ../../native/windows-ocr/Assets
+    to: windows-ocr/Assets
+    filter:
+      - '*.png'
 # Tunnel profile expects these next to NAVA Agent.exe (not only under resources/).
 extraFiles:
   - from: build/lnwjud-mcp-stdio.cjs

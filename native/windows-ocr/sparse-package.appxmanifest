@@ -1,24 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         IgnorableNamespaces="uap">
+         xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap10 rescap">
   <!-- Template for the signed sparse package. Replace Identity/Publisher with the release certificate identity. -->
-  <Identity Name="com.lnwjud.windowsocr" Publisher="CN=REPLACE_WITH_SIGNING_CERTIFICATE" Version="1.0.0.0" />
+  <Identity Name="com.lnwjud.windowsocr" Publisher="CN=REPLACE_WITH_SIGNING_CERTIFICATE" Version="REPLACE_WITH_RELEASE_VERSION" ProcessorArchitecture="neutral" />
   <Properties>
     <DisplayName>lnwjud Windows OCR</DisplayName>
     <PublisherDisplayName>lnwjud</PublisherDisplayName>
     <Description>Package identity for the local Windows.Media.Ocr helper.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
   </Properties>
   <Resources>
     <Resource Language="en-us" />
   </Resources>
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.28000.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
   <Applications>
-    <Application Id="LnwjudWindowsOcr" Executable="lnwjud-windows-ocr.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements AppListEntry="none" DisplayName="lnwjud Windows OCR" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" Description="Local OCR helper" />
+    <Application Id="LnwjudWindowsOcr" Executable="lnwjud-windows-ocr.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" BackgroundColor="transparent" DisplayName="lnwjud Windows OCR" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" Description="Local OCR helper" />
     </Application>
   </Applications>
 </Package>
