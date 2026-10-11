@@ -29,7 +29,7 @@ $identity = $manifest.SelectSingleNode("//*[local-name()='msix' and namespace-ur
 if ($null -eq $identity) { throw 'OCR helper app manifest lacks msix identity metadata.' }
 $identity.SetAttribute('publisher', $Publisher)
 $manifest.Save($generatedManifest)
-& dotnet restore $project --locked-mode -r win-x64
+& dotnet restore $project --locked-mode -r win-x64 -p:SelfContained=true -p:PublishSingleFile=true -p:PublishReadyToRun=true
 if ($LASTEXITCODE -ne 0) { throw 'Windows OCR locked dependency restore failed.' }
 & dotnet publish $project --no-restore -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true "-p:ApplicationManifest=$generatedManifest" -o (Join-Path $ocrDir 'bin')
 if ($LASTEXITCODE -ne 0) { throw 'Windows OCR publish failed.' }
