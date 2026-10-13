@@ -14,6 +14,7 @@ import { LspRuntimeService } from './lsp-runtime.js';
 import { SandboxRuntimeService } from './sandbox-runtime.js';
 import { UPGRADE_TOOL_CATALOG, type UpgradeToolCatalogEntry } from './upgrade-catalog.js';
 import { ActivityTracker, type ActivitySinkEvent } from './activity-tracker.js';
+import { matchLocalSkills, validLocalSkillId } from './skill-selection.js';
 
 interface RuntimeTask {
   readonly id: string;
@@ -310,10 +311,39 @@ export class UpgradeRuntimeService {
         const hookName = readString(input, 'name');
         return ok({ removed: hookName === undefined ? false : this.hooks.delete(hookName), name: hookName ?? null });
       }
-      case 'skill_match':
-        return ok({ query: readString(input, 'query') ?? readString(input, 'prompt') ?? '', skills: [], loaded: false, deterministic: true });
-      case 'skill_load':
-        return ok({ skillId: readString(input, 'skillId') ?? null, loaded: false, source: 'local-workspace-or-configured-skill-provider' });
+      case 'skill_match': {
+        const query = readString(input, 'query') ?? readString(input, 'prompt') ?? '';
+        if (query.length > 2048) return err(appError('INVALID_INPUT', 'Skill query is too large'));
+        const provider = this.services.extensions;
+        if (provider === undefined) {
+          return ok({ query, skills: [], loaded: false, deterministic: true, authorizationUnchanged: true, reason: 'provider_unavailable' });
+        }
+        const listed = await provider.listSkills({});
+        if (!listed.ok) return listed;
+        const skills = matchLocalSkills(query, listed.value.skills);
+        return ok({ query, skills, loaded: false, deterministic: true, authorizationUnchanged: true, reason: skills.length === 0 ? 'no_unambiguous_match' : 'matched' });
+      }
+      case 'skill_load': {
+        const skillId = readString(input, 'skillId');
+        if (skillId === undefined || !validLocalSkillId(skillId)) {
+          return err(appError('INVALID_INPUT', 'Invalid exact skill identifier'));
+        }
+        const provider = this.services.extensions;
+        if (provider === undefined) return err(appError('INVALID_INPUT', 'Skill catalog unavailable'));
+        const listed = await provider.listSkills({});
+        if (!listed.ok) return listed;
+        const summary = listed.value.skills.find((skill) => skill.id === skillId);
+        if (summary === undefined) return err(appError('INVALID_INPUT', 'Unknown skill identifier'));
+        const content = await provider.readSkill({ skillId });
+        if (!content.ok) return content;
+        if (content.value.id !== summary.id || content.value.name !== summary.name || content.value.source !== summary.source) {
+          return err(appError('INVALID_INPUT', 'Skill identity changed between discovery and load'));
+        }
+        if (Buffer.byteLength(content.value.content, 'utf8') > 131072) {
+          return err(appError('INVALID_INPUT', 'Skill content exceeds bounded read limit'));
+        }
+        return ok({ skillId, loaded: true, source: summary.source, skill: content.value, authorizationUnchanged: true });
+      }
       case 'plugin_list':
         return ok({ plugins: [...this.plugins.values()] });
       case 'plugin_install':

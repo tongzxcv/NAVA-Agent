@@ -19,7 +19,7 @@
 
 ---
 
-> **Status (2026-09-16):** the published stable release remains **v4.12.1**. The default branch now matches the operator's deployed **v4.12.1 post-release production-hardening build** through commit `b63ef3f` (`fix search output flood starving MCP timers`). Phase 3D browser-extension acceptance is closed; current work is reliability hardening for long-running/multi-chat MCP use. No newer public installer is claimed by this source snapshot.
+> **Status (2026-10-13):** v4.12.3 introduces opt-in, read-only local Skill Router discovery through MCP `skill_match` / `skill_load`. The operator's local v4.12.3 installation and signed package were verified. GitHub's prior stable release was v4.12.1; v4.12.3 is distributed as a **prerelease** because the local signing certificate is not a broadly trusted public code-signing certificate. The cancelled N1 Scoped Writer/Concurrent Scheduler is **not included**.
 
 ## What is NAVA Agent?
 
@@ -42,9 +42,11 @@ The tunnel is outbound-only: `tunnel-client` runs beside NAVA Agent, reaches Ope
 over outbound HTTPS, forwards MCP work to the local stdio server, and returns the
 response without opening a public inbound port on the Windows machine.
 
-## Current source target: v4.12.2 (locally deployed; public source pre-release)
+## Current source target: v4.12.3 (Skill Router verified; public prerelease)
 
-The current published stable installer remains `v4.12.1`. The default branch is a newer, deployed hardening line built on that release; it is intentionally **not** labeled as a new public release until a new installer/tag is produced. The default runtime advertises
+The local operator installation is v4.12.3 and its running MCP verified Thai/English Skill matching, exact Skill loading, unrelated-query rejection and malformed-ID refusal. This release changes Skill discovery only; it grants no new permission to write or execute. The v4.12.3 Windows installer uses the operator's local code-signing certificate, which is **not generally trusted on other computers**. Do not treat it as a publicly trusted Authenticode certificate.
+
+The previous public stable installer remains `v4.12.1`; v4.12.3 is a separately verified Skill Router prerelease. The default runtime advertises
 **222 MCP tools**; enabling Command Room adds its 8 opt-in `command_room_*` tools.
 The earlier 184-tool snapshot remains only as the compatibility baseline used by
 the v4 architecture; new v4 gateway capabilities are additive.
